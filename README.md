@@ -1,5 +1,5 @@
-MIRTK Deformable
-================
+MIRTK External/Deformable
+=========================
 
 The Deformable module of the Medical Image Registration ToolKit (MIRTK) is a library
 for the Euler integration of deformable meshes such as cortical surfaces. The MIRTK

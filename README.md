@@ -15,5 +15,5 @@ for example, to constrain the cortical surface to remain smooth after transforma
 License
 -------
 
-The MIRTK Deformable module is distributed under the terms of the Apache License Version 2.
-See the accompanying [license file](LICENSE.txt) for details.
+The MIRTK Deformable module is distributed under the terms of the
+[Apache License Version 2](http://www.apache.org/licenses/LICENSE-2.0).

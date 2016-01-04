@@ -402,7 +402,7 @@ protected:
 
   /// Enforce hard constraints on surface model deformation
   ///
-  /// This function clamps a nodes' displacement vector (velocity times \delta t),
+  /// This function clamps a nodes' displacement vector (velocity times \f$\delta t\f$),
   /// if otherwise the hard constraints of the deformable surface model would
   /// be violated. Common hard constraints are non-self-intersection and a
   /// maximum total node displacement. If the surface model is deformed by

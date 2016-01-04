@@ -45,7 +45,7 @@ class EulerMethod : public LocalOptimizer
   /// Deformable surface model
   mirtkReadOnlyAggregateMacro(DeformableSurfaceModel, Model);
 
-  /// Length of each integration step (\delta t)
+  /// Length of each integration step (\f$\delta t\f$)
   ///
   /// When _NormalizeStepLength is \c true, the step length is divided by the
   /// maximum magnitude of the computed node forces at a given iteration.
@@ -139,9 +139,9 @@ protected:
 
   /// Truncate magnitude of node displacements to the range [0, max]
   ///
-  /// \params[in] force Force truncation of displacements. If \c false, the
-  ///                   function does nothing if the step length was normalized
-  ///                   and the maximum displacement is greater or equal one.
+  /// \param[in] force Force truncation of displacements. If \c false, the
+  ///                  function does nothing if the step length was normalized
+  ///                  and the maximum displacement is greater or equal one.
   virtual void TruncateDisplacement(bool force = false);
 
   /// Update recorded node displacement in normal direction

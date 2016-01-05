@@ -38,7 +38,7 @@ namespace mirtk {
  */
 class QuadraticCurvatureConstraint : public SurfaceConstraint
 {
-  mirtkObjectMacro(QuadraticCurvatureConstraint);
+  mirtkEnergyTermMacro(QuadraticCurvatureConstraint, EM_QuadraticCurvature);
 
   // ---------------------------------------------------------------------------
   // Attributes

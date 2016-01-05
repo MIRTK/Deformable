@@ -40,7 +40,7 @@ namespace mirtk {
  */
 class ImplicitSurfaceSpringForce : public ImplicitSurfaceForce
 {
-  mirtkObjectMacro(ImplicitSurfaceSpringForce);
+  mirtkEnergyTermMacro(ImplicitSurfaceSpringForce, EM_ImplicitSurfaceSpringForce);
 
   // ---------------------------------------------------------------------------
   // Attributes

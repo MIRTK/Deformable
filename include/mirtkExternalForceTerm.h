@@ -36,10 +36,11 @@ namespace mirtk {
 /// \sa EnergyMeasure
 enum ExternalForceTerm
 {
-  EFT_Unknown                 = EFT_Begin,                 ///< Unknown/invalid external force
-  EFT_BalloonForce            = EM_BalloonForce,           ///< Balloon/inflation force
-  EFT_ImageEdgeForce          = EM_ImageEdgeForce,         ///< Image edge force
-  EFT_ImplicitSurfaceDistance = EM_ImplicitSurfaceDistance ///< Implicit surface distance force
+  EFT_Unknown                    = EFT_Begin,
+  EFT_BalloonForce               = EM_BalloonForce,
+  EFT_ImageEdgeForce             = EM_ImageEdgeForce,
+  EFT_ImplicitSurfaceDistance    = EM_ImplicitSurfaceDistance,
+  EFT_ImplicitSurfaceSpringForce = EM_ImplicitSurfaceSpringForce
 };
 
 // -----------------------------------------------------------------------------

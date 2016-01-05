@@ -55,7 +55,7 @@ namespace mirtk {
  */
 class SpringForce : public SurfaceConstraint
 {
-  mirtkObjectMacro(SpringForce);
+  mirtkEnergyTermMacro(SpringForce, EM_SpringForce);
 
   // ---------------------------------------------------------------------------
   // Attributes

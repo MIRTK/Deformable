@@ -29,13 +29,15 @@ namespace mirtk {
 // -----------------------------------------------------------------------------
 enum InternalForceTerm
 {
-  IFT_Unknown             = IFT_Begin,              ///< Unknown/invalid internal force
-  IFT_Distortion          = EM_MetricDistortion,    ///< Minimize metric distortion
-  IFT_Stretching          = EM_Stretching,          ///< Stretching force (rest edge length)
-  IFT_Curvature           = EM_Curvature,           ///< Minimize curvature of point set surface
-  IFT_NonSelfIntersection = EM_NonSelfIntersection, ///< Repels too close non-neighboring triangles
-  IFT_Repulsion           = EM_RepulsiveForce,      ///< Repels too close non-neighboring nodes
-  IFT_Inflation           = EM_InflationForce,      ///< Inflate point set surface
+  IFT_Unknown             = IFT_Begin,
+  IFT_Distortion          = EM_MetricDistortion,
+  IFT_Stretching          = EM_Stretching,
+  IFT_Curvature           = EM_Curvature,
+  IFT_QuadraticCurvature  = EM_QuadraticCurvature,
+  IFT_NonSelfIntersection = EM_NonSelfIntersection,
+  IFT_Repulsion           = EM_RepulsiveForce,
+  IFT_Inflation           = EM_InflationForce,
+  IFT_Spring              = EM_SpringForce
 };
 
 // -----------------------------------------------------------------------------

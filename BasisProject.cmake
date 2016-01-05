@@ -61,6 +61,7 @@ basis_project (
       vtkCommonCore,
       vtkCommonDataModel,
       vtkFiltersCore,
+      vtkFiltersGeneral,
       vtkImagingCore
     }"
     #<dependency>

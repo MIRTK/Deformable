@@ -20,6 +20,8 @@
 #include <mirtkDeformableSurfaceModel.h>
 
 #include <mirtkVtk.h>
+#include <mirtkSet.h>
+#include <mirtkArray.h>
 #include <mirtkMath.h>
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>
@@ -45,8 +47,6 @@
 #include <vtkGenericCell.h>
 #include <vtkCellLocator.h>
 #include <vtkWindowedSincPolyDataFilter.h>
-
-#include <vector>
 
 
 namespace mirtk {
@@ -733,7 +733,7 @@ void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dm
     surface->GetPointData()->AddArray(inside_width);
   }
 
-  std::vector<double> distances;
+  Array<double> distances;
   distances.reserve(10);
 
   DistanceFunction distance;
@@ -956,7 +956,7 @@ void DeformableSurfaceModel::Add(class ExternalForce *term, bool ownit)
 // -----------------------------------------------------------------------------
 void DeformableSurfaceModel::Sub(class ExternalForce *term)
 {
-  std::vector<class ExternalForce *>::iterator it = _ExternalForce.begin();
+  Array<class ExternalForce *>::iterator it = _ExternalForce.begin();
   while (it != _ExternalForce.end()) {
     if (*it == term) {
       _ExternalForce.erase(it);
@@ -979,7 +979,7 @@ void DeformableSurfaceModel::Add(class InternalForce *term, bool ownit)
 // -----------------------------------------------------------------------------
 void DeformableSurfaceModel::Sub(class InternalForce *term)
 {
-  std::vector<class InternalForce *>::iterator it = _InternalForce.begin();
+  Array<class InternalForce *>::iterator it = _InternalForce.begin();
   while (it != _InternalForce.end()) {
     if (*it == term) {
       _InternalForce.erase(it);
@@ -1002,7 +1002,7 @@ void DeformableSurfaceModel::Add(TransformationConstraint *term, bool ownit)
 // -----------------------------------------------------------------------------
 void DeformableSurfaceModel::Sub(TransformationConstraint *term)
 {
-  std::vector<TransformationConstraint *>::iterator it = _Constraint.begin();
+  Array<TransformationConstraint *>::iterator it = _Constraint.begin();
   while (it != _Constraint.end()) {
     if (*it == term) {
       _Constraint.erase(it);
@@ -1701,10 +1701,10 @@ void DeformableSurfaceModel::EnforceHardConstraints(double *dx) const
     if (nsi.AdjacentIntersectionTest() || nsi.NonAdjacentIntersectionTest() ||
         nsi.FrontfaceCollisionTest()   || nsi.BackfaceCollisionTest()) {
 
-      std::set<int>::const_iterator cellIdIt;
-      vtkIdType                npts, *pts, *cells;
-      unsigned short           ncells;
-      double                   alpha;
+      mirtk::Set<int>::const_iterator cellIdIt;
+      vtkIdType      npts, *pts, *cells;
+      unsigned short ncells;
+      double         alpha;
 
       vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
       points->SetNumberOfPoints(_PointSet.Surface()->GetNumberOfPoints());

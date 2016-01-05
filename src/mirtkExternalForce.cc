@@ -19,6 +19,8 @@
 
 #include <mirtkExternalForce.h>
 
+#include <mirtkMath.h>
+
 
 namespace mirtk {
 
@@ -123,7 +125,7 @@ double ExternalForce::Evaluate()
   // if the deformable surface model is rather based on reaching an equilibrium
   // of internal and external forces. In this case, return infinity such that
   // the optimizer only checks the equilibrium condition
-  return std::numeric_limits<double>::infinity();
+  return numeric_limits<double>::infinity();
 }
 
 

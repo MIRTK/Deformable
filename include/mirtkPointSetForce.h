@@ -22,6 +22,7 @@
 
 #include <mirtkEnergyTerm.h>
 
+#include <mirtkMap.h>
 #include <mirtkVector3D.h>
 #include <mirtkRegisteredPointSet.h>
 
@@ -29,8 +30,6 @@
 #include <vtkSmartPointer.h>
 #include <vtkDataArray.h>
 #include <vtkPoints.h>
-
-#include <map>
 
 
 namespace mirtk {
@@ -103,7 +102,7 @@ protected:
   // Point set attributes
 private:
 
-  typedef std::map<string, string>   NameMap;
+  typedef Map<string, string>        NameMap;
   typedef NameMap::iterator          NameMapIterator;
   typedef NameMap::const_iterator    NameMapConstIterator;
 

@@ -19,6 +19,8 @@
 
 #include <mirtkMetricDistortion.h>
 
+#include <mirtkMap.h>
+#include <mirtkArray.h>
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>
 #include <mirtkProfiling.h>
@@ -31,9 +33,6 @@
 #include <vtkPoints.h>
 #include <vtkPointData.h>
 #include <vtkFloatArray.h>
-
-#include <map>
-#include <vector>
 
 
 namespace mirtk {
@@ -57,10 +56,10 @@ typedef MetricDistortion::DistancesArray  DistancesArray;
 /// Compute initial distances between neighboring nodes
 struct ComputeInitialDistances
 {
-  vtkPoints                   *_InitialPoints;
-  const NodeNeighbors         *_Neighbors;
-  std::vector<DistancesArray> *_Distances;
-  int                          _Radius;
+  vtkPoints             *_InitialPoints;
+  const NodeNeighbors   *_Neighbors;
+  Array<DistancesArray> *_Distances;
+  int                    _Radius;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
@@ -85,10 +84,10 @@ struct ComputeInitialDistances
 /// Compute current distances between neighboring nodes
 struct ComputeDistances
 {
-  vtkPoints                   *_Points;
-  const NodeNeighbors         *_Neighbors;
-  std::vector<DistancesArray> *_Distances;
-  int                          _Radius;
+  vtkPoints             *_Points;
+  const NodeNeighbors   *_Neighbors;
+  Array<DistancesArray> *_Distances;
+  int                    _Radius;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
@@ -112,12 +111,12 @@ struct ComputeDistances
 /// Evaluate metric distortion
 struct Evaluate
 {
-  vtkPoints                         *_Points;
-  const NodeNeighbors               *_Neighbors;
-  const std::vector<DistancesArray> *_Distances;
-  int                                _Radius;
-  double                             _Scale;
-  double                             _Sum;
+  vtkPoints                   *_Points;
+  const NodeNeighbors         *_Neighbors;
+  const Array<DistancesArray> *_Distances;
+  int                          _Radius;
+  double                       _Scale;
+  double                       _Sum;
 
   Evaluate() : _Sum(.0) {}
 
@@ -165,14 +164,14 @@ struct EvaluateGradient
 {
   typedef MetricDistortion::GradientType GradientType;
 
-  vtkPoints                         *_Points;
-  vtkDataArray                      *_Normals;
-  vtkDataArray                      *_Status;
-  const NodeNeighbors               *_Neighbors;
-  const std::vector<DistancesArray> *_Distances;
-  GradientType                      *_Gradient;
-  int                                _Radius;
-  double                             _Scale;
+  vtkPoints                   *_Points;
+  vtkDataArray                *_Normals;
+  vtkDataArray                *_Status;
+  const NodeNeighbors         *_Neighbors;
+  const Array<DistancesArray> *_Distances;
+  GradientType                *_Gradient;
+  int                          _Radius;
+  double                       _Scale;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {

@@ -22,11 +22,11 @@
 
 #include <mirtkSurfaceConstraint.h>
 
+#include <mirtkList.h>
+#include <mirtkArray.h>
+
 #include <vtkSmartPointer.h>
 #include <vtkPoints.h>
-
-#include <list>
-#include <vector>
 
 
 namespace mirtk {
@@ -77,7 +77,7 @@ public:
   };
 
   /// Set of neighboring nodes of a given node
-  typedef std::list<NeighborInfo> NeighborList;
+  typedef List<NeighborInfo> NeighborList;
 
   // ---------------------------------------------------------------------------
   // Attributes
@@ -91,7 +91,7 @@ protected:
   mirtkPublicAttributeMacro(double, Sigma);
 
   /// Set of Gaussian weighted centroid neighors and their normalized weights
-  mirtkAttributeMacro(std::vector<NeighborList>, Neighbors);
+  mirtkAttributeMacro(Array<NeighborList>, Neighbors);
 
   /// Centroids of adjacent nodes
   mirtkAttributeMacro(vtkSmartPointer<vtkPoints>, Centroids);

@@ -22,7 +22,7 @@
 
 #include <mirtkSurfaceConstraint.h>
 
-#include <vector>
+#include <mirtkArray.h>
 
 
 namespace mirtk {
@@ -55,7 +55,7 @@ public:
   };
 
   /// Array of computed distances to neighboring nodes
-  typedef std::vector<NodeDistances> DistancesArray;
+  typedef Array<NodeDistances> DistancesArray;
 
   // ---------------------------------------------------------------------------
   // Attributes
@@ -67,7 +67,7 @@ public:
   mirtkAttributeMacro(double, InitialArea);
 
   /// For each node, the initial and current distances to their neighboring nodes
-  mirtkAttributeMacro(std::vector<DistancesArray>, Distances);
+  mirtkAttributeMacro(Array<DistancesArray>, Distances);
 
   /// Copy attributes of this class from another instance
   void CopyAttributes(const MetricDistortion &);

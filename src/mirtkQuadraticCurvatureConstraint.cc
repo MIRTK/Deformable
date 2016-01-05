@@ -19,6 +19,7 @@
 
 #include <mirtkQuadraticCurvatureConstraint.h>
 
+#include <mirtkArray.h>
 #include <mirtkMemory.h>
 #include <mirtkVector.h>
 #include <mirtkMatrix.h>
@@ -28,8 +29,6 @@
 #include <vtkMath.h>
 #include <vtkPoints.h>
 #include <vtkDataArray.h>
-
-#include <vector>
 
 
 namespace mirtk {
@@ -51,7 +50,7 @@ struct ComputeErrorOfQuadraticFit
   vtkPoints           *_Points;
   vtkDataArray        *_Normals;
   const NodeNeighbors *_Neighbors;
-  std::vector<double> *_Residuals;
+  Array<double>       *_Residuals;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
@@ -91,8 +90,8 @@ struct ComputeErrorOfQuadraticFit
 /// Evaluate energy of quadratic curvature term
 struct Evaluate
 {
-  const std::vector<double> *_Residuals;
-  double                     _Sum;
+  const Array<double> *_Residuals;
+  double               _Sum;
 
   Evaluate() : _Sum(.0) {}
 
@@ -123,10 +122,10 @@ struct EvaluateGradient
 {
   typedef QuadraticCurvatureConstraint::GradientType GradientType;
 
-  vtkDataArray              *_Status;
-  vtkDataArray              *_Normals;
-  const std::vector<double> *_Residuals;
-  GradientType              *_Gradient;
+  vtkDataArray        *_Status;
+  vtkDataArray        *_Normals;
+  const Array<double> *_Residuals;
+  GradientType        *_Gradient;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {

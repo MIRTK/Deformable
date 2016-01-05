@@ -22,6 +22,8 @@
 
 #include <mirtkObjectiveFunction.h>
 
+#include <mirtkArray.h>
+
 #include <mirtkRegisteredImage.h>
 #include <mirtkRegisteredPointSet.h>
 
@@ -33,8 +35,6 @@
 #include <vtkSmartPointer.h>
 #include <vtkPointSet.h>
 #include <vtkPolyData.h>
-
-#include <vector>
 
 
 namespace mirtk {
@@ -150,19 +150,19 @@ protected:
   mutable int _LowPassCounter;
 
   /// Energy terms corresponding to external forces
-  std::vector<class ExternalForce *> _ExternalForce;
-  std::vector<bool>                  _ExternalForceOwner;
+  Array<class ExternalForce *> _ExternalForce;
+  Array<bool>                  _ExternalForceOwner;
 
   /// Energy terms corresponding to internal forces
-  std::vector<class InternalForce *> _InternalForce;
-  std::vector<bool>                  _InternalForceOwner;
+  Array<class InternalForce *> _InternalForce;
+  Array<bool>                  _InternalForceOwner;
 
   /// Energy terms which regularize the parametric transformation
-  std::vector<TransformationConstraint *> _Constraint;
-  std::vector<bool>                       _ConstraintOwner;
+  Array<TransformationConstraint *> _Constraint;
+  Array<bool>                       _ConstraintOwner;
 
   /// Input surface meshes which the deformed surface mesh may not intersect
-  std::vector<vtkSmartPointer<vtkPolyData> > _BoundaryConstraint;
+  Array<vtkSmartPointer<vtkPolyData> > _BoundaryConstraint;
 
 public:
 

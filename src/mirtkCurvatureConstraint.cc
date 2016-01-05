@@ -19,6 +19,10 @@
 
 #include <mirtkCurvatureConstraint.h>
 
+#include <mirtkArray.h>
+#include <mirtkQueue.h>
+#include <mirtkHashSet.h>
+
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>
 #include <mirtkProfiling.h>
@@ -28,10 +32,6 @@
 #include <vtkPolyData.h>
 #include <vtkIdList.h>
 #include <vtkMath.h>
-
-#include <queue>
-#include <unordered_set>
-#include <vector>
 
 
 namespace mirtk {
@@ -85,13 +85,11 @@ struct ComputeCentroids
 /// Compute Gaussian weighted centroids of neighboring nodes
 struct ComputeGaussianCentroids
 {
-  typedef std::unordered_set<int> set_of_ids;
-
-  vtkPoints                 *_Points;
-  const EdgeTable           *_EdgeTable;
-  vtkPoints                 *_Centroids;
-  std::vector<NeighborList> *_Neighbors;
-  double                     _Scale;
+  vtkPoints           *_Points;
+  const EdgeTable     *_EdgeTable;
+  vtkPoints           *_Centroids;
+  Array<NeighborList> *_Neighbors;
+  double               _Scale;
 
   ComputeGaussianCentroids(double sigma)
   :
@@ -107,11 +105,11 @@ struct ComputeGaussianCentroids
   {
     const double min_weight = .1;
 
-    double     a[3], b[3], c[3], w, wsum;
-    const int *adjPtIds;
-    int        numAdjPts, adjPtId;
-    std::queue<int> active;
-    set_of_ids visited;
+    double       a[3], b[3], c[3], w, wsum;
+    const int   *adjPtIds;
+    int          numAdjPts, adjPtId;
+    Queue<int>   active;
+    HashSet<int> visited;
 
     NeighborList::iterator it;
     for (int ptId = re.begin(); ptId != re.end(); ++ptId) {
@@ -234,11 +232,11 @@ struct EvaluateNeighborhoodGradient
 {
   typedef CurvatureConstraint::GradientType Force;
 
-  vtkPoints                       *_Points;
-  vtkDataArray                    *_Status;
-  vtkPoints                       *_Centroids;
-  const std::vector<NeighborList> *_Neighbors;
-  Force                           *_Gradient;
+  vtkPoints                 *_Points;
+  vtkDataArray              *_Status;
+  vtkPoints                 *_Centroids;
+  const Array<NeighborList> *_Neighbors;
+  Force                     *_Gradient;
 
   void operator ()(const blocked_range<int> &re) const
   {

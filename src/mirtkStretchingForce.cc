@@ -32,7 +32,7 @@
 #include <vtkPolyData.h>
 #include <vtkIdList.h>
 
-#include <algorithm>
+#include <algorithm> // transform
 
 
 namespace mirtk {

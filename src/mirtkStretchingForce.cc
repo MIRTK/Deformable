@@ -32,8 +32,6 @@
 #include <vtkPolyData.h>
 #include <vtkIdList.h>
 
-#include <algorithm> // transform
-
 
 namespace mirtk {
 
@@ -190,8 +188,7 @@ bool StretchingForce::SetWithoutPrefix(const char *param, const char *value)
       strcmp(param, "Rest edge length")    == 0 ||
       strcmp(param, "Average edge length") == 0 ||
       strcmp(param, "Average length")      == 0) {
-    string lvalue = value;
-    std::transform(lvalue.begin(), lvalue.end(), lvalue.begin(), tolower);
+    string lvalue = ToLower(value);
     if (lvalue.size() > 12 && lvalue.compare(lvalue.size() - 12, 12, " edge length") == 0) {
       lvalue = lvalue.substr(0, lvalue.size() - 12);
     }

@@ -21,7 +21,7 @@
 
 #include <mirtkArray.h>
 #include <mirtkQueue.h>
-#include <mirtkHashSet.h>
+#include <mirtkUnorderedSet.h>
 
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>
@@ -105,11 +105,11 @@ struct ComputeGaussianCentroids
   {
     const double min_weight = .1;
 
-    double       a[3], b[3], c[3], w, wsum;
-    const int   *adjPtIds;
-    int          numAdjPts, adjPtId;
-    Queue<int>   active;
-    HashSet<int> visited;
+    double            a[3], b[3], c[3], w, wsum;
+    const int        *adjPtIds;
+    int               numAdjPts, adjPtId;
+    Queue<int>        active;
+    UnorderedSet<int> visited;
 
     NeighborList::iterator it;
     for (int ptId = re.begin(); ptId != re.end(); ++ptId) {

@@ -20,7 +20,6 @@
 #include <mirtkDeformableSurfaceModel.h>
 
 #include <mirtkVtk.h>
-#include <mirtkSet.h>
 #include <mirtkArray.h>
 #include <mirtkMath.h>
 #include <mirtkMemory.h>
@@ -1701,7 +1700,6 @@ void DeformableSurfaceModel::EnforceHardConstraints(double *dx) const
     if (nsi.AdjacentIntersectionTest() || nsi.NonAdjacentIntersectionTest() ||
         nsi.FrontfaceCollisionTest()   || nsi.BackfaceCollisionTest()) {
 
-      mirtk::Set<int>::const_iterator cellIdIt;
       vtkIdType      npts, *pts, *cells;
       unsigned short ncells;
       double         alpha;

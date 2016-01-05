@@ -22,7 +22,7 @@
 
 #include <mirtkEnergyTerm.h>
 
-#include <mirtkMap.h>
+#include <mirtkUnorderedMap.h>
 #include <mirtkVector3D.h>
 #include <mirtkRegisteredPointSet.h>
 
@@ -102,9 +102,9 @@ protected:
   // Point set attributes
 private:
 
-  typedef Map<string, string>        NameMap;
-  typedef NameMap::iterator          NameMapIterator;
-  typedef NameMap::const_iterator    NameMapConstIterator;
+  typedef UnorderedMap<string, string> NameMap;
+  typedef NameMap::iterator            NameMapIterator;
+  typedef NameMap::const_iterator      NameMapConstIterator;
 
   /// Maps internal point data name to actual unique point data array name
   NameMap _PointDataName;

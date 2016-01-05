@@ -19,7 +19,6 @@
 
 #include <mirtkMetricDistortion.h>
 
-#include <mirtkMap.h>
 #include <mirtkArray.h>
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>

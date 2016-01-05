@@ -19,7 +19,7 @@
 
 ##############################################################################
 # @file  CMakeLists.txt
-# @brief Build configuration of MIRTK Deformable module.
+# @brief Build configuration of MIRTK Deformable library.
 ##############################################################################
 
 set(TARGET_NAME "Lib${PROJECT_NAME}")
@@ -93,7 +93,15 @@ basis_add_library(${TARGET_NAME} "${SOURCES}")
 
 basis_set_target_properties(
   ${TARGET_NAME} PROPERTIES
+    VERSION     "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
+    SOVERSION   "${PROJECT_SOVERSION}"
     OUTPUT_NAME "${OUTPUT_NAME}"
 )
 
-basis_target_link_libraries(${TARGET_NAME} LibCommon LibNumerics LibImage LibPointSet ${VTK_LIBRARIES})
+basis_target_link_libraries(${TARGET_NAME}
+  LibCommon
+  LibNumerics
+  LibImage
+  LibPointSet
+  ${VTK_LIBRARIES}
+)

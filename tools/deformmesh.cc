@@ -18,40 +18,7 @@
  */
 
 #include <mirtkCommon.h>
-
-// =============================================================================
-// Default settings
-// =============================================================================
-
-const int nsteps = 100;
-
-// =============================================================================
-// Help
-// =============================================================================
-
-// -----------------------------------------------------------------------------
-void PrintHelp(const char *name)
-{
-  using namespace mirtk;
-  cout << "usage: " << name << " <input> <output> [options]" << endl;
-  cout << endl;
-  cout << "Iteratively minimizes a deformable surface model energy functional." << endl;
-  cout << "The gradient of the energy terms are the internal and external forces" << endl;
-  cout << "of the deformable surface model." << endl;
-  cout << endl;
-  cout << "Options:" << endl;
-  cout << "  -image <file>    Image on which external forces are based on. (default: none)" << endl;
-  cout << "  -mask <file>     Mask defining region in which external forces are non-zero. (default: none)" << endl;
-  cout << "  -steps <int>     Maximum number of iterations. (default: " << nsteps << ")" << endl;
-  cout << "  -ascii/-binary   Write legacy VTK in ASCII or binary format. (default: binary)" << endl;
-  cout << "  -[no]compress    Write XML VTK file with or without compression. (default: compress)" << endl;
-  PrintCommonOptions(cout);
-}
-
-// =============================================================================
-// Includes
-// =============================================================================
-
+#include <mirtkOptions.h>
 #include <mirtkPointSetUtils.h>
 #include <mirtkTransformation.h>
 #include <mirtkBSplineFreeFormTransformation3D.h>
@@ -105,6 +72,35 @@ void PrintHelp(const char *name)
 
 using namespace mirtk;
 
+
+// =============================================================================
+// Default settings
+// =============================================================================
+
+const int nsteps = 100;
+
+// =============================================================================
+// Help
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+void PrintHelp(const char *name)
+{
+  using namespace mirtk;
+  cout << "usage: " << name << " <input> <output> [options]" << endl;
+  cout << endl;
+  cout << "Iteratively minimizes a deformable surface model energy functional." << endl;
+  cout << "The gradient of the energy terms are the internal and external forces" << endl;
+  cout << "of the deformable surface model." << endl;
+  cout << endl;
+  cout << "Options:" << endl;
+  cout << "  -image <file>    Image on which external forces are based on. (default: none)" << endl;
+  cout << "  -mask <file>     Mask defining region in which external forces are non-zero. (default: none)" << endl;
+  cout << "  -steps <int>     Maximum number of iterations. (default: " << nsteps << ")" << endl;
+  cout << "  -ascii/-binary   Write legacy VTK in ASCII or binary format. (default: binary)" << endl;
+  cout << "  -[no]compress    Write XML VTK file with or without compression. (default: compress)" << endl;
+  PrintCommonOptions(cout);
+}
 
 // =============================================================================
 // Auxiliaries

@@ -41,14 +41,16 @@ enum InternalForceTerm
 };
 
 // -----------------------------------------------------------------------------
-inline string ToString(const InternalForceTerm &ift)
+template <>
+inline string ToString(const InternalForceTerm &ift, int w, char c, bool left)
 {
   EnergyMeasure em = static_cast<EnergyMeasure>(ift);
-  if (em <= IFT_Begin || em >= IFT_End) return "Unknown";
-  return ToString(em);
+  if (em <= IFT_Begin || em >= IFT_End) return ToString("Unknown", w, c, left);
+  return ToString(em, w, c, left);
 }
 
 // -----------------------------------------------------------------------------
+template <>
 inline bool FromString(const char *str, InternalForceTerm &ift)
 {
   EnergyMeasure em = EM_Unknown;

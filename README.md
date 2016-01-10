@@ -12,7 +12,7 @@ a fixed number of iterations, target objective function value, or surface smooth
 the MIRTK Registration module to constrain the transformation, for example, to constrain
 the cortical surface to remain smooth after transformation.
 
-See [online documentation](https://mirtk.github.io/documentation/modules/deformable)
+See [online documentation](https://mirtk.github.io/documentation/modules/packages/deformable)
 for more.
 
 

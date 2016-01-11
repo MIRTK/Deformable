@@ -80,7 +80,8 @@ using namespace mirtk;
 // Default settings
 // =============================================================================
 
-const int nsteps = 100;
+const int    nsteps = 100;
+const double dt     = 1.0;
 
 // =============================================================================
 // Help
@@ -89,20 +90,191 @@ const int nsteps = 100;
 // -----------------------------------------------------------------------------
 void PrintHelp(const char *name)
 {
-  using namespace mirtk;
-  cout << "usage: " << name << " <input> <output> [options]" << endl;
+  DeformableSurfaceModel model; // with default parameters
   cout << endl;
-  cout << "Iteratively minimizes a deformable surface model energy functional." << endl;
-  cout << "The gradient of the energy terms are the internal and external forces" << endl;
-  cout << "of the deformable surface model." << endl;
+  cout << "Usage: " << name << " <input> <output> [options]" << endl;
   cout << endl;
-  cout << "Options:" << endl;
-  cout << "  -image <file>    Image on which external forces are based on. (default: none)" << endl;
-  cout << "  -mask <file>     Mask defining region in which external forces are non-zero. (default: none)" << endl;
-  cout << "  -steps <int>     Maximum number of iterations. (default: " << nsteps << ")" << endl;
-  cout << "  -ascii/-binary   Write legacy VTK in ASCII or binary format. (default: binary)" << endl;
-  cout << "  -[no]compress    Write XML VTK file with or without compression. (default: compress)" << endl;
+  cout << "Description:" << endl;
+  cout << "  Iteratively minimizes a deformable surface model energy functional. The gradient of" << endl;
+  cout << "  the energy terms are the internal and external forces of the deformable surface model." << endl;
+  cout << endl;
+  cout << "Input options:" << endl;
+  cout << "  -initial <file>" << endl;
+  cout << "      Point set used to initialize the deformed output mesh. Usually the output of a" << endl;
+  cout << "      previous optimization with possibly saved node status (see :option:`-save-status`)." << endl;
+  cout << "      (default: input)" << endl;
+  cout << "  -dof <type> [<dx> [<dy> <dz>]]" << endl;
+  cout << "      Optimize spatial transformation of named <type> to deform the mesh points." << endl;
+  cout << "      The optional <dx>, <dy>, and <dz> arguments specify the control point spacing" << endl;
+  cout << "      of free-form deformation (FFD) transformations. Common transformation types are:" << endl;
+  cout << "      - ``FFD``:   Cubic B-spline FFD." << endl;
+  cout << "      - ``SVFFD``: Stationary velocity (SV) cubic B-spline FFD." << endl;
+  cout << "  -image <file>" << endl;
+  cout << "      Intensity image on which external forces are based. (default: none)" << endl;
+  cout << "  -dmap <file>" << endl;
+  cout << "      Euclidean distance image on which implicit surface forces are based. (default: none)" << endl;
+  cout << "  -dmap-offset <value>" << endl;
+  cout << "      Implicit surface isovalue in :option:`-dmap` image. (default: 0)" << endl;
+  cout << "  -mask <file>" << endl;
+  cout << "      Mask defining region in which external forces are non-zero. (default: none)" << endl;
+  cout << "  -padding <value>" << endl;
+  cout << "      Padding/Background value of input :option:`-image`. (default: none)" << endl;
+  cout << endl;
+  cout << "Optimization options:" << endl;
+  cout << "  -optimizer <name>" << endl;
+  cout << "      Optimization method used to minimize the energy of the deformable surface model:" << endl;
+  cout << "      - ``EulerMethod``:              Forward Euler integration (default)" << endl;
+  cout << "      - ``EulerMethodWithDamping``:   Forward Euler integration with momentum." << endl;
+  cout << "      - ``EulerMethodWithMomentum``:  Forward Euler integration with momentum." << endl;
+  cout << "      - ``GradientDescent``:          Gradient descent optimizer." << endl;
+  cout << "      - ``ConjugateGradientDescent``: Conjugate gradient descent." << endl;
+  cout << "  -linesearch <name>" << endl;
+  cout << "      Line search method used by gradient descent optimizers:" << endl;
+  cout << "      - ``Adaptive``: Line search with adaptive step length. (default)" << endl;
+  cout << "      - ``Brent``: Brent's line search method." << endl;
+  cout << "  -damping <value>" << endl;
+  cout << "      Damping ratio used by Euler method with momentum modelling the effect" << endl;
+  cout << "      of dissipation of kinetic energy." << endl;
+  cout << "  -momentum <value>" << endl;
+  cout << "      Momentum of Euler method with momentum, i.e., :math:`1 - damping` (see :option:`-damping`)" << endl;
+  cout << "  -mass <value>" << endl;
+  cout << "      Node mass used by Euler methods with momentum. (default: 1)" << endl;
+  cout << "  -levels <min> [<max>]" << endl;
+  cout << "      Perform optimization on starting at level <max> until level <min> (> 0)." << endl;
+  cout << "      On each level, the node forces are averaged :math:`2^(level-1)` times which" << endl;
+  cout << "      is similar to computing the forces on a coarser mesh. (default: 0 0)" << endl;
+  cout << "  -steps | -iterations <n>" << endl;
+  cout << "      Maximum number of iterations. (default: " << nsteps << ")" << endl;
+  cout << "  -step | -dt <value>" << endl;
+  cout << "      Length of integration/gradient steps. (default: " << dt << ")" << endl;
+  cout << "  -step-magnification <mag>" << endl;
+  cout << "      Multiplicative factor for magnification of maximum :option:`-step` length." << endl;
+  cout << "      The step length at level n (highest level at n=1) is :math:`dt * mag^(level-1)`. (default: 1)" << endl;
+  cout << "  -maxdx <value>" << endl;
+  cout << "      Maximum displacement of a node at each iteration. By default, the node displacements" << endl;
+  cout << "      are normalized by the maximum node displacement. When this option is used, the node" << endl;
+  cout << "      displacements are clamped to the specified maximum length instead. (default: :option:`-step`)" << endl;
+  cout << "  -remesh <n>" << endl;
+  cout << "      Remesh surface mesh every n-th iteration. (default: " << model.RemeshInterval() << ")" << endl;
+  cout << "  -minedgelength <value>" << endl;
+  cout << "      Minimum edge length used for local adaptive remeshing. (default: " << model.MinEdgeLength() << ")" << endl;
+  cout << "  -maxedgelength <value>" << endl;
+  cout << "      Maximum edge length used for local adaptive remeshing. (default: " << model.MaxEdgeLength() << ")" << endl;
+  cout << "  -edgelength-magnification <mag>" << endl;
+  cout << "      Multiplicative factor for magnification of :option:`-minedgelength` and :option:`-maxedgelength`." << endl;
+  cout << "      The edge length at level n (highest level at n=1) is :math:`l * mag^(level-1)`. (default: 1)" << endl;
+  cout << "  -minangle <degrees>" << endl;
+  cout << "      Minimum angle between edge node normals for an edge be excluded from collapsing during" << endl;
+  cout << "      iterative :option:`-remesh` operations. (default: " << model.MinFeatureAngle() << ")" << endl;
+  cout << "  -maxangle <degrees>" << endl;
+  cout << "      Maximum angle between edge node normals for an edge be excluded from splitting during" << endl;
+  cout << "      iterative :option:`-remesh` operations. (default: " << model.MaxFeatureAngle() << ")" << endl;
+  cout << "  -lowpass <n>" << endl;
+  cout << "      Low-pass filter surface mesh every n-th iteration. (default: " << model.LowPassInterval() << ")" << endl;
+  cout << "  -lowpass-iterations <n>" << endl;
+  cout << "      Number of :option:`-lowpass` filter iterations. (default: " << model.LowPassIterations() << ")" << endl;
+  cout << "  -nointersection" << endl;
+  cout << "      Hard non-self-intersection constraint for surface meshes. (default: off)" << endl;
+  cout << "  -mind | -mindistance <value>" << endl;
+  cout << "      Minimum distance to other triangles in front of a given triangle." << endl;
+  cout << "  -minw | -minwidth <value>" << endl;
+  cout << "      Minimum distance to other triangles in the back of a given triangle." << endl;
+  cout << "  -reset-status" << endl;
+  cout << "      Set status of all mesh nodes to active again after each level (see :option:`-levels`). (default: off)" << endl;
+  cout << endl;
+  cout << "Deformable model options:" << endl;
+  cout << "  -neighborhood <n>" << endl;
+  cout << "      Size of node neighborhoods used by internal force terms that consider more" << endl;
+  cout << "      than only the adjacent nodes, but also up to n-connected nodes. (default: " << model.NeighborhoodRadius() << ")" << endl;
+  cout << "  -distance <w>" << endl;
+  cout << "      Weight of implicit surface distance. (default: 0)" << endl;
+  cout << "  -distance-spring | -dspring <w>" << endl;
+  cout << "      Weight of implicit surface spring force. (default: 0)" << endl;
+  cout << "  -distance-measure <name>" << endl;
+  cout << "      Implicit surface distance measure used by :option:`-distance` and :option:`-distance-spring`):" << endl;
+  cout << "      - ``minimum``: Minimum surface distance (see :option:`-dmap`, default)" << endl;
+  cout << "      - ``normal``:  Estimate distance by casting rays along normal direction." << endl;
+  cout << "  -balloon-inflation | -balloon <w>" << endl;
+  cout << "      Weight of inflation force based on local intensity statistics. (default: 0)" << endl;
+  cout << "  -balloon-defflation <w>" << endl;
+  cout << "      Weight of deflation force based on local intensity statistics. (default: 0)" << endl;
+  cout << "  -edges <w>" << endl;
+  cout << "      Weight of image edge force. (default: 0)" << endl;
+  cout << "  -inflation <w>" << endl;
+  cout << "      Weight of surface inflation force used for cortical surface inflation. (default: 0)" << endl;
+  cout << "  -bending-energy <w>" << endl;
+  cout << "      Weight of bending energy of :option:`-dof` transformation. (default: 0)" << endl;
+  cout << "  -spring <w>" << endl;
+  cout << "      Weight of internal spring force. (default: 0)" << endl;
+  cout << "  -normal-spring | -nspring <w>" << endl;
+  cout << "      Weight of internal spring force in normal direction. (default: 0)" << endl;
+  cout << "  -tangential-spring | -tspring <w>" << endl;
+  cout << "      Weight of internal spring force in tangent plane. (default: 0)" << endl;
+  cout << "  -normalized-spring <w>" << endl;
+  cout << "      Weight of internal spring force normalized w.r.t. force in normal direction. (default: 0)" << endl;
+  cout << "  -curvature <w>" << endl;
+  cout << "      Weight of surface curvature. (default: 0)" << endl;
+  cout << "  -quadratic-curvature | -qcurvature <w>" << endl;
+  cout << "      Weight of surface curvature estimated by quadratic fit of node neighbor" << endl;
+  cout << "      to tangent plane distance. (default: 0)" << endl;
+  cout << "  -distortion <w>" << endl;
+  cout << "      Weight of metric distortion." << endl;
+  cout << "  -stretching <w>" << endl;
+  cout << "      Weight of spring force based on difference of neighbor distance compared to" << endl;
+  cout << "      initial distance. (default: 0)" << endl;
+  cout << "  -repulsion <w> [<radius>]" << endl;
+  cout << "      Weight of node repulsion force. (default: 0 0)" << endl;
+  cout << "  -collision <w>" << endl;
+  cout << "      Weight of triangle repulsion force." << endl;
+  cout << endl;
+  cout << "Stopping criterion options:" << endl;
+  cout << "  -extrinsic-energy" << endl;
+  cout << "      Consider only sum of external energy terms as total energy value of deformable model functional." << endl;
+  cout << "      Internal forces still contribute to the gradient of the functional, but are excluded from the" << endl;
+  cout << "      energy function value (see :option:`-epsilon` and :option:`-minenergy`). (default: off)" << endl;
+  cout << "  -epsilon <value>" << endl;
+  cout << "      Minimum change of deformable surface energy convergence criterion." << endl;
+  cout << "  -delta <value>" << endl;
+  cout << "      Minimum maximum node displacement or :option:`-dof` parameter value." << endl;
+  cout << "  -minenergy <value>" << endl;
+  cout << "      Target deformable surface energy value. (default: 0)" << endl;
+  cout << "  -minactive <n>" << endl;
+  cout << "      Minimum percentage of active nodes. (default: 0)" << endl;
+  cout << "  -inflation-error <threshold>" << endl;
+  cout << "      Threshold of surface inflation RMS measure. (default: off)" << endl;
+  cout << endl;
+  cout << "Output options:" << endl;
+  cout << "  -track [<name>]" << endl;
+  cout << "      Record sum of node displacements along normal direction. The integrated" << endl;
+  cout << "      displacements are stored in the point data array named \"NormalDisplacement\"" << endl;
+  cout << "      by default or with the specified <name>. (default: off)" << endl;
+  cout << "  -center-output" << endl;
+  cout << "      Center output mesh such that center is at origin. (default: off)" << endl;
+  cout << "  -match-area" << endl;
+  cout << "      Scale output mesh by ratio of input and output surface area. (default: off)" << endl;
+  cout << "  -match-sampling" << endl;
+  cout << "      Resample output mesh at corresponding positions of input mesh." << endl;
+  cout << "      This option is only useful in conjunction with :option:`-remesh`. (default: off)" << endl;
+  cout << "  -save-status" << endl;
+  cout << "      Save node status (active/passive) to output file. (default: off)" << endl;
+  cout << "  -ascii | -nobinary" << endl;
+  cout << "      Write legacy VTK in ASCII format. (default: off)" << endl;
+  cout << "  -binary | -noascii" << endl;
+  cout << "      Write legacy VTK in binary format. (default: on)" << endl;
+  cout << "  -[no]compress" << endl;
+  cout << "      Write XML VTK file with or without compression. (default: on)" << endl;
+  cout << "  -debugprefix <prefix>" << endl;
+  cout << "      File name prefix for :option:`-debug` output. (default: deform_mesh\\_)" << endl;
+  cout << "  -debuginterval <n>" << endl;
+  cout << "      Write :option:`-debug` output every n-th iteration. (default: 10)" << endl;
+  cout << "  -[no]levelprefix" << endl;
+  cout << "      Write :option:`-debug` output without level prefix in file names. (default: on)" << endl;
+  cout << endl;
+  cout << "Advanced options:" << endl;
+  cout << "  -par <name> <value>" << endl;
+  cout << "      Advanced option to set surface model or optimizer parameter." << endl;
   PrintCommonOptions(cout);
+  cout << endl;
 }
 
 // =============================================================================
@@ -157,8 +329,8 @@ ResampleAtInitialPoints(vtkSmartPointer<vtkPointSet> input, vtkSmartPointer<vtkP
 
   vtkDataArray *initial_position = output->GetPointData()->GetArray("InitialPoints");
   if (!initial_position) {
-    cerr << "Warning: Cannot resample surface mesh at points corresponding to points of input mesh:"
-         << " deformed mesh has not point data array named \"InitialPoints\"" << endl;
+    Warning("Cannot resample surface mesh at points corresponding to points of input mesh:"
+            " deformed mesh has not point data array named \"InitialPoints\".");
     return output;
   }
 
@@ -275,7 +447,7 @@ int main(int argc, char *argv[])
   const char *mask_name      = NULL;
   const char *track_name     = NULL; // track normal movement of nodes
   const char *initial_name   = NULL;
-  const char *debug_prefix   = "deformmesh_";
+  const char *debug_prefix   = "deform_mesh_";
   double      padding        = numeric_limits<double>::quiet_NaN();
   bool        level_prefix   = true;
   bool        reset_status   = false;
@@ -287,9 +459,9 @@ int main(int argc, char *argv[])
   bool        save_status    = false;
   int         min_level      = 0;
   int         max_level      = 0;
-  int         nsteps1        = 100; // iterations at level 1
-  int         nstepsN        = 100; // iterations at level N
-  double      max_step_length           = 1.0;
+  int         nsteps1        = nsteps; // iterations at level 1
+  int         nstepsN        = nsteps; // iterations at level N
+  double      max_step_length           = dt;
   double      step_length_magnification = 1.0;
   double      edge_length_magnification = 1.0;
 
@@ -347,13 +519,19 @@ int main(int argc, char *argv[])
           dy = dz = dx;
         }
       }
-      transform(arg.begin(), arg.end(), arg.begin(), ::tolower);
-      if (arg == "none") {
+      string larg = ToLower(arg);
+      if (larg == "none") {
         dof.reset(NULL);
-      } else if (arg == "ffd") {
+      } else if (larg == "ffd") {
         dof.reset(new BSplineFreeFormTransformation3D(domain, dx, dy, dz));
-      } else if (arg == "svffd") {
+      } else if (larg == "svffd") {
         dof.reset(new BSplineFreeFormTransformationSV(domain, dx, dy, dz));
+      } else {
+        TransformationType type = Transformation::TypeOfClass(arg.c_str());
+        if (type == TRANSFORMATION_UNKNOWN) {
+          FatalError("Invalid -dof transformation type argument: " << arg);
+        }
+        dof.reset(Transformation::New(type));
       }
       model.Transformation(dof.get());
     }
@@ -495,6 +673,7 @@ int main(int argc, char *argv[])
     else if (OPTION("-binary") || OPTION("-noascii" )) ascii = false;
     else if (OPTION("-compress"))   compress = true;
     else if (OPTION("-nocompress")) compress = false;
+    else if (OPTION("-levelprefix")) level_prefix = true;
     else if (OPTION("-nolevelprefix")) level_prefix = false;
     // Debugging and other common/advanced options
     else if (OPTION("-par")) {

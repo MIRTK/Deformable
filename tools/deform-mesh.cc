@@ -408,6 +408,11 @@ int main(int argc, char *argv[])
     else if (OPTION("-distance")) {
       distance.Weight(atof(ARGUMENT));
     }
+    else if (OPTION("-distance-measure")) {
+      ImplicitSurfaceDistance::DistanceMeasureType measure;
+      PARSE_ARGUMENT(measure);
+      distance.DistanceMeasure(measure);
+    }
     else if (OPTION("-balloon-inflation") || OPTION("-balloon")) {
       balloon.Weight(atof(ARGUMENT));
       balloon.DeflateSurface(false);

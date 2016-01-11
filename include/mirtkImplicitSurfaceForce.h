@@ -49,9 +49,20 @@ public:
   typedef GenericLinearInterpolateImageFunction<ImageType>  ImageFunction;
   typedef GenericFastLinearImageGradientFunction<ImageType> ImageGradient;
 
+  /// Enumeration of implicit surface distance measures
+  enum DistanceMeasureType
+  {
+    DM_Unknown,
+    DM_Minimum,  ///< Minimum implicit surface distance
+    DM_Normal    ///< Implicit surface distance in normal direction
+  };
+
   // ---------------------------------------------------------------------------
   // Attributes
 private:
+
+  /// Type of implicit surface distance
+  mirtkPublicAttributeMacro(DistanceMeasureType, DistanceMeasure);
 
   /// Signed distance offset
   mirtkPublicAttributeMacro(double, Offset);
@@ -149,15 +160,55 @@ protected:
   void UpdateMinimumDistances();
 
   /// Get pointer to point data array of implicit surface distances in normal directions
-  vtkDataArray *Distances() const;
+  vtkDataArray *NormalDistances() const;
 
   /// Initialize point data array used to store implicit surface distances in normal directions
-  void InitializeDistances();
+  void InitializeNormalDistances();
 
   /// Update distances from implicit surface in normal direction
+  void UpdateNormalDistances();
+
+  /// Get pointer to point data array of implicit surface distances
+  vtkDataArray *Distances() const;
+
+  /// Initialize point data array used to store implicit surface distances
+  void InitializeDistances();
+
+  /// Update implicit surface distance measures
   void UpdateDistances();
 
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// ImplicitSurfaceForce::Measure from/to string conversion
+////////////////////////////////////////////////////////////////////////////////
+
+// -----------------------------------------------------------------------------
+/// Convert implicit surface distance measure enumeration value to string
+template <>
+inline string ToString(const enum ImplicitSurfaceForce::DistanceMeasureType &value,
+                       int w, char c, bool left)
+{
+  const char *str;
+  switch (value) {
+    case ImplicitSurfaceForce::DM_Minimum: str = "Minimum"; break;
+    case ImplicitSurfaceForce::DM_Normal:  str = "Normal";  break;
+    default:                               str = "Unknown"; break;
+  }
+  return ToString(str, w, c, left);
+}
+
+// -----------------------------------------------------------------------------
+/// Convert string to implicit surface distance measure enumeration value
+template <>
+inline bool FromString(const char *str, enum ImplicitSurfaceForce::DistanceMeasureType &value)
+{
+  string lstr = ToLower(str);
+  if      (lstr == "minimum") value = ImplicitSurfaceForce::DM_Minimum;
+  else if (lstr == "normal")  value = ImplicitSurfaceForce::DM_Normal;
+  else                        value = ImplicitSurfaceForce::DM_Unknown;
+  return (value != ImplicitSurfaceForce::DM_Unknown);
+}
 
 
 } // namespace mirtk

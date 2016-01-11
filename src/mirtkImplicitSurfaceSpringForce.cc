@@ -217,20 +217,11 @@ struct ScaleForce
         dp = g->_x * n[0] + g->_y * n[1] + g->_z * n[2];
         if (d * dp < .0) {
           (*g) = .0;
-        } else {
-//          d = abs(d);
-//          if (d < 1.0) {
-//            // scale gradient only when point is moving parallel to the isosurface
-//            // otherwise, we expect to be close to the isosurface after a step of
-//            // length d along the normal direction
-//            p2[0] = p[0] - g->_x * d;
-//            p2[1] = p[1] - g->_y * d;
-//            p2[2] = p[2] - g->_z * d;
-//            d2 = _Force->Distance(p2);
-//            if (abs(d2) >= .1) (*g) *= 1.0 - exp(- _Scale * (d * d));
-//          }
+        } else if (_MaxDistance > .0) { // e.g. _Force->DistanceMeasure() == DM_Normal
           d /= _MaxDistance;
           (*g) *= 1.0 - exp(- _Scale * (d * d));
+        } else { // _Force->DistanceMeasure() == DM_Minimum
+          if (abs(d) < 1.0) (*g) *= 1.0 - exp(- _Scale * (d * d));
         }
       }
     }
@@ -412,7 +403,7 @@ void ImplicitSurfaceSpringForce::EvaluateGradient(double *gradient, double step,
   scale._Points      = _PointSet->SurfacePoints();
   scale._Normals     = _PointSet->SurfaceNormals();
   scale._Scale       = .5 / (_Sigma * _Sigma);
-  scale._MaxDistance = _MaxDistance;
+  scale._MaxDistance = (_DistanceMeasure == DM_Minimum ? .0 : _MaxDistance);
   scale._Gradient    = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), scale);
 

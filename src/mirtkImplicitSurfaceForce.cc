@@ -58,7 +58,7 @@ struct ComputeMinimumDistances
 
 // -----------------------------------------------------------------------------
 /// Compute distance to implicit surface along normal direction
-struct ComputeDistances
+struct ComputeNormalDistances
 {
   ImplicitSurfaceForce *_Force;
   vtkPoints            *_Points;
@@ -88,6 +88,7 @@ using namespace ImplicitSurfaceForceUtils;
 ImplicitSurfaceForce::ImplicitSurfaceForce(const char *name, double weight)
 :
   SurfaceForce(name, weight),
+  _DistanceMeasure(DM_Minimum),
   _Offset(.0),
   _MaxDistance(.0)
 {
@@ -96,8 +97,9 @@ ImplicitSurfaceForce::ImplicitSurfaceForce(const char *name, double weight)
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceForce::CopyAttributes(const ImplicitSurfaceForce &other)
 {
-  _Offset      = other._Offset;
-  _MaxDistance = other._MaxDistance;
+  _DistanceMeasure = other._DistanceMeasure;
+  _Offset          = other._Offset;
+  _MaxDistance     = other._MaxDistance;
 }
 
 // -----------------------------------------------------------------------------
@@ -130,6 +132,9 @@ ImplicitSurfaceForce::~ImplicitSurfaceForce()
 // -----------------------------------------------------------------------------
 bool ImplicitSurfaceForce::SetWithPrefix(const char *param, const char *value)
 {
+  if (strcmp(param, "Implicit surface distance measure") == 0) {
+    return FromString(value, _DistanceMeasure);
+  }
   if (strcmp(param, "Implicit surface distance offset") == 0) {
     return FromString(value, _Offset);
   }
@@ -139,6 +144,9 @@ bool ImplicitSurfaceForce::SetWithPrefix(const char *param, const char *value)
 // -----------------------------------------------------------------------------
 bool ImplicitSurfaceForce::SetWithoutPrefix(const char *param, const char *value)
 {
+  if (strcmp(param, "Measure") == 0) {
+    return FromString(value, _DistanceMeasure);
+  }
   if (strcmp(param, "Offset") == 0) {
     return FromString(value, _Offset);
   }
@@ -149,7 +157,8 @@ bool ImplicitSurfaceForce::SetWithoutPrefix(const char *param, const char *value
 ParameterList ImplicitSurfaceForce::Parameter() const
 {
   ParameterList params = SurfaceForce::Parameter();
-  InsertWithPrefix(params, "Offset", _Offset);
+  InsertWithPrefix(params, "Measure", _DistanceMeasure);
+  InsertWithPrefix(params, "Offset",  _Offset);
   return params;
 }
 
@@ -222,6 +231,8 @@ void ImplicitSurfaceForce::InitializeMinimumDistances()
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceForce::UpdateMinimumDistances()
 {
+  return; // FIXME: Experimental update done in DeformableSurfaceModel::Update
+
   ComputeMinimumDistances eval;
   eval._Force     = this;
   eval._Points    = _PointSet->SurfacePoints();
@@ -230,28 +241,65 @@ void ImplicitSurfaceForce::UpdateMinimumDistances()
 }
 
 // -----------------------------------------------------------------------------
-vtkDataArray *ImplicitSurfaceForce::Distances() const
+vtkDataArray *ImplicitSurfaceForce::NormalDistances() const
 {
-  return GetPointData("ImplicitSurfaceDistance");
+  return GetPointData("NormalImplicitSurfaceDistance");
 }
 
 // -----------------------------------------------------------------------------
-void ImplicitSurfaceForce::InitializeDistances()
+void ImplicitSurfaceForce::InitializeNormalDistances()
 {
-  vtkDataArray *d = AddPointData("ImplicitSurfaceDistance", 1, VTK_FLOAT, true);
+  vtkDataArray *d = AddPointData("NormalImplicitSurfaceDistance", 1, VTK_FLOAT, true);
   d->FillComponent(0, _MaxDistance);
 }
 
 // -----------------------------------------------------------------------------
-void ImplicitSurfaceForce::UpdateDistances()
+void ImplicitSurfaceForce::UpdateNormalDistances()
 {
   return; // FIXME: Experimental update done in DeformableSurfaceModel::Update
-  ComputeDistances eval;
+
+  ComputeNormalDistances eval;
   eval._Force     = this;
   eval._Points    = _PointSet->SurfacePoints();
   eval._Normals   = _PointSet->SurfaceNormals();
   eval._Distances = Distances();
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
+}
+
+// -----------------------------------------------------------------------------
+vtkDataArray *ImplicitSurfaceForce::Distances() const
+{
+  switch (_DistanceMeasure) {
+    case DM_Minimum: return MinimumDistances();
+    case DM_Normal:  return NormalDistances();
+    default:
+      cerr << "ImplicitSurfaceForce::Distances: Invalid distance measure type: " << _DistanceMeasure << endl;
+      exit(1);
+  }
+}
+
+// -----------------------------------------------------------------------------
+void ImplicitSurfaceForce::InitializeDistances()
+{
+  switch (_DistanceMeasure) {
+    case DM_Minimum: InitializeMinimumDistances(); break;
+    case DM_Normal:  InitializeNormalDistances();  break;
+    default:
+      cerr << "ImplicitSurfaceForce::InitializeDistances: Invalid distance measure type: " << _DistanceMeasure << endl;
+      exit(1);
+  }
+}
+
+// -----------------------------------------------------------------------------
+void ImplicitSurfaceForce::UpdateDistances()
+{
+  switch (_DistanceMeasure) {
+    case DM_Minimum: UpdateMinimumDistances(); break;
+    case DM_Normal:  UpdateNormalDistances();  break;
+    default:
+      cerr << "ImplicitSurfaceForce::UpdateDistances: Invalid distance measure type: " << _DistanceMeasure << endl;
+      exit(1);
+  }
 }
 
 

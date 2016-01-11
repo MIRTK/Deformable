@@ -674,7 +674,10 @@ ComputeEdgeLengthRange(vtkPolyData *surface, double minl, double maxl, const Dis
 }
 
 // -----------------------------------------------------------------------------
-void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dmap, double offset = .0)
+void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dmap,
+                                   bool   minimum_distance = true,
+                                   bool   normal_distance  = true,
+                                   double offset           = .0)
 {
   const double minh =   .1;
   const double maxh = 10.0;
@@ -688,7 +691,7 @@ void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dm
 
   vtkSmartPointer<vtkDataArray> normals;
   normals = surface->GetPointData()->GetNormals();
-  if (!normals) {
+  if (normal_distance && !normals) {
     vtkNew<vtkPolyDataNormals> calc_normals;
     SetVTKInput(calc_normals, surface);
     calc_normals->ComputePointNormalsOn();
@@ -699,9 +702,19 @@ void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dm
     normals = calc_normals->GetOutput()->GetPointData()->GetNormals();
   }
 
+  vtkSmartPointer<vtkDataArray> minimum_distances;
+  minimum_distances = surface->GetPointData()->GetArray("MinimumImplicitSurfaceDistance");
+  if (minimum_distance && !minimum_distances) {
+    minimum_distances = vtkSmartPointer<vtkFloatArray>::New();
+    minimum_distances->SetName("MinimumImplicitSurfaceDistance");
+    minimum_distances->SetNumberOfComponents(1);
+    minimum_distances->SetNumberOfTuples(surface->GetNumberOfPoints());
+    surface->GetPointData()->AddArray(minimum_distances);
+  }
+
   vtkSmartPointer<vtkDataArray> actual_distances;
   actual_distances = surface->GetPointData()->GetArray("ActualImplicitSurfaceDistance");
-  if (!actual_distances) {
+  if (normal_distance && !actual_distances) {
     actual_distances = vtkSmartPointer<vtkFloatArray>::New();
     actual_distances->SetName("ActualImplicitSurfaceDistance");
     actual_distances->SetNumberOfComponents(1);
@@ -709,19 +722,19 @@ void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dm
     surface->GetPointData()->AddArray(actual_distances);
   }
 
-  vtkSmartPointer<vtkDataArray> output_distances;
-  output_distances = surface->GetPointData()->GetArray("ImplicitSurfaceDistance");
-  if (!output_distances) {
-    output_distances = vtkSmartPointer<vtkFloatArray>::New();
-    output_distances->SetName("ImplicitSurfaceDistance");
-    output_distances->SetNumberOfComponents(1);
-    output_distances->SetNumberOfTuples(surface->GetNumberOfPoints());
-    surface->GetPointData()->AddArray(output_distances);
+  vtkSmartPointer<vtkDataArray> normal_distances;
+  normal_distances = surface->GetPointData()->GetArray("NormalImplicitSurfaceDistance");
+  if (normal_distance && !normal_distances) {
+    normal_distances = vtkSmartPointer<vtkFloatArray>::New();
+    normal_distances->SetName("NormalImplicitSurfaceDistance");
+    normal_distances->SetNumberOfComponents(1);
+    normal_distances->SetNumberOfTuples(surface->GetNumberOfPoints());
+    surface->GetPointData()->AddArray(normal_distances);
   }
 
   vtkSmartPointer<vtkDataArray> inside_width;
   inside_width = surface->GetPointData()->GetArray("InsideImplicitSurfaceWidth");
-  if (!inside_width) {
+  if (normal_distance && !inside_width) {
     inside_width = vtkSmartPointer<vtkFloatArray>::New();
     inside_width->SetName("InsideImplicitSurfaceWidth");
     inside_width->SetNumberOfComponents(2);
@@ -740,37 +753,42 @@ void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dm
   distance.Initialize();
 
   PointSamples dirs(20);
-  dirs.SampleRegularHalfSphere();
+  if (normal_distance) dirs.SampleRegularHalfSphere();
 
   for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId) {
     surface->GetPoint(ptId, p);
-    normals->GetTuple(ptId, n);
-    e[0] = -n[0], e[1] = -n[1], e[2] = -n[2];
     mind = Evaluate(distance, p, offset);
-    num  = Intersections(distances, p, e, mind, minh, maxh, distance, offset, tol);
-    if (mind < .0 && !fequal(mind, .0, tol)) {
-      d = IntersectWithLine(p, n, mind, minh, maxh, distance, offset, tol);
-      distances.insert(distances.begin(), -d);
-      ++num;
+    if (minimum_distance) {
+      minimum_distances->SetComponent(ptId, 0, mind);
     }
-    d = (num > 0 ? distances[0] : maxh);
-    if (actual_distances) actual_distances->SetComponent(ptId, 0, d);
-    if (num >= 2) {
-      h = distances[0] + .5 * (distances[1] - distances[0]);
-      x[0] = p[0] - h * n[0];
-      x[1] = p[1] - h * n[1];
-      x[2] = p[2] - h * n[2];
-      mean.Evaluate(x, dirs, minh, maxh, distance, offset, tol);
-      if (inside_width) {
-        median.Evaluate(x, dirs, minh, maxh, distance, offset, tol);
-        inside_width->SetComponent(ptId, 0, mean.Get());
-        inside_width->SetComponent(ptId, 1, median.Get());
+    if (normal_distance) {
+      normals->GetTuple(ptId, n);
+      e[0] = -n[0], e[1] = -n[1], e[2] = -n[2];
+      num  = Intersections(distances, p, e, mind, minh, maxh, distance, offset, tol);
+      if (mind < .0 && !fequal(mind, .0, tol)) {
+        d = IntersectWithLine(p, n, mind, minh, maxh, distance, offset, tol);
+        distances.insert(distances.begin(), -d);
+        ++num;
       }
-      if (mean.Get() < wtol) {
-        d = (num > 2 ? distances[2] : maxh);
+      d = (num > 0 ? distances[0] : maxh);
+      if (actual_distances) actual_distances->SetComponent(ptId, 0, d);
+      if (num >= 2) {
+        h = distances[0] + .5 * (distances[1] - distances[0]);
+        x[0] = p[0] - h * n[0];
+        x[1] = p[1] - h * n[1];
+        x[2] = p[2] - h * n[2];
+        mean.Evaluate(x, dirs, minh, maxh, distance, offset, tol);
+        if (inside_width) {
+          median.Evaluate(x, dirs, minh, maxh, distance, offset, tol);
+          inside_width->SetComponent(ptId, 0, mean.Get());
+          inside_width->SetComponent(ptId, 1, median.Get());
+        }
+        if (mean.Get() < wtol) {
+          d = (num > 2 ? distances[2] : maxh);
+        }
       }
+      normal_distances->SetComponent(ptId, 0, d);
     }
-    output_distances->SetComponent(ptId, 0, d);
   }
 }
 
@@ -1255,7 +1273,23 @@ void DeformableSurfaceModel::Update(bool gradient)
     if (_Transformation) _PointSet.Update(true);
     // Update implicit surface distances
     if (_ImplicitSurface && _IsSurfaceMesh) {
-      UpdateImplicitSurfaceDistance(_PointSet.Surface(), _ImplicitSurface);
+      // FIXME: Should update be in ImplicitSurfaceForce::UpdateNormalDistances?
+      //        On the other hand, then the distances are recomputed every time
+      //        although they could be shared by different ImplicitSurfaceForce
+      //        subclass instances (e.g., ImplicitSurfaceDistance and
+      //        ImplicitSurfaceSpringForce).
+      bool minimum_distance = false;
+      bool normal_distance  = false;
+      const ImplicitSurfaceForce *force;
+      for (int i = 0; i < NumberOfExternalForces(); ++i) {
+        force = dynamic_cast<ImplicitSurfaceForce *>(ExternalForce(i));
+        if (force) {
+          minimum_distance = minimum_distance || (force->DistanceMeasure() == ImplicitSurfaceForce::DM_Minimum);
+          normal_distance  = normal_distance  || (force->DistanceMeasure() == ImplicitSurfaceForce::DM_Normal);
+        }
+      }
+      UpdateImplicitSurfaceDistance(_PointSet.Surface(), _ImplicitSurface,
+                                    minimum_distance, normal_distance);
     }
     // Update energy terms
     for (int i = 0; i < _NumberOfTerms; ++i) {

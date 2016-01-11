@@ -918,7 +918,7 @@ int main(int argc, char *argv[])
     // Initialize optimizer
     optimizer->Initialize();
     // Debug/log output
-    if (verbose) {
+    if (verbose && level > 0) {
       cout << "Level " << level << "\n\n";
       PrintParameter(cout, "Maximum length of steps", step_length);
       if (model.RemeshInterval() > 0) {

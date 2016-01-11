@@ -149,7 +149,7 @@ void PrintHelp(const char *name)
   cout << "      Length of integration/gradient steps. (default: " << dt << ")" << endl;
   cout << "  -step-magnification <mag>" << endl;
   cout << "      Multiplicative factor for magnification of maximum :option:`-step` length." << endl;
-  cout << "      The step length at level n (highest level at n=1) is :math:`dt * mag^(level-1)`. (default: 1)" << endl;
+  cout << "      The step length at level n (highest level at n=1) is :math:`dt * mag^{level-1}`. (default: 1)" << endl;
   cout << "  -maxdx <value>" << endl;
   cout << "      Maximum displacement of a node at each iteration. By default, the node displacements" << endl;
   cout << "      are normalized by the maximum node displacement. When this option is used, the node" << endl;
@@ -162,7 +162,7 @@ void PrintHelp(const char *name)
   cout << "      Maximum edge length used for local adaptive remeshing. (default: " << model.MaxEdgeLength() << ")" << endl;
   cout << "  -edgelength-magnification <mag>" << endl;
   cout << "      Multiplicative factor for magnification of :option:`-minedgelength` and :option:`-maxedgelength`." << endl;
-  cout << "      The edge length at level n (highest level at n=1) is :math:`l * mag^(level-1)`. (default: 1)" << endl;
+  cout << "      The edge length at level n (highest level at n=1) is :math:`l * mag^{level-1}`. (default: 1)" << endl;
   cout << "  -minangle <degrees>" << endl;
   cout << "      Minimum angle between edge node normals for an edge be excluded from collapsing during" << endl;
   cout << "      iterative :option:`-remesh` operations. (default: " << model.MinFeatureAngle() << ")" << endl;

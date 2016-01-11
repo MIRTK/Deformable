@@ -22,4 +22,16 @@
 # @brief Build configuration of MIRTK Deformable tools.
 ##############################################################################
 
-mirtk_add_executable(deform-mesh DEPENDS LibDeformable ${VTK_LIBRARIES})
+mirtk_add_executable(
+  deform-mesh
+  DEPENDS
+    LibCommon
+    LibNumerics
+    LibImage
+    LibPointSet
+    LibTransformation
+    LibDeformable
+    ${VTK_LIBRARIES}
+  OPTIONAL
+    LibNIfTI
+)

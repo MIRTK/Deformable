@@ -68,6 +68,8 @@ basis_project (
   OPTIONAL_DEPENDS
     TBB
     #<optional-dependency>
+  OPTIONAL_TOOLS_DEPENDS
+    MIRTK{NIfTI}
   TEST_DEPENDS
     #<test-dependency>
   OPTIONAL_TEST_DEPENDS

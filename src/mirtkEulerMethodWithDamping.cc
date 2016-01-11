@@ -21,12 +21,17 @@
 
 #include <mirtkParallel.h>
 #include <mirtkDeformableSurfaceModel.h>
+#include <mirtkObjectFactory.h>
 
 #include <vtkPointData.h>
 #include <vtkFloatArray.h>
 
 
 namespace mirtk {
+
+
+// Register energy term with object factory during static initialization
+mirtkAutoRegisterOptimizerMacro(EulerMethodWithDamping);
 
 
 // =============================================================================

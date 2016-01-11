@@ -19,6 +19,9 @@
 
 #include <mirtkCommon.h>
 #include <mirtkOptions.h>
+
+#include <mirtkInitialization.h>
+
 #include <mirtkPointSetUtils.h>
 #include <mirtkTransformation.h>
 #include <mirtkBSplineFreeFormTransformation3D.h>
@@ -213,6 +216,12 @@ int main(int argc, char *argv[])
 {
   verbose = 1; // default verbosity level
   EXPECTS_POSARGS(2);
+
+  // Initialize object factories
+  RegisterImageReaders();
+  RegisterPointSetForces();
+  RegisterTransformationConstraints();
+  RegisterOptimizers();
 
   // Deformable surface model and default optimizer
   unique_ptr<Transformation> dof;

@@ -22,9 +22,6 @@
 # @brief Build configuration of MIRTK Deformable library.
 ##############################################################################
 
-set(TARGET_NAME "Lib${PROJECT_NAME}")
-set(OUTPUT_NAME "${PROJECT_PACKAGE_NAME}${PROJECT_NAME}")
-
 set(HEADERS
   mirtkBalloonForce.h
   mirtkCurvatureConstraint.h
@@ -85,23 +82,12 @@ set(SOURCES
   mirtkSurfaceForce.cc
 )
 
-foreach (hdr IN LISTS HEADERS)
-  list(APPEND SOURCES "${PROJECT_INCLUDE_DIR}/${hdr}")
-endforeach ()
-
-basis_add_library(${TARGET_NAME} "${SOURCES}")
-
-basis_set_target_properties(
-  ${TARGET_NAME} PROPERTIES
-    VERSION     "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
-    SOVERSION   "${PROJECT_SOVERSION}"
-    OUTPUT_NAME "${OUTPUT_NAME}"
-)
-
-basis_target_link_libraries(${TARGET_NAME}
+set(DEPENDS
   LibCommon
   LibNumerics
   LibImage
   LibPointSet
   ${VTK_LIBRARIES}
 )
+
+mirtk_add_library(AUTO_REGISTER)

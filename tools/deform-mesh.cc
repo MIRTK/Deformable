@@ -141,7 +141,7 @@ void PrintHelp(const char *name)
   cout << "      Node mass used by Euler methods with momentum. (default: 1)" << endl;
   cout << "  -levels <min> [<max>]" << endl;
   cout << "      Perform optimization on starting at level <max> until level <min> (> 0)." << endl;
-  cout << "      On each level, the node forces are averaged :math:`2^(level-1)` times which" << endl;
+  cout << "      On each level, the node forces are averaged :math:`2^{level-1}` times which" << endl;
   cout << "      is similar to computing the forces on a coarser mesh. (default: 0 0)" << endl;
   cout << "  -steps | -iterations <n>" << endl;
   cout << "      Maximum number of iterations. (default: " << nsteps << ")" << endl;
@@ -196,7 +196,7 @@ void PrintHelp(const char *name)
   cout << "      - ``normal``:  Estimate distance by casting rays along normal direction." << endl;
   cout << "  -balloon-inflation | -balloon <w>" << endl;
   cout << "      Weight of inflation force based on local intensity statistics. (default: 0)" << endl;
-  cout << "  -balloon-defflation <w>" << endl;
+  cout << "  -balloon-deflation <w>" << endl;
   cout << "      Weight of deflation force based on local intensity statistics. (default: 0)" << endl;
   cout << "  -edges <w>" << endl;
   cout << "      Weight of image edge force. (default: 0)" << endl;

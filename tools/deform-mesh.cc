@@ -20,7 +20,10 @@
 #include <mirtkCommon.h>
 #include <mirtkOptions.h>
 
-#include <mirtkInitialization.h>
+#include <mirtkImageIOConfig.h>
+#include <mirtkNumericsConfig.h>
+#include <mirtkDeformableConfig.h>
+#include <mirtkTransformationConfig.h>
 
 #include <mirtkPointSetUtils.h>
 #include <mirtkTransformation.h>
@@ -389,11 +392,11 @@ int main(int argc, char *argv[])
   verbose = 1; // default verbosity level
   EXPECTS_POSARGS(2);
 
-  // Initialize object factories
-  RegisterImageReaders();
-  RegisterPointSetForces();
-  RegisterTransformationConstraints();
-  RegisterOptimizers();
+  // Initialize libraries / object factories
+  InitializeNumericsLibrary();
+  InitializeImageIOLibrary();
+  InitializeTransformationLibrary();
+  InitializeDeformableLibrary();
 
   // Deformable surface model and default optimizer
   unique_ptr<Transformation> dof;

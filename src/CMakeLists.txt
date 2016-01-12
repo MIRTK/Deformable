@@ -25,6 +25,7 @@
 set(HEADERS
   mirtkBalloonForce.h
   mirtkCurvatureConstraint.h
+  mirtkDeformableConfig.h
   mirtkDeformableSurfaceDebugger.h
   mirtkDeformableSurfaceLogger.h
   mirtkDeformableSurfaceModel.h
@@ -56,6 +57,7 @@ set(HEADERS
 set(SOURCES
   mirtkBalloonForce.cc
   mirtkCurvatureConstraint.cc
+  mirtkDeformableConfig.cc
   mirtkDeformableSurfaceDebugger.cc
   mirtkDeformableSurfaceLogger.cc
   mirtkDeformableSurfaceModel.cc

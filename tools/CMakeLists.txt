@@ -28,10 +28,9 @@ mirtk_add_executable(
     LibCommon
     LibNumerics
     LibImage
+    LibImageIO
     LibPointSet
     LibTransformation
     LibDeformable
     ${VTK_LIBRARIES}
-  OPTIONAL
-    LibNIfTI
 )

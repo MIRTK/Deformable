@@ -44,7 +44,7 @@ basis_project (
   # meta-data
   NAME        "Deformable"
   PACKAGE     "MIRTK"
-  VERSION     "1.0.0rc1" # External module version
+  VERSION     "1.0.0rc2" # External module version
   SOVERSION   "0"        # API yet unstable
   AUTHORS     "Andreas Schuh"
   DESCRIPTION "Deformable library of the Medical Image Registration ToolKit."

@@ -804,6 +804,7 @@ using namespace DeformableSurfaceModelUtils;
 DeformableSurfaceModel::DeformableSurfaceModel()
 :
   _Image(NULL),
+  _ImplicitSurface(NULL),
   _Transformation(NULL),
   _NumberOfTerms(0),
   _NeighborhoodRadius(2),

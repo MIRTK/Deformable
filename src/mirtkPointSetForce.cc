@@ -583,7 +583,7 @@ void PointSetForce::WriteDataSets(const char *p, const char *suffix, bool all) c
 
   const int   sz = 1024;
   char        fname[sz];
-  string _prefix = Prefix(p);
+  string      _prefix = Prefix(p);
   const char  *prefix = _prefix.c_str();
 
   if (_SurfaceForce) {
@@ -612,7 +612,7 @@ void PointSetForce::WriteGradient(const char *p, const char *suffix) const
 
   const int   sz = 1024;
   char        fname[sz];
-  string _prefix = Prefix(p);
+  string      _prefix = Prefix(p);
   const char  *prefix = _prefix.c_str();
 
   vtkSmartPointer<vtkDataArray> gradient = ToFloatArray(_Gradient, _NumberOfPoints);

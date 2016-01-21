@@ -507,10 +507,10 @@ int main(int argc, char *argv[])
       step_length_magnification = .0;
       model.NeighborhoodRadius(2);
       unique_ptr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
-      optimizer.reset(euler.release());
       euler->Momentum(.9);
       euler->NormalizeStepLength(false);
       euler->MaximumDisplacement(1.0);
+      optimizer.reset(euler.release());
       center_output = true;
       match_area    = true;
     }

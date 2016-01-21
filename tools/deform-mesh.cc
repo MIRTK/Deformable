@@ -846,6 +846,7 @@ int main(int argc, char *argv[])
   GradientDescent *gd    = dynamic_cast<GradientDescent *>(optimizer.get());
   EulerMethod     *euler = dynamic_cast<EulerMethod     *>(optimizer.get());
 
+  optimizer->Function(&model);
   optimizer->Initialize();
 
   if (gd) {

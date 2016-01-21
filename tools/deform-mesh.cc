@@ -38,6 +38,7 @@
 // Optimization method
 #include <mirtkLocalOptimizer.h>
 #include <mirtkEulerMethod.h>
+#include <mirtkEulerMethodWithMomentum.h>
 #include <mirtkGradientDescent.h>
 #include <mirtkInexactLineSearch.h>
 #include <mirtkBrentLineSearch.h>
@@ -142,8 +143,9 @@ void PrintHelp(const char *name)
   cout << "      Momentum of Euler method with momentum, i.e., :math:`1 - damping` (see :option:`-damping`)" << endl;
   cout << "  -mass <value>" << endl;
   cout << "      Node mass used by Euler methods with momentum. (default: 1)" << endl;
-  cout << "  -levels <min> [<max>]" << endl;
+  cout << "  -levels <max> | <min> <max>" << endl;
   cout << "      Perform optimization on starting at level <max> until level <min> (> 0)." << endl;
+  cout << "      When only the <max> level argument is given, the <min> level is set to 1." << endl;
   cout << "      On each level, the node forces are averaged :math:`2^{level-1}` times which" << endl;
   cout << "      is similar to computing the forces on a coarser mesh. (default: 0 0)" << endl;
   cout << "  -steps | -iterations <n>" << endl;
@@ -467,6 +469,7 @@ int main(int argc, char *argv[])
   double      max_step_length           = dt;
   double      step_length_magnification = 1.0;
   double      edge_length_magnification = 1.0;
+  bool        inflate_brain  = false; // mimick mris_inflate
 
   for (ALL_OPTIONS) {
     // Input
@@ -491,6 +494,25 @@ int main(int argc, char *argv[])
         cerr << "Invalid -padding argument" << endl;
         exit(1);
       }
+    }
+    // Presets
+    else if (OPTION("-inflate-brain")) { // cf. FreeSurfer's mris_inflate
+      inflate_brain = true;
+      min_level = 1, max_level = 6;
+      nsteps1 = nstepsN = 10;
+      inflation.Weight(1.0);
+      distortion.Weight(.1);
+      inflation_error.Threshold(.015);
+      max_step_length = .9;
+      step_length_magnification = .0;
+      model.NeighborhoodRadius(2);
+      unique_ptr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
+      optimizer.reset(euler.release());
+      euler->Momentum(.9);
+      euler->NormalizeStepLength(false);
+      euler->MaximumDisplacement(1.0);
+      center_output = true;
+      match_area    = true;
     }
     // Optimization method
     else if (OPTION("-optimizer") || OPTION("-optimiser")) {
@@ -790,6 +812,10 @@ int main(int argc, char *argv[])
 
   // Initialize deformable surface model
   if (repulsion_radius == .0) repulsion.Radius(1.0);
+
+  model.GradientAveraging(0);
+  model.AverageSignedGradients(false);
+  model.AverageGradientMagnitude(true);
   model.Initialize();
 
   vtkPointSet  *output   = model.Output();
@@ -888,8 +914,15 @@ int main(int argc, char *argv[])
   }
 
   for (int level = max_level; level >= min_level; --level) {
+    // Number of gradient averaging iterations
+    const int navgs = (level > 1 ? static_cast<int>(pow(2, level - 2)) : 0);
     // Set number of iterations and length of each step
-    double step_length = max_step_length * pow(step_length_magnification, level - 1);
+    double step_length = max_step_length;
+    if (inflate_brain) {
+      step_length *= sqrt(double(navgs + 1));
+    } else if (level > 1) {
+      step_length *= pow(step_length_magnification, level - 1);
+    }
     optimizer->Set("Maximum length of steps", ToString(step_length).c_str());
     optimizer->NumberOfSteps(level > min_level ? nstepsN : nsteps1);
     // Set edge length range
@@ -899,19 +932,13 @@ int main(int argc, char *argv[])
       const double r = model.MinEdgeLength() + .5 * (model.MaxEdgeLength() - model.MinEdgeLength());
       repulsion.Radius(r);
     }
-    // Set number of gradient averaging iterations
-    model.GradientAveraging(level > 1 ? static_cast<int>(pow(2, level - 2)) : 0);
-    model.AverageSignedGradients(false);
-    model.AverageGradientMagnitude(true);
-    // Adjust metric distortion weight for current level of brain surface
-    // inflation and only average the metric distortion gradient, not the
-    // spring force (cf. FreeSurfer's MRISinflateBrain function)
-    if (inflation.Weight() != .0) {
-      if (max_level != 0) {
-        distortion.Weight(distortion_weight * sqrt(model.GradientAveraging()));
-      }
-      distortion.GradientAveraging(model.GradientAveraging());
-      model.GradientAveraging(0);
+    // Set number of gradient averaging iterations and adjust metric distortion
+    // weight for current level (cf. FreeSurfer's MRISinflateBrain function)
+    if (inflate_brain) {
+      distortion.Weight(distortion_weight * sqrt(double(navgs)));
+      distortion.GradientAveraging(navgs);
+    } else {
+      model.GradientAveraging(navgs);
     }
     // Reset node status
     if (reset_status) {

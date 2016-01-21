@@ -253,6 +253,27 @@ void PrintHelp(const char *name)
   cout << "      Record sum of node displacements along normal direction. The integrated" << endl;
   cout << "      displacements are stored in the point data array named \"NormalDisplacement\"" << endl;
   cout << "      by default or with the specified <name>. (default: off)" << endl;
+  cout << "  -track-zero-mean [<name>]" << endl;
+  cout << "      Same as :option:`-track`, but subtract mean from tracked values." << endl;
+  cout << "      This option is implicit when :option:`-inflate-brain` is given to inflate a cortical" << endl;
+  cout << "      brain surface. The default output array name is \"SulcalDepth\". Otherwise, the default" << endl;
+  cout << "      point data array name is \"NormalDisplacementZeroMean\". (default: off)" << endl;
+  cout << "  -track-zero-median [<name>]" << endl;
+  cout << "      Same as :option:`-track`, but subtract median from tracked values." << endl;
+  cout << "      The default point data array name is \"NormalDisplacementZeroMedian\". (default: off)" << endl;
+  cout << "  -track-unit-variance [<name>]" << endl;
+  cout << "      Same as :option:`-track`, but divide tracked values by their standard deviation." << endl;
+  cout << "      The default point data array name is \"NormalDisplacementUnitVariance\". (default: off)" << endl;
+  cout << "  -track-zvalues [<name>]" << endl;
+  cout << "      Same as :option:`-track`, but subtract mean from tracked values and divide by standard deviation." << endl;
+  cout << "      The resulting values are the Z-score normalized standard scores of the tracked displacements." << endl;
+  cout << "      The default point data array name is \"NormalDisplacementZValues\". (default: off)" << endl;
+  cout << "  -track-zero-median-zvalues [<name>]" << endl;
+  cout << "      Same as :option:`-track`, but subtract median from tracked values and divide by standard deviation." << endl;
+  cout << "      It can be used with :option:`-inflate-brain` to obtain a normalized curvature measure." << endl;
+  cout << "      The default point data array name is \"NormalDisplacementZeroMedianZValues\". (default: off)" << endl;
+  cout << "  -notrack" << endl;
+  cout << "      Do not track node displacements along normal direction." << endl;
   cout << "  -center-output" << endl;
   cout << "      Center output mesh such that center is at origin. (default: off)" << endl;
   cout << "  -match-area" << endl;
@@ -287,37 +308,89 @@ void PrintHelp(const char *name)
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-/// Normalize curvature (sulcal depth measure tracked during cortical inflation process)
-void NormalizeCurvature(vtkDataArray *curv, bool use_median = true)
+/// Subract mean of tracked normal displacements
+void DemeanValues(vtkDataArray *values, bool use_median = false)
+{
+  double mu;
+
+  // Compute mean (or median)
+  if (use_median) {
+    vtkSmartPointer<vtkDataArray> sorted;
+    sorted = vtkSmartPointer<vtkDataArray>::NewInstance(values);
+    sorted->DeepCopy(values);
+    vtkSortDataArray::Sort(sorted);
+    mu = sorted->GetComponent(sorted->GetNumberOfTuples() / 2, 0);
+  } else {
+    mu = .0;
+    for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+      mu += values->GetComponent(id, 0);
+    }
+    mu /= values->GetNumberOfTuples();
+  }
+
+  // Subtract mean from curvature measures
+  for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+    values->SetComponent(id, 0, values->GetComponent(id, 0) - mu);
+  }
+}
+
+// -----------------------------------------------------------------------------
+/// Normalize variance of tracked normal displacements
+void NormalizeVariance(vtkDataArray *values)
+{
+  // Compute mean
+  double mu = .0;
+  for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+    mu += values->GetComponent(id, 0);
+  }
+  mu /= values->GetNumberOfTuples();
+
+  // Compute variance
+  double var = .0;
+  for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+    var += pow(values->GetComponent(id, 0) - mu, 2);
+  }
+  var /= values->GetNumberOfTuples();
+
+  // Normalize variance
+  double sigma = (var == .0 ? 1.0 : sqrt(var));
+  for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+    values->SetComponent(id, 0, mu + (values->GetComponent(id, 0) - mu) / sigma);
+  }
+}
+
+// -----------------------------------------------------------------------------
+/// Normalize tracked normal displacements
+void NormalizeValues(vtkDataArray *values, bool use_median = false)
 {
   double mu, var;
 
   // Compute mean (or median)
   if (use_median) {
     vtkSmartPointer<vtkDataArray> sorted;
-    sorted = vtkSmartPointer<vtkDataArray>::NewInstance(curv);
-    sorted->DeepCopy(curv);
+    sorted = vtkSmartPointer<vtkDataArray>::NewInstance(values);
+    sorted->DeepCopy(values);
     vtkSortDataArray::Sort(sorted);
     mu = sorted->GetComponent(sorted->GetNumberOfTuples() / 2, 0);
   } else {
     mu = .0;
-    for (vtkIdType id = 0; id < curv->GetNumberOfTuples(); ++id) {
-      mu += curv->GetComponent(id, 0);
+    for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+      mu += values->GetComponent(id, 0);
     }
-    mu /= curv->GetNumberOfTuples();
+    mu /= values->GetNumberOfTuples();
   }
 
   // Compute variance
   var = .0;
-  for (vtkIdType id = 0; id < curv->GetNumberOfTuples(); ++id) {
-    var += pow(curv->GetComponent(id, 0) - mu, 2);
+  for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+    var += pow(values->GetComponent(id, 0) - mu, 2);
   }
-  var /= curv->GetNumberOfTuples();
+  var /= values->GetNumberOfTuples();
 
   // Z-score normalize curvature measures
   double sigma = (var == .0 ? 1.0 : sqrt(var));
-  for (vtkIdType id = 0; id < curv->GetNumberOfTuples(); ++id) {
-    curv->SetComponent(id, 0, (curv->GetComponent(id, 0) - mu) / sigma);
+  for (vtkIdType id = 0; id < values->GetNumberOfTuples(); ++id) {
+    values->SetComponent(id, 0, (values->GetComponent(id, 0) - mu) / sigma);
   }
 }
 
@@ -446,30 +519,34 @@ int main(int argc, char *argv[])
   inflation_error.Threshold(numeric_limits<double>::quiet_NaN());
 
   // Optional arguments
-  const char *image_name     = NULL;
-  const char *dmap_name      = NULL;
-  double      dmap_offset    = .0;
-  const char *mask_name      = NULL;
-  const char *track_name     = NULL; // track normal movement of nodes
-  const char *initial_name   = NULL;
-  const char *debug_prefix   = "deform_mesh_";
-  double      padding        = numeric_limits<double>::quiet_NaN();
-  bool        level_prefix   = true;
-  bool        reset_status   = false;
-  bool        ascii          = false;
-  bool        compress       = true;
-  bool        center_output  = false;
-  bool        match_area     = false;
-  bool        match_sampling = false;
-  bool        save_status    = false;
-  int         min_level      = 0;
-  int         max_level      = 0;
-  int         nsteps1        = nsteps; // iterations at level 1
-  int         nstepsN        = nsteps; // iterations at level N
+  const char *image_name       = NULL;
+  const char *dmap_name        = NULL;
+  double      dmap_offset      = .0;
+  const char *mask_name        = NULL;
+  const char *track_name       = NULL;  // track normal movement of nodes
+  bool        track_zero_mean  = false; // subtract mean from tracked normal movements
+  bool        track_unit_var   = false; // Z-score normalize tracked normal movements
+  bool        track_use_median = false; // use median instead of mean for normalization
+  const char *initial_name     = NULL;
+  const char *debug_prefix     = "deform_mesh_";
+  double      padding          = numeric_limits<double>::quiet_NaN();
+  bool        level_prefix     = true;
+  bool        reset_status     = false;
+  bool        ascii            = false;
+  bool        compress         = true;
+  bool        center_output    = false;
+  bool        match_area       = false;
+  bool        match_sampling   = false;
+  bool        save_status      = false;
+  int         min_level        = 0;
+  int         max_level        = 0;
+  int         nsteps1          = nsteps; // iterations at level 1
+  int         nstepsN          = nsteps; // iterations at level N
   double      max_step_length           = dt;
   double      step_length_magnification = 1.0;
   double      edge_length_magnification = 1.0;
   bool        inflate_brain  = false; // mimick mris_inflate
+
 
   for (ALL_OPTIONS) {
     // Input
@@ -500,19 +577,23 @@ int main(int argc, char *argv[])
       inflate_brain = true;
       min_level = 1, max_level = 6;
       nsteps1 = nstepsN = 10;
-      inflation.Weight(1.0);
-      distortion.Weight(.1);
+      inflation.Weight(.5);   //  1 / 2 b/c InflationForce   gradient weight incl. factor 2
+      distortion.Weight(.05); // .1 / 2 b/c MetricDistortion gradient weight incl. factor 2
       inflation_error.Threshold(.015);
       max_step_length = .9;
-      step_length_magnification = .0;
+      step_length_magnification = 1.0;
       model.NeighborhoodRadius(2);
       unique_ptr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
       euler->Momentum(.9);
       euler->NormalizeStepLength(false);
       euler->MaximumDisplacement(1.0);
       optimizer.reset(euler.release());
-      center_output = true;
-      match_area    = true;
+      center_output    = true;
+      match_area       = true;
+      track_name       = "SulcalDepth";
+      track_zero_mean  = true;
+      track_unit_var   = false;
+      track_use_median = false;
     }
     // Optimization method
     else if (OPTION("-optimizer") || OPTION("-optimiser")) {
@@ -596,10 +677,6 @@ int main(int argc, char *argv[])
     else if (OPTION("-delta"))     Insert(params, "Delta", ARGUMENT);
     else if (OPTION("-minenergy")) Insert(params, "Target energy function value", ARGUMENT);
     else if (OPTION("-minactive")) min_active.Threshold(atof(ARGUMENT));
-    else if (OPTION("-track")) {
-      if (HAS_ARGUMENT) track_name = ARGUMENT;
-      else              track_name = "NormalDisplacement";
-    }
     else if (OPTION("-extrinsic-energy")) {
       model.MinimizeExtrinsicEnergy(true);
     }
@@ -693,6 +770,44 @@ int main(int argc, char *argv[])
     else if (OPTION("-center-output"))  center_output  = true;
     else if (OPTION("-match-area"))     match_area     = true;
     else if (OPTION("-match-sampling")) match_sampling = true;
+    else if (OPTION("-track")) {
+      if (HAS_ARGUMENT) track_name = ARGUMENT;
+      else              track_name = "NormalDisplacement";
+    }
+    else if (OPTION("-notrack")) track_name = nullptr;
+    else if (OPTION("-track-zvalues")) {
+      if (HAS_ARGUMENT)     track_name = ARGUMENT;
+      else if (!track_name) track_name = "NormalDisplacementZValues";
+      track_zero_mean  = true;
+      track_unit_var   = true;
+      track_use_median = false;
+    }
+    else if (OPTION("-track-zero-median-zvalues")) {
+      if (HAS_ARGUMENT)     track_name = ARGUMENT;
+      else if (!track_name) track_name = "NormalDisplacementZeroMedianZValues";
+      track_zero_mean  = true;
+      track_unit_var   = true;
+      track_use_median = true;
+    }
+    else if (OPTION("-track-zero-mean")) {
+      if (HAS_ARGUMENT)     track_name = ARGUMENT;
+      else if (!track_name) track_name = "NormalDisplacementZeroMean";
+      track_zero_mean  = true;
+      track_use_median = false;
+    }
+    else if (OPTION("-track-zero-median")) {
+      if (HAS_ARGUMENT)     track_name = ARGUMENT;
+      else if (!track_name) track_name = "NormalDisplacementZeroMedian";
+      track_zero_mean  = true;
+      track_use_median = true;
+    }
+    else if (OPTION("-track-unit-variance")) {
+      if (HAS_ARGUMENT)     track_name = ARGUMENT;
+      else if (!track_name) track_name = "NormalDisplacementUnitVariance";
+      track_zero_mean  = false;
+      track_use_median = false;
+      track_unit_var   = true;
+    }
     else if (OPTION("-save-status"))    save_status    = true;
     else if (OPTION("-ascii" ) || OPTION("-nobinary")) ascii = true;
     else if (OPTION("-binary") || OPTION("-noascii" )) ascii = false;
@@ -919,9 +1034,7 @@ int main(int argc, char *argv[])
     const int navgs = (level > 1 ? static_cast<int>(pow(2, level - 2)) : 0);
     // Set number of iterations and length of each step
     double step_length = max_step_length;
-    if (inflate_brain) {
-      step_length *= sqrt(double(navgs + 1));
-    } else if (level > 1) {
+    if (level > 1) {
       step_length *= pow(step_length_magnification, level - 1);
     }
     optimizer->Set("Maximum length of steps", ToString(step_length).c_str());
@@ -949,8 +1062,15 @@ int main(int argc, char *argv[])
     // Initialize optimizer
     optimizer->Initialize();
     // Debug/log output
-    if (verbose && level > 0) {
-      cout << "Level " << level << "\n\n";
+    if (verbose) {
+      cout << "Level " << level << "\n";
+    }
+    if (verbose > 1) {
+      cout << "\n";
+      if (inflate_brain) {
+        PrintParameter(cout, "Distortion weight", distortion.Weight());
+      }
+      PrintParameter(cout, "No. of gradient averaging iterations", navgs);
       PrintParameter(cout, "Maximum length of steps", step_length);
       if (model.RemeshInterval() > 0) {
         PrintParameter(cout, "Minimum edge length", model.MinEdgeLength());
@@ -959,8 +1079,8 @@ int main(int argc, char *argv[])
       if (repulsion.Weight()) {
         PrintParameter(cout, "Repulsion radius", repulsion.Radius());
       }
-      cout << endl;
     }
+    cout << endl;
     if (level_prefix) {
       char prefix[64];
       snprintf(prefix, 64, "%slevel_%d_", debug_prefix, level);
@@ -1006,9 +1126,11 @@ int main(int argc, char *argv[])
   }
 
   // Normalize sulcal depth measure tracked during inflation process
-  if (inflation.Weight() && track_name) {
-    vtkDataArray *curv = outputPD->GetArray(track_name);
-    if (curv) NormalizeCurvature(curv);
+  if (track_name) {
+    vtkDataArray *values = outputPD->GetArray(track_name);
+    if (track_zero_mean && track_unit_var) NormalizeValues  (values, track_use_median);
+    else if (track_zero_mean)              DemeanValues     (values, track_use_median);
+    else if (track_unit_var)               NormalizeVariance(values);
   }
 
   // Resample remeshed output mesh at corresponding initial points

@@ -22,6 +22,7 @@
 #include <mirtkMath.h>
 #include <mirtkParallel.h>
 #include <mirtkDeformableSurfaceModel.h>
+#include <mirtkPointSetUtils.h>
 #include <mirtkObjectFactory.h>
 
 #include <vtkPointData.h>
@@ -98,14 +99,16 @@ using namespace EulerMethodWithMomentumUtils;
 EulerMethodWithMomentum::EulerMethodWithMomentum(ObjectiveFunction *f)
 :
   EulerMethod(f),
-  _Momentum(.9)
+  _Momentum(.9),
+  _ExcludeMomentumFromNormalDisplacement(false)
 {
 }
 
 // -----------------------------------------------------------------------------
 void EulerMethodWithMomentum::CopyAttributes(const EulerMethodWithMomentum &other)
 {
-  _Momentum = other._Momentum;
+  _Momentum                              = other._Momentum;
+  _ExcludeMomentumFromNormalDisplacement = other._ExcludeMomentumFromNormalDisplacement;
 }
 
 // -----------------------------------------------------------------------------
@@ -147,6 +150,9 @@ bool EulerMethodWithMomentum::Set(const char *name, const char *value)
     _Momentum = 1.0 - damping;
     return true;
   }
+  if (strcmp(name, "Exclude momentum from tracked normal displacement")) {
+    return FromString(value, _ExcludeMomentumFromNormalDisplacement);
+  }
   return EulerMethod::Set(name, value);
 }
 
@@ -155,6 +161,7 @@ ParameterList EulerMethodWithMomentum::Parameter() const
 {
   ParameterList params = EulerMethod::Parameter();
   Insert(params, "Deformable surface momentum", _Momentum);
+  Insert(params, "Exclude momentum from tracked normal displacement", _ExcludeMomentumFromNormalDisplacement);
   return params;
 }
 
@@ -205,6 +212,32 @@ void EulerMethodWithMomentum::UpdateDisplacement()
   ComputeDisplacements eval(_Displacement, displacement, _Gradient,
                             _Momentum, max_dx, _StepLength, norm);
   parallel_for(blocked_range<int>(0, _Model->NumberOfPoints()), eval);
+}
+
+// -----------------------------------------------------------------------------
+void EulerMethodWithMomentum::UpdateNormalDisplacement()
+{
+  if (_ExcludeMomentumFromNormalDisplacement) {
+    // Note: The actual displacement of a node is given by _Displacement.
+    //       However, the tracking of the normal displacements is in particular
+    //       used to measure sulcal depth during cortical surface inflation.
+    //       The FreeSurfer function MRISinflateBrain only sums up the current
+    //       displacements (scaled forces) excluding the momentum.
+    if (_NormalDisplacement && IsSurfaceMesh(_Model->Output())) {
+      double d, n[3];
+      const double dt = - _StepLength / this->GradientNorm();
+      const double *g = _Gradient;
+      vtkDataArray *normals = _Model->PointSet().SurfaceNormals();
+      for (int ptId = 0; ptId < _Model->NumberOfPoints(); ++ptId, g += 3) {
+        normals->GetTuple(ptId, n);
+        d  = _NormalDisplacement->GetComponent(ptId, 0);
+        d += dt*g[0]*n[0] + dt*g[1]*n[1] + dt*g[2]*n[2];
+        _NormalDisplacement->SetComponent(ptId, 0, d);
+      }
+    }
+  } else {
+    EulerMethod::UpdateNormalDisplacement();
+  }
 }
 
 

@@ -47,6 +47,11 @@ class EulerMethodWithMomentum : public EulerMethod
   /// Momentum factor
   mirtkPublicAttributeMacro(double, Momentum);
 
+  /// Whether to exclude the momentum component from the total displacements
+  /// in normal direction. By default, the _Displacement in normal direction
+  /// by which a node is actually moved is integrated.
+  mirtkPublicAttributeMacro(bool, ExcludeMomentumFromNormalDisplacement);
+
   /// Copy attributes of this class from another instance
   void CopyAttributes(const EulerMethodWithMomentum &);
 
@@ -84,8 +89,13 @@ public:
   /// This member funtion is implicitly called by Run.
   virtual void Initialize();
 
+protected:
+
   /// Update node displacements
   virtual void UpdateDisplacement();
+
+  /// Update recorded node displacement in normal direction
+  virtual void UpdateNormalDisplacement();
 
 };
 

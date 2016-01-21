@@ -585,6 +585,7 @@ int main(int argc, char *argv[])
       model.NeighborhoodRadius(2);
       unique_ptr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
       euler->Momentum(.9);
+      euler->ExcludeMomentumFromNormalDisplacement(true);
       euler->NormalizeStepLength(false);
       euler->MaximumDisplacement(1.0);
       optimizer.reset(euler.release());

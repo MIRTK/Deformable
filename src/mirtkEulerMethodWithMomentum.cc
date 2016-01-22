@@ -150,7 +150,7 @@ bool EulerMethodWithMomentum::Set(const char *name, const char *value)
     _Momentum = 1.0 - damping;
     return true;
   }
-  if (strcmp(name, "Exclude momentum from tracked normal displacement")) {
+  if (strcmp(name, "Exclude momentum from tracked normal displacement") == 0) {
     return FromString(value, _ExcludeMomentumFromNormalDisplacement);
   }
   return EulerMethod::Set(name, value);

@@ -272,6 +272,13 @@ void PrintHelp(const char *name)
   cout << "      Same as :option:`-track`, but subtract median from tracked values and divide by standard deviation." << endl;
   cout << "      It can be used with :option:`-inflate-brain` to obtain a normalized curvature measure." << endl;
   cout << "      The default point data array name is \"NormalDisplacementZeroMedianZValues\". (default: off)" << endl;
+  cout << "  -track-without-momentum" << endl;
+  cout << "      When tracking the total displacement of a node in normal direction using the EulerMethodWithMomentum" << endl;
+  cout << "      :option:`-optimizer` as used in particular by :option:`-inflate-brain`, exclude the momentum from the." << endl;
+  cout << "      tracked displacement. This is idential to FreeSurfer's mrisTrackTotalDisplacement used for the curvature" << endl;
+  cout << "      output of mris_inflate. The correct curvature value is, however, obtained by including the momentum" << endl;
+  cout << "      component as it integrates the actual amount by which each node is displaced during the Euler steps." << endl;
+  cout << "      Not using this option corresponds to the mrisTrackTotalDisplacementNew function. (default: off)" << endl;
   cout << "  -notrack" << endl;
   cout << "      Do not track node displacements along normal direction." << endl;
   cout << "  -center-output" << endl;
@@ -585,7 +592,6 @@ int main(int argc, char *argv[])
       model.NeighborhoodRadius(2);
       unique_ptr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
       euler->Momentum(.9);
-      euler->ExcludeMomentumFromNormalDisplacement(true);
       euler->NormalizeStepLength(false);
       euler->MaximumDisplacement(1.0);
       optimizer.reset(euler.release());
@@ -808,6 +814,9 @@ int main(int argc, char *argv[])
       track_zero_mean  = false;
       track_use_median = false;
       track_unit_var   = true;
+    }
+    else if (OPTION("-track-without-momentum")) {
+      Insert(params, "Exclude momentum from tracked normal displacement", true);
     }
     else if (OPTION("-save-status"))    save_status    = true;
     else if (OPTION("-ascii" ) || OPTION("-nobinary")) ascii = true;

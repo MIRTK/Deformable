@@ -780,6 +780,9 @@ int main(int argc, char *argv[])
     else if (OPTION("-track")) {
       if (HAS_ARGUMENT) track_name = ARGUMENT;
       else              track_name = "NormalDisplacement";
+      track_zero_mean  = false;
+      track_unit_var   = false;
+      track_use_median = false;
     }
     else if (OPTION("-notrack")) track_name = nullptr;
     else if (OPTION("-track-zvalues")) {

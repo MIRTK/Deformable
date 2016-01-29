@@ -161,6 +161,9 @@ void PrintHelp(const char *name)
   cout << "      displacements are clamped to the specified maximum length instead. (default: :option:`-step`)" << endl;
   cout << "  -remesh <n>" << endl;
   cout << "      Remesh surface mesh every n-th iteration. (default: " << model.RemeshInterval() << ")" << endl;
+  cout << "  -remesh-adaptively" << endl;
+  cout << "      Remesh surface mesh using an adaptive edge length interval based on local curvature" << endl;
+  cout << "      of the deformed surface mesh or input implicit surface (:option:`-dmap`)." << endl;
   cout << "  -minedgelength <value>" << endl;
   cout << "      Minimum edge length used for local adaptive remeshing. (default: " << model.MinEdgeLength() << ")" << endl;
   cout << "  -maxedgelength <value>" << endl;
@@ -178,6 +181,8 @@ void PrintHelp(const char *name)
   cout << "      Low-pass filter surface mesh every n-th iteration. (default: " << model.LowPassInterval() << ")" << endl;
   cout << "  -lowpass-iterations <n>" << endl;
   cout << "      Number of :option:`-lowpass` filter iterations. (default: " << model.LowPassIterations() << ")" << endl;
+  cout << "  -lowpass-band <band>" << endl;
+  cout << "      Low-pass filtering band argument, usually in the range [0, 2]. (default: " << model.LowPassBand() << ")" << endl;
   cout << "  -nointersection" << endl;
   cout << "      Hard non-self-intersection constraint for surface meshes. (default: off)" << endl;
   cout << "  -mind | -mindistance <value>" << endl;
@@ -544,6 +549,7 @@ int main(int argc, char *argv[])
   bool        center_output    = false;
   bool        match_area       = false;
   bool        match_sampling   = false;
+  bool        signed_gradient  = false; // average gradient vectors with positive dot product
   bool        save_status      = false;
   int         min_level        = 0;
   int         max_level        = 0;
@@ -597,6 +603,7 @@ int main(int argc, char *argv[])
       optimizer.reset(euler.release());
       center_output    = true;
       match_area       = true;
+      signed_gradient  = false;
       track_name       = "SulcalDepth";
       track_zero_mean  = true;
       track_unit_var   = false;
@@ -694,6 +701,7 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-distance")) {
       distance.Weight(atof(ARGUMENT));
+      signed_gradient = true;
     }
     else if (OPTION("-distance-measure")) {
       ImplicitSurfaceDistance::DistanceMeasureType measure;
@@ -757,7 +765,8 @@ int main(int argc, char *argv[])
       inflation_error.Threshold(atof(ARGUMENT));
     }
     // Iterative local remeshing
-    else if (OPTION("-remesh"))        model.RemeshInterval(atoi(ARGUMENT));
+    else if (OPTION("-remesh")) model.RemeshInterval(atoi(ARGUMENT));
+    else if (OPTION("-remesh-adaptively")) model.RemeshAdaptively(true);
     else if (OPTION("-minedgelength")) model.MinEdgeLength(atof(ARGUMENT));
     else if (OPTION("-maxedgelength")) model.MaxEdgeLength(atof(ARGUMENT));
     else if (OPTION("-edgelength-magnification")) {
@@ -942,7 +951,7 @@ int main(int argc, char *argv[])
   if (repulsion_radius == .0) repulsion.Radius(1.0);
 
   model.GradientAveraging(0);
-  model.AverageSignedGradients(false);
+  model.AverageSignedGradients(signed_gradient);
   model.AverageGradientMagnitude(true);
   model.Initialize();
 

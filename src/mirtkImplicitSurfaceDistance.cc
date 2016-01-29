@@ -27,7 +27,6 @@
 
 #include <vtkPoints.h>
 #include <vtkDataArray.h>
-#include <vtkFloatArray.h>
 
 
 namespace mirtk {
@@ -56,30 +55,29 @@ struct ComputeGradient
   vtkDataArray         *_Normals;
   vtkDataArray         *_Distances;
   double                _MaxDistance;
+  double                _Scale;
   GradientType         *_Gradient;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double p[3], n[3], d, maxd;
+    double n[3], d;
     GradientType *g = _Gradient + ptIds.begin();
     for (vtkIdType ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, ++g) {
       if (_Status && _Status->GetComponent(ptId, 0) == .0) continue;
       _Normals->GetTuple(ptId, n);
       d = _Distances->GetComponent(ptId, 0);
+      if (d < .0) (*g) = -GradientType(n[0], n[1], n[2]);
+      else        (*g) =  GradientType(n[0], n[1], n[2]);
 
       if (_MaxDistance > .0) { // e.g. _Force->DistanceMeasure() == DM_Normal
 
-        if (!fequal(d, .0)) {
-          _Points->GetPoint(ptId, p);
-          maxd = .33 * _Force->IntersectWithRay(p, n, -d);
-          if (maxd < abs(d)) d = copysign(maxd, d);
-        }
-        (*g) = (d / _MaxDistance) * GradientType(n[0], n[1], n[2]);
+        d /= _MaxDistance;
+        d *= _Scale;
+        d *= d;
+        (*g) *= d / (1.0 + d);
 
       } else { // _Force->DistanceMeasure() == DM_Minimum
 
-        if (d < .0) (*g) = -GradientType(n[0], n[1], n[2]);
-        else        (*g) =  GradientType(n[0], n[1], n[2]);
         d = fabs(d);
         if (d < 1.0) (*g) *= d;
 
@@ -160,7 +158,7 @@ void ImplicitSurfaceDistance::EvaluateGradient(double *gradient, double step, do
 
   memset(_Gradient, 0, _NumberOfPoints * sizeof(GradientType));
 
-  vtkDataArray *distances = Distances();
+  vtkDataArray *distances = this->Distances();
 
   double max_distance = .0;
   if (_DistanceMeasure != DM_Minimum) {
@@ -174,15 +172,9 @@ void ImplicitSurfaceDistance::EvaluateGradient(double *gradient, double step, do
   eval._Normals     = _PointSet->SurfaceNormals();
   eval._Distances   = distances;
   eval._MaxDistance = max_distance;
+  eval._Scale       = 1.0;
   eval._Gradient    = _Gradient;
-  // Attention: VTK cell locator used by SurfaceForce::IntersectWithRay
-  //            is not thread-safe. Hence, execute this loop in main thread.
-  //parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
-  eval(blocked_range<int>(0, _NumberOfPoints));
-
-  _GradientAveraging        = 2;
-  _AverageGradientMagnitude = true;
-  _AverageSignedGradients   = false;
+  parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
   ImplicitSurfaceForce::EvaluateGradient(gradient, step, weight / _NumberOfPoints);
 }

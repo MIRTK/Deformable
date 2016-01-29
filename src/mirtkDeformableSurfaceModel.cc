@@ -1244,8 +1244,56 @@ double DeformableSurfaceModel::Step(double *dx)
 {
   double delta;
   if (_Transformation) {
+
     delta = _Transformation->Update(dx);
+
   } else {
+
+    // Perform low-pass filtering
+    //
+    // The translation and scale "fix" is due to a bug in vtkWindowedSincPolyDataFilter:
+    // http://vtk.1045678.n5.nabble.com/Bug-in-vtkWindowedSincPolyDataFilter-td1234055.html
+    if (_IsSurfaceMesh && _LowPassInterval > 0 && _LowPassIterations > 0) {
+      ++_LowPassCounter;
+      if (_LowPassCounter >= _LowPassInterval) {
+        _LowPassCounter = 0;
+
+        MIRTK_START_TIMING();
+        vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
+        points->SetNumberOfPoints(_PointSet.NumberOfPoints());
+        vtkSmartPointer<vtkPolyData> surface;
+        surface = vtkSmartPointer<vtkPolyData>::New();
+        surface->ShallowCopy(_PointSet.Surface());
+        surface->SetPoints(points);
+        MovePoints::Run(_PointSet.Points(), dx, surface->GetPoints());
+
+        double c1[3], s1[3];
+        GetCentroid(surface, c1);
+        GetScale(surface, c1, s1);
+
+        vtkNew<vtkWindowedSincPolyDataFilter> filter;
+        filter->SetPassBand(_LowPassBand);
+        filter->SetNumberOfIterations(_LowPassIterations);
+        filter->NormalizeCoordinatesOn();
+        filter->FeatureEdgeSmoothingOff();
+        SetVTKInput(filter, surface);
+        filter->Update();
+
+        double c2[3], s2[3];
+        GetCentroid(filter->GetOutput(), c2);
+        GetScale(filter->GetOutput(), c2, s2);
+
+        double p1[3], p2[3], *dp = dx;
+        for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId, dp += 3) {
+          surface->GetPoint(ptId, p1);
+          filter->GetOutput()->GetPoint(ptId, p2);
+          dp[0] += (c1[0] + s1[0] * (p2[0] - c2[0]) / s2[0]) - p1[0];
+          dp[1] += (c1[1] + s1[1] * (p2[1] - c2[1]) / s2[1]) - p1[1];
+          dp[2] += (c1[2] + s1[2] * (p2[2] - c2[2]) / s2[2]) - p1[2];
+        }
+        MIRTK_DEBUG_TIMING(3, "low-pass filtering");
+      }
+    }
     // Enforce hard constraints
     this->EnforceHardConstraints(dx);
     // Determine maximum vertex displacement
@@ -1566,9 +1614,6 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
   // Only done when DoFs are the node positions themselves
   if (_Transformation) return;
 
-  // Surface mesh after application of current gradient
-  vtkSmartPointer<vtkPolyData> surface;
-
   // Smooth vertex displacements such that adjacent nodes move coherently.
   // Can also be viewed as an averaging of the gradient vectors in a local
   // neighborhood. With decreasing smoothing iterations, a multi-resolution
@@ -1645,88 +1690,6 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
         << (_AverageSignedGradients ? " signed " : " ")
         << "energy gradient" << (_AverageGradientMagnitude ? " magnitude " : " ")
         << "(#iter=" << _GradientAveraging << ")");
-  }
-
-  // Low-pass filter deformed surface mesh
-  if (_IsSurfaceMesh && _LowPassInterval > 0 && _LowPassIterations > 0) {
-    ++_LowPassCounter;
-    if (_LowPassCounter >= _LowPassInterval) {
-      _LowPassCounter = 0;
-
-      MIRTK_START_TIMING();
-
-      // Apply point displacements
-      if (!surface) {
-        vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
-        points->SetNumberOfPoints(_PointSet.NumberOfPoints());
-        surface = vtkSmartPointer<vtkPolyData>::New();
-        surface->ShallowCopy(_PointSet.Surface());
-        surface->SetPoints(points);
-      }
-      MovePoints::Run(_PointSet.Points(), dx, surface->GetPoints());
-
-      // Perform low-pass filtering
-      //
-      // The translation and scale "fix" is due to a bug in vtkWindowedSincPolyDataFilter:
-      // http://vtk.1045678.n5.nabble.com/Bug-in-vtkWindowedSincPolyDataFilter-td1234055.html
-      double c1[3], s1[3];
-      GetCentroid(surface, c1);
-      GetScale(surface, c1, s1);
-
-      vtkNew<vtkWindowedSincPolyDataFilter> filter;
-      filter->SetPassBand(_LowPassBand);
-      filter->SetNumberOfIterations(_LowPassIterations);
-      filter->NormalizeCoordinatesOn();
-      SetVTKInput(filter, surface);
-      filter->Update();
-
-      double c2[3], s2[3];
-      GetCentroid(filter->GetOutput(), c2);
-      GetScale(filter->GetOutput(), c2, s2);
-
-      // Adjust point displacements
-      double p1[3], p2[3], *dp = dx;
-      for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId, dp += 3) {
-        surface->GetPoint(ptId, p1);
-        filter->GetOutput()->GetPoint(ptId, p2);
-        dp[0] += (c1[0] + s1[0] * (p2[0] - c2[0]) / s2[0]) - p1[0];
-        dp[1] += (c1[1] + s1[1] * (p2[1] - c2[1]) / s2[1]) - p1[1];
-        dp[2] += (c1[2] + s1[2] * (p2[2] - c2[2]) / s2[2]) - p1[2];
-      }
-
-      MIRTK_DEBUG_TIMING(3, "low-pass filtering");
-    }
-  }
-
-  // Smooth gyral points of deformed cortical surface mesh
-  bool _SmoothGyri = false; // experimental
-  if (_IsSurfaceMesh && _SmoothGyri) {
-    MIRTK_START_TIMING();
-
-    // Apply point displacements
-    if (!surface) {
-      vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
-      points->SetNumberOfPoints(_PointSet.NumberOfPoints());
-      surface = vtkSmartPointer<vtkPolyData>::New();
-      surface->ShallowCopy(_PointSet.Surface());
-      surface->SetPoints(points);
-    }
-    MovePoints::Run(_PointSet.Points(), dx, surface->GetPoints());
-
-    // Perform low-pass filtering of gyral points
-    vtkSmartPointer<vtkPolyData> output = SmoothGyri(surface);
-
-    // Adjust point displacements
-    double p1[3], p2[3], *dp = dx;
-    for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId, dp += 3) {
-      surface->GetPoint(ptId, p1);
-      output->GetPoint(ptId, p2);
-      dp[0] += p2[0] - p1[0];
-      dp[1] += p2[1] - p1[1];
-      dp[2] += p2[2] - p1[2];
-    }
-
-    MIRTK_DEBUG_TIMING(3, "gyral points smoothing");
   }
 }
 

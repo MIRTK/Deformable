@@ -123,6 +123,9 @@ void PrintHelp(const char *name)
   cout << "      Mask defining region in which external forces are non-zero. (default: none)" << endl;
   cout << "  -padding <value>" << endl;
   cout << "      Padding/Background value of input :option:`-image`. (default: none)" << endl;
+  cout << "  -inflate-brain" << endl;
+  cout << "      Set default parameters of cortical surface inflation process equivalent" << endl;
+  cout << "      to FreeSurfer's mris_inflate command." << endl;
   cout << endl;
   cout << "Optimization options:" << endl;
   cout << "  -optimizer <name>" << endl;

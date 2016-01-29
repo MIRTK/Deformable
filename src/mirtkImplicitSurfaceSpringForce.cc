@@ -25,6 +25,7 @@
 #include <mirtkProfiling.h>
 #include <mirtkVector.h>
 #include <mirtkMatrix.h>
+#include <mirtkDataStatistics.h>
 
 #include <vtkMath.h>
 #include <vtkPoints.h>
@@ -160,7 +161,6 @@ struct ComputeSpringForceGradient
 {
   vtkPoints           *_Points;
   vtkDataArray        *_Status;
-  vtkDataArray        *_Normals;
   vtkDataArray        *_Distances;
   const NodeNeighbors *_Neighbors;
   NodeGradient        *_Gradient;
@@ -201,27 +201,27 @@ struct ScaleForce
   ImplicitSurfaceForce *_Force;
   vtkPoints            *_Points;
   vtkDataArray         *_Normals;
-  double                _Scale;
+  vtkDataArray         *_Distances;
   double                _MaxDistance;
+  double                _Scale;
   NodeGradient         *_Gradient;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double p[3], n[3], d, dp;
+    double n[3], d, dp;
     NodeGradient *g = _Gradient + ptIds.begin();
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, ++g) {
       if (g->_x || g->_y || g->_z) {
-        _Points ->GetPoint(ptId, p);
         _Normals->GetTuple(ptId, n);
-        d  = _Force->Distance(p, n);
+        d  = _Distances->GetComponent(ptId, 0);
         dp = g->_x * n[0] + g->_y * n[1] + g->_z * n[2];
         if (d * dp < .0) {
           (*g) = .0;
-        } else if (_MaxDistance > .0) { // e.g. _Force->DistanceMeasure() == DM_Normal
-          d /= _MaxDistance;
-          (*g) *= 1.0 - exp(- _Scale * (d * d));
-        } else { // _Force->DistanceMeasure() == DM_Minimum
-          if (abs(d) < 1.0) (*g) *= 1.0 - exp(- _Scale * (d * d));
+        } else {
+          if (_MaxDistance > .0) d /= _MaxDistance;
+          d *= _Scale; // d = (scale * d / d_max)^2 s.t. weight achieves
+          d *= d;      // desired asymptotic maximum for d = d_max
+          (*g) *= d / (1.0 + d);
         }
       }
     }
@@ -380,6 +380,13 @@ void ImplicitSurfaceSpringForce::EvaluateGradient(double *gradient, double step,
 
   memset(_Gradient, 0, _NumberOfPoints * sizeof(GradientType));
 
+  vtkDataArray *distances = this->Distances();
+
+  double max_distance = .0;
+  if (_DistanceMeasure != DM_Minimum) {
+    data::statistic::AbsPercentile::Calculate(95, distances);
+  }
+
 #if 1
   ComputeQuadraticCurvatureGradient eval;
   eval._Status    = _PointSet->SurfaceStatus();
@@ -392,7 +399,7 @@ void ImplicitSurfaceSpringForce::EvaluateGradient(double *gradient, double step,
   eval._Points    = _PointSet->SurfacePoints();
   eval._Status    = _PointSet->SurfaceStatus();
   eval._Normals   = _PointSet->SurfaceNormals();
-  eval._Distances = Distances();
+  eval._Distances = distances;
   eval._Neighbors = _PointSet->SurfaceNeighbors();
   eval._Gradient  = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
@@ -402,8 +409,9 @@ void ImplicitSurfaceSpringForce::EvaluateGradient(double *gradient, double step,
   scale._Force       = this;
   scale._Points      = _PointSet->SurfacePoints();
   scale._Normals     = _PointSet->SurfaceNormals();
-  scale._Scale       = .5 / (_Sigma * _Sigma);
-  scale._MaxDistance = (_DistanceMeasure == DM_Minimum ? .0 : _MaxDistance);
+  scale._Distances   = distances;
+  scale._Scale       = 1.0;
+  scale._MaxDistance = max_distance;
   scale._Gradient    = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), scale);
 

@@ -281,6 +281,9 @@ double EulerMethod::Run()
   // Initialize
   this->Initialize();
 
+  // Initial remeshing of input point set
+  this->RemeshModel();
+
   // Initial update of deformable surface model before start event because
   // the update can trigger some lazy initialization which in turn may
   // broadcast some log events for verbose command output

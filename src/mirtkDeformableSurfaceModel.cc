@@ -41,6 +41,7 @@
 #include <vtkPointData.h>
 #include <vtkUnsignedCharArray.h>
 #include <vtkFloatArray.h>
+#include <vtkDoubleArray.h>
 #include <vtkPolyDataNormals.h>
 #include <vtkAbstractCellLocator.h>
 #include <vtkGenericCell.h>
@@ -809,6 +810,7 @@ DeformableSurfaceModel::DeformableSurfaceModel()
   _NumberOfTerms(0),
   _NeighborhoodRadius(2),
   _GradientAveraging(0),
+  _GradientWeighting(PolyDataSmoothing::Default),
   _AverageSignedGradients(false),
   _AverageGradientMagnitude(false),
   _MinEdgeLength(-1.0),
@@ -1573,24 +1575,71 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
   // optimization of the deformable surface model can be mimicked.
   if (_GradientAveraging > 0) {
     MIRTK_START_TIMING();
-    const int            ndofs     = this->NumberOfDOFs();
-    const EdgeTable *edgeTable = _PointSet.Edges();
-    if (_AverageSignedGradients) {
-      if (_AverageGradientMagnitude) {
-        typedef struct AverageSignedGradientMagnitude AvgOp;
-        AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+    const int ndofs = this->NumberOfDOFs();
+
+    if (_IsSurfaceMesh && _GradientWeighting != PolyDataSmoothing::Combinatorial) {
+
+      vtkSmartPointer<vtkPolyData> surface;
+      surface = vtkSmartPointer<vtkPolyData>::New();
+      surface->ShallowCopy(_PointSet.Surface());
+      surface->GetCellData()->Initialize();
+      surface->GetPointData()->Initialize();
+
+      vtkSmartPointer<vtkDataArray> gradient;
+      gradient = vtkSmartPointer<vtkDoubleArray>::New();
+      gradient->SetName("Gradient");
+      gradient->SetNumberOfComponents(3);
+      gradient->SetNumberOfTuples(ndofs / 3);
+      memcpy(gradient->GetVoidPointer(0), dx, ndofs * sizeof(double));
+      surface->GetPointData()->AddArray(gradient);
+
+      PolyDataSmoothing smoother;
+      smoother.Input(surface);
+      smoother.Lambda(1.0);
+      smoother.SmoothPointsOff();
+      smoother.AdjacentValuesOnlyOff();
+      smoother.SignedSmoothing(_AverageSignedGradients);
+      smoother.SmoothMagnitude(_AverageGradientMagnitude);
+      smoother.SmoothArray("Gradient");
+      if (_GradientWeighting == PolyDataSmoothing::Default) {
+        smoother.Weighting(PolyDataSmoothing::InverseDistance);
       } else {
-        typedef struct AverageSignedGradient AvgOp;
-        AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+        smoother.Weighting(_GradientWeighting);
       }
+      smoother.NumberOfIterations(_GradientAveraging);
+      smoother.Run();
+
+      gradient = smoother.Output()->GetPointData()->GetArray("Gradient");
+      memcpy(dx, gradient->GetVoidPointer(0), ndofs * sizeof(double));
+
     } else {
-      if (_AverageGradientMagnitude) {
-        typedef struct AverageGradientMagnitude AvgOp;
-        AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
-      } else {
-        typedef struct AverageGradient AvgOp;
-        AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+
+      if (_GradientWeighting != PolyDataSmoothing::Combinatorial &&
+          _GradientWeighting != PolyDataSmoothing::Default) {
+        cerr << this->NameOfType() << "::SmoothGradient: Only combinatorial weighting available"
+                                      " for non-polygonal point sets" << endl;
+        exit(1);
       }
+
+      const EdgeTable *edgeTable = _PointSet.Edges();
+      if (_AverageSignedGradients) {
+        if (_AverageGradientMagnitude) {
+          typedef struct AverageSignedGradientMagnitude AvgOp;
+          AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+        } else {
+          typedef struct AverageSignedGradient AvgOp;
+          AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+        }
+      } else {
+        if (_AverageGradientMagnitude) {
+          typedef struct AverageGradientMagnitude AvgOp;
+          AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+        } else {
+          typedef struct AverageGradient AvgOp;
+          AverageGradientVectors<AvgOp>(dx, ndofs, edgeTable, _GradientAveraging);
+        }
+      }
+
     }
     MIRTK_DEBUG_TIMING(3, "averaging of"
         << (_AverageSignedGradients ? " signed " : " ")

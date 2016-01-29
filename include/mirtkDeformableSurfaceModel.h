@@ -103,6 +103,9 @@ class DeformableSurfaceModel : public ObjectiveFunction
   /// Number of iterations since last performed remeshing
   mirtkAttributeMacro(int, RemeshCounter);
 
+  /// Remesh surface using an adaptive edge length interval based on local curvature
+  mirtkPublicAttributeMacro(bool, RemeshAdaptively);
+
   /// Low-pass filter surface mesh every n-th iteration
   mirtkPublicAttributeMacro(int, LowPassInterval);
 

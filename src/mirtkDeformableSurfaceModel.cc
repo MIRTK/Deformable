@@ -819,6 +819,7 @@ DeformableSurfaceModel::DeformableSurfaceModel()
   _MaxFeatureAngle(180.0),
   _RemeshInterval(0),
   _RemeshCounter(0),
+  _RemeshAdaptively(false),
   _LowPassInterval(0),
   _LowPassIterations(100),
   _LowPassBand(.75),
@@ -1139,6 +1140,9 @@ bool DeformableSurfaceModel::Set(const char *name, const char *value)
   if (strcmp(name, "Remesh interval") == 0) {
     return FromString(value, _RemeshInterval);
   }
+  if (strcmp(name, "Adatpive remeshing") == 0 || strcmp(name, "Remesh adaptively") == 0) {
+    return FromString(value, _RemeshAdaptively);
+  }
   if (strcmp(name, "Hard non-self-intersection constraint") == 0) {
     return FromString(value, _HardNonSelfIntersection);
   }
@@ -1178,6 +1182,7 @@ ParameterList DeformableSurfaceModel::Parameter() const
   Insert(params, "Minimum edge length", _MinEdgeLength);
   Insert(params, "Maximum edge length", _MaxEdgeLength);
   Insert(params, "Remesh interval", _RemeshInterval);
+  Insert(params, "Adaptive remeshing", _RemeshAdaptively);
   Insert(params, "Hard non-self-intersection constraint", _HardNonSelfIntersection);
   Insert(params, "Minimum frontface distance", _MinFrontfaceDistance);
   Insert(params, "Minimum backface distance", _MinBackfaceDistance);
@@ -1365,9 +1370,6 @@ bool DeformableSurfaceModel::Upgrade()
 // -----------------------------------------------------------------------------
 bool DeformableSurfaceModel::Remesh()
 {
-  // TODO: Make attribute
-  const bool _AdaptiveRemeshing = false;
-
   // Currently only remeshing of a triangulated surface mesh is supported
   if (_RemeshInterval == 0) return false;
 
@@ -1379,76 +1381,87 @@ bool DeformableSurfaceModel::Remesh()
   MIRTK_START_TIMING();
 
   // Shallow copy of surface mesh
-  vtkSmartPointer<vtkPolyData> surface = vtkSmartPointer<vtkPolyData>::New();
+  vtkSmartPointer<vtkPolyData> input;
 
-  // Set up remeshing filter
+  if (_Transformation) {
+    input = _PointSet.InputSurface();
+  } else {
+    input = _PointSet.Surface();
+    if (!input->GetPointData()->HasArray("InitialPoints")) {
+      vtkSmartPointer<vtkDataArray> initial_points;
+      initial_points = vtkSmartPointer<vtkFloatArray>::New();
+      initial_points->SetName("InitialPoints");
+      initial_points->SetNumberOfComponents(3);
+      initial_points->SetNumberOfTuples(input->GetNumberOfPoints());
+      vtkPoints *points = input->GetPoints();
+      for (vtkIdType ptId = 0; ptId < input->GetNumberOfPoints(); ++ptId) {
+        initial_points->SetTuple(ptId, points->GetPoint(ptId));
+      }
+      input->GetPointData()->AddArray(initial_points);
+    }
+  }
+
+  // Compute local edge length intervals
   PolyDataRemeshing remesher;
-  remesher.MeltingOrder(PolyDataRemeshing::SHORTEST_EDGE);
-  remesher.MeltNodesOff();
+  if (_IsSurfaceMesh && _RemeshAdaptively) {
+    vtkSmartPointer<vtkDataArray> adaptive_edge_length;
+    if (false && _ImplicitSurface) {
+      // FIXME: Experimental code that is not ready for use
+      adaptive_edge_length = ComputeEdgeLengthRange(_PointSet.Surface(), _MinEdgeLength, _MaxEdgeLength, _ImplicitSurface);
+    } else {
+      PolyDataCurvature curv;
+      curv.Input(_PointSet.Surface());
+      curv.CurvatureType(PolyDataCurvature::Curvedness);
+      curv.Run();
+      adaptive_edge_length = curv.GetCurvedness();
+      _PointSet.Surface()->GetPointData()->AddArray(adaptive_edge_length);
+    }
+    if (adaptive_edge_length) {
+      remesher.AdaptiveEdgeLengthArray(adaptive_edge_length);
+    } else {
+      remesher.MinCellEdgeLengthArray(input->GetCellData()->GetArray("MinEdgeLength"));
+      remesher.MaxCellEdgeLengthArray(input->GetCellData()->GetArray("MaxEdgeLength"));
+    }
+  }
+
+  // Remesh surface
+  remesher.Input(input);
+  remesher.MeltingOrder(PolyDataRemeshing::AREA);
+  remesher.MeltNodesOn();
   remesher.MeltTrianglesOff();
+  remesher.InvertTrianglesSharingOneLongEdgeOn();
+  remesher.InvertTrianglesToIncreaseMinHeightOn();
   remesher.MinEdgeLength(_MinEdgeLength);
   remesher.MaxEdgeLength(_MaxEdgeLength);
   remesher.MinFeatureAngle(_MinFeatureAngle);
   remesher.MaxFeatureAngle(_MaxFeatureAngle);
   remesher.Transformation(_Transformation);
-
-  if (_Transformation) {
-    surface = _PointSet.InputSurface();
-  } else {
-    surface = _PointSet.Surface();
-    if (!surface->GetPointData()->HasArray("InitialPoints")) {
-      vtkSmartPointer<vtkDataArray> initial_points;
-      initial_points = vtkSmartPointer<vtkFloatArray>::New();
-      initial_points->SetName("InitialPoints");
-      initial_points->SetNumberOfComponents(3);
-      initial_points->SetNumberOfTuples(surface->GetNumberOfPoints());
-      vtkPoints *points = surface->GetPoints();
-      for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId) {
-        initial_points->SetTuple(ptId, points->GetPoint(ptId));
-      }
-      surface->GetPointData()->AddArray(initial_points);
-    }
-  }
-
-  // Adaptive edge length
-  if (_AdaptiveRemeshing) {
-    vtkSmartPointer<vtkDataArray> adaptive_edge_length;
-    if (_ImplicitSurface) {
-      adaptive_edge_length = ComputeEdgeLengthRange(surface, _MinEdgeLength, _MaxEdgeLength, _ImplicitSurface);
-    }
-    if (adaptive_edge_length) {
-      remesher.AdaptiveEdgeLengthArray(adaptive_edge_length);
-    } else {
-      remesher.MinCellEdgeLengthArray(surface->GetCellData()->GetArray("MinEdgeLength"));
-      remesher.MaxCellEdgeLengthArray(surface->GetCellData()->GetArray("MaxEdgeLength"));
-    }
-  }
-
-  // Perform local adaptive remeshing
-  remesher.Input(surface);
   remesher.Run();
-  if (remesher.Output() != remesher.Input()) {
-    vtkSmartPointer<vtkPolyData> surface = remesher.Output();
 
+  vtkSmartPointer<vtkPolyData> output = remesher.Output();
+
+  if (output != input) {
     // Update deformable surface mesh
-    _PointSet.InputPointSet(surface);
+    _PointSet.InputPointSet(output);
     if (_Transformation) {
       _PointSet.Initialize(false);
     } else {
-      // Keep copy of remeshed output points
-      vtkSmartPointer<vtkPoints> points = surface->GetPoints();
-      // Reset points of input surface mesh
-      vtkSmartPointer<vtkPoints> initial_points;
-      initial_points = vtkSmartPointer<vtkPoints>::New();
-      initial_points->SetNumberOfPoints(points->GetNumberOfPoints());
-      vtkDataArray *initial_pos = surface->GetPointData()->GetArray("InitialPoints");
-      for (vtkIdType ptId = 0; ptId < points->GetNumberOfPoints(); ++ptId) {
-        initial_points->SetPoint(ptId, initial_pos->GetTuple(ptId));
+      vtkSmartPointer<vtkPoints> points;
+      if (output->GetPointData()->HasArray("InitialPoints")) {
+        points = output->GetPoints();
+        // Reset points of input surface mesh
+        vtkSmartPointer<vtkPoints> initial_points;
+        initial_points = vtkSmartPointer<vtkPoints>::New();
+        initial_points->SetNumberOfPoints(points->GetNumberOfPoints());
+        vtkDataArray *initial_pos = output->GetPointData()->GetArray("InitialPoints");
+        for (vtkIdType ptId = 0; ptId < points->GetNumberOfPoints(); ++ptId) {
+          initial_points->SetPoint(ptId, initial_pos->GetTuple(ptId));
+        }
+        output->SetPoints(initial_points);
       }
-      surface->SetPoints(initial_points);
       // Initialize surface mesh and set new output points
       _PointSet.Initialize(false);
-      _PointSet.Points()->DeepCopy(points);
+      if (points) _PointSet.Points()->DeepCopy(points);
     }
 
     // Reinitialize internal and external force terms
@@ -1468,7 +1481,7 @@ bool DeformableSurfaceModel::Remesh()
   }
 
   MIRTK_DEBUG_TIMING(3, "local adaptive remeshing");
-  return remesher.Output() != remesher.Input();
+  return (input != output);
 }
 
 // =============================================================================

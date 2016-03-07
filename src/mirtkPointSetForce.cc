@@ -349,7 +349,7 @@ void PointSetForce::AddPointData(const char *name, vtkSmartPointer<vtkDataArray>
 vtkDataArray *PointSetForce::AddPointData(const char *name, int c, int type, bool global)
 {
   vtkSmartPointer<vtkDataArray> data = GetPointData(name, true);
-  if (!data || data->GetArrayType() != type || data->GetNumberOfComponents() != c) {
+  if (!data || data->GetDataType() != type || data->GetNumberOfComponents() != c) {
     data = NewVTKDataArray(type);
     data->SetNumberOfComponents(c);
   }

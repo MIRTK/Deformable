@@ -23,8 +23,8 @@
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>
 #include <mirtkEdgeTable.h>
+#include <mirtkVtkMath.h>
 
-#include <vtkMath.h>
 #include <vtkPoints.h>
 #include <vtkDataArray.h>
 

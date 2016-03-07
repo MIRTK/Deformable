@@ -25,8 +25,8 @@
 #include <mirtkEdgeTable.h>
 #include <mirtkPointSetUtils.h>
 #include <mirtkObjectFactory.h>
+#include <mirtkVtkMath.h>
 
-#include <vtkMath.h>
 #include <vtkUnsignedCharArray.h>
 #include <vtkGenericCell.h>
 #include <vtkCellData.h>

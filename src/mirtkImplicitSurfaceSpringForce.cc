@@ -26,8 +26,8 @@
 #include <mirtkVector.h>
 #include <mirtkMatrix.h>
 #include <mirtkDataStatistics.h>
+#include <mirtkVtkMath.h>
 
-#include <vtkMath.h>
 #include <vtkPoints.h>
 #include <vtkDataArray.h>
 #include <vtkFloatArray.h>

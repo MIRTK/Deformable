@@ -26,8 +26,7 @@
 #include <mirtkConvolutionFunction.h>
 #include <mirtkFastLinearImageGradientFunction.h>
 #include <mirtkObjectFactory.h>
-
-#include <vtkMath.h>
+#include <mirtkVtkMath.h>
 
 
 namespace mirtk {

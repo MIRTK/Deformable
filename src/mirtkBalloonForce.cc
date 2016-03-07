@@ -26,8 +26,8 @@
 #include <mirtkLinearInterpolateImageFunction.h>
 #include <mirtkPointSetUtils.h>
 #include <mirtkObjectFactory.h>
+#include <mirtkVtkMath.h>
 
-#include <vtkMath.h>
 #include <vtkImageData.h>
 #include <vtkImageStencilData.h>
 #include <vtkImageStencilIterator.h>

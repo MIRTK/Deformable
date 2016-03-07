@@ -27,11 +27,11 @@
 #include <mirtkParallel.h>
 #include <mirtkProfiling.h>
 #include <mirtkObjectFactory.h>
+#include <mirtkVtkMath.h>
 
 #include <vtkSmartPointer.h>
 #include <vtkPolyData.h>
 #include <vtkIdList.h>
-#include <vtkMath.h>
 
 
 namespace mirtk {

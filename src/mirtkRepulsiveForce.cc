@@ -24,9 +24,9 @@
 #include <mirtkParallel.h>
 #include <mirtkPointSetUtils.h>
 #include <mirtkObjectFactory.h>
+#include <mirtkVtkMath.h>
 
 #include <vtkSmartPointer.h>
-#include <vtkMath.h>
 #include <vtkIdList.h>
 #include <vtkPoints.h>
 #include <vtkAbstractPointLocator.h>

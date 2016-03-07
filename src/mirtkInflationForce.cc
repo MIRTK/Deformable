@@ -25,8 +25,8 @@
 #include <mirtkProfiling.h>
 #include <mirtkEdgeTable.h>
 #include <mirtkObjectFactory.h>
+#include <mirtkVtkMath.h>
 
-#include <vtkMath.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
 #include <vtkDataArray.h>

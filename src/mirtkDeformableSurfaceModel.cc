@@ -19,12 +19,15 @@
 
 #include <mirtkDeformableSurfaceModel.h>
 
-#include <mirtkVtk.h>
+
 #include <mirtkArray.h>
 #include <mirtkMath.h>
 #include <mirtkMemory.h>
 #include <mirtkParallel.h>
 #include <mirtkProfiling.h>
+
+#include <mirtkVtk.h>
+#include <mirtkVtkMath.h>
 
 #include <mirtkPolyDataRemeshing.h>
 #include <mirtkPolyDataSmoothing.h>
@@ -36,7 +39,6 @@
 #include <mirtkImplicitSurfaceForce.h>
 #include "mirtkImplicitSurfaceUtils.h"
 
-#include <vtkMath.h>
 #include <vtkCellData.h>
 #include <vtkPointData.h>
 #include <vtkUnsignedCharArray.h>

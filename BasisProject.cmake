@@ -57,7 +57,7 @@ basis_project (
   # dependencies
   DEPENDS
     MIRTK{Common,Numerics,Image,Transformation,PointSet}
-    "VTK-6{
+    "VTK-7|6{
       vtkCommonCore,
       vtkCommonDataModel,
       vtkFiltersCore,

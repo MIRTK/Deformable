@@ -19,6 +19,7 @@
 
 cmake_minimum_required(VERSION 2.8.12 FATAL_ERROR)
 
+list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_SOURCE_DIR}/config")
 if (NOT COMMAND mirtk_configure_module)
   find_package(MIRTK REQUIRED COMPONENTS CMake)
 endif ()

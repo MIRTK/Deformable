@@ -15,7 +15,8 @@
 #
 # Result variables::
 #
-#   MIRTK_FOUND            - True if headers and requested libraries were found.
+#   MIRTK_FOUND            - True if headers and required components were found.
+#   MIRTK_<Module>_FOUND   - True if requested module was found.
 #   MIRTK_VERSION          - Version of found MIRTK libraries.
 #   MIRTK_VERSION_MAJOR    - Major version number of found MIRTK libraries.
 #   MIRTK_VERSION_MINOR    - Minor version number of found MIRTK libraries.
@@ -27,7 +28,7 @@
 #   MIRTK_MODULES_FOUND    - List of requested and found MIRTK modules.
 #   MIRTK_MODULES_NOTFOUND - List of not found optional MIRTK modules.
 #
-# By default, this module reads hints about search locations from variables::
+# By default, this module reads hints about search paths from variables::
 #
 #   DEPENDS_MIRTK_DIR - Either installation root or MIRTKConfig.cmake directory.
 #   MIRTK_DIR         - Directory containing the MIRTKConfig.cmake file.
@@ -76,15 +77,34 @@
 # Copyright 2016 Imperial College London
 # Copyright 2016 Andreas Schuh
 #
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+# * Redistributions of source code must retain the above copyright
+#   notice, this list of conditions and the following disclaimer.
+# 
+# * Redistributions in binary form must reproduce the above copyright
+#   notice, this list of conditions and the following disclaimer in the
+#   documentation and/or other materials provided with the distribution.
+# 
+# * Neither the names of Kitware, Inc., the Insight Software Consortium,
+#   nor the names of their contributors may be used to endorse or promote
+#   products derived from this software without specific prior written
+#   permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+# HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #=============================================================================
-# (To distribute this file outside of CMake, substitute the full
-#  License text for the above reference.)
 
 # Set MIRTKConfig.cmake directory from installation prefix path
 function (_mirtk_root_to_config_dir OUT IN)
@@ -213,7 +233,14 @@ endif ()
 
 # Look for MIRTK installation
 if (NOT MIRTK_FIND_QUIETLY)
-  message(STATUS "Looking for MIRTK...")
+  set(_msg "Looking for MIRTK")
+  if (MIRTK_FIND_VERSION)
+    set(_msg "${_msg} ${MIRTK_FIND_VERSION}")
+  endif ()
+  if (MIRTK_FIND_COMPONENTS)
+    set(_msg "${_msg} [${MIRTK_FIND_COMPONENTS}]")
+  endif ()
+  message(STATUS "${_msg}...")
 endif ()
 
 set(_argv)
@@ -249,11 +276,6 @@ if (NOT MIRTK_FIND_QUIETLY)
   endif ()
 endif ()
 
-if (NOT "^${_cache}$" STREQUAL "^MIRTK_DIR$")
-  set_property(CACHE MIRTK_DIR PROPERTY TYPE INTERNAL)
-  set(_MIRTK_DIR "${MIRTK_DIR}" CACHE INTERNAL "Previous MIRTK_DIR value" FORCE)
-endif ()
-
 # Make internal search path cache entries consistent with non-internal cache entry
 if (MIRTK_FOUND)
   mark_as_advanced(FORCE ${_cache})
@@ -261,6 +283,10 @@ if (MIRTK_FOUND)
 else ()
   mark_as_advanced(CLEAR ${_cache})
   set(_prefix NOTFOUND)
+endif ()
+if (NOT "^${_cache}$" STREQUAL "^MIRTK_DIR$")
+  set_property(CACHE MIRTK_DIR PROPERTY TYPE INTERNAL)
+  set(_MIRTK_DIR "${MIRTK_DIR}" CACHE INTERNAL "Previous MIRTK_DIR value" FORCE)
 endif ()
 get_property(_cached CACHE MIRTK_ROOT PROPERTY TYPE SET)
 if (_cached)
@@ -310,3 +336,4 @@ unset(_comps_opt)
 unset(_cached)
 unset(_dir)
 unset(_var)
+unset(_msg)

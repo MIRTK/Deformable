@@ -19,7 +19,7 @@
 
 #include <mirtkDeformableSurfaceModel.h>
 
-
+#include <mirtkConfig.h> // WINDOWS
 #include <mirtkArray.h>
 #include <mirtkMath.h>
 #include <mirtkMemory.h>
@@ -667,7 +667,11 @@ ComputeEdgeLengthRange(vtkPolyData *surface, double minl, double maxl, const Dis
   attrs->AddArray(max_edge_length);
 
   char fname[64];
-  sprintf(fname, "surface_distance_%03d.vtp", iter);
+  #ifdef WINDOWS
+    sprintf_s(fname, 64, "surface_distance_%03d.vtp", iter);
+  #else
+    sprintf(fname, "surface_distance_%03d.vtp", iter);
+  #endif
   WritePolyData(fname, surface);
 
   attrs->RemoveArray(min_edge_length->GetName());

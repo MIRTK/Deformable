@@ -23,6 +23,8 @@
 #include <mirtkEulerMethod.h>
 #include <mirtkPointSetUtils.h>
 
+#include <mirtkCommonExport.h>
+
 #include <vtkSmartPointer.h>
 #include <vtkPointSet.h>
 #include <vtkPointData.h>
@@ -33,7 +35,7 @@ namespace mirtk {
 
 
 // global "debug" flag (cf. mirtkOptions.cc)
-extern int debug;
+MIRTK_Common_EXPORT extern int debug;
 
 
 // -----------------------------------------------------------------------------

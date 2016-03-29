@@ -92,4 +92,8 @@ set(DEPENDS
   ${VTK_LIBRARIES}
 )
 
+if (TARGET TBB::tbb)
+  list(APPEND DEPENDS TBB::tbb)
+endif ()
+
 mirtk_add_library(AUTO_REGISTER)

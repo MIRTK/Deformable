@@ -17,64 +17,64 @@
  * limitations under the License.
  */
 
-#include <mirtkCommon.h>
-#include <mirtkOptions.h>
+#include "mirtk/Common.h"
+#include "mirtk/Options.h"
 
-#include <mirtkIOConfig.h>
-#include <mirtkNumericsConfig.h>
-#include <mirtkDeformableConfig.h>
-#include <mirtkTransformationConfig.h>
+#include "mirtk/IOConfig.h"
+#include "mirtk/NumericsConfig.h"
+#include "mirtk/DeformableConfig.h"
+#include "mirtk/TransformationConfig.h"
 
-#include <mirtkPointSetUtils.h>
-#include <mirtkTransformation.h>
-#include <mirtkBSplineFreeFormTransformation3D.h>
-#include <mirtkBSplineFreeFormTransformationSV.h>
+#include "mirtk/PointSetUtils.h"
+#include "mirtk/Transformation.h"
+#include "mirtk/BSplineFreeFormTransformation3D.h"
+#include "mirtk/BSplineFreeFormTransformationSV.h"
 
 // Deformable surface model / parameterization
-#include <mirtkDeformableSurfaceModel.h>
-#include <mirtkDeformableSurfaceLogger.h>
-#include <mirtkDeformableSurfaceDebugger.h>
+#include "mirtk/DeformableSurfaceModel.h"
+#include "mirtk/DeformableSurfaceLogger.h"
+#include "mirtk/DeformableSurfaceDebugger.h"
 
 // Optimization method
-#include <mirtkLocalOptimizer.h>
-#include <mirtkEulerMethod.h>
-#include <mirtkEulerMethodWithMomentum.h>
-#include <mirtkGradientDescent.h>
-#include <mirtkInexactLineSearch.h>
-#include <mirtkBrentLineSearch.h>
+#include "mirtk/LocalOptimizer.h"
+#include "mirtk/EulerMethod.h"
+#include "mirtk/EulerMethodWithMomentum.h"
+#include "mirtk/GradientDescent.h"
+#include "mirtk/InexactLineSearch.h"
+#include "mirtk/BrentLineSearch.h"
 
 // Stopping criteria
-#include <mirtkMinActiveStoppingCriterion.h>
-#include <mirtkInflationStoppingCriterion.h>
+#include "mirtk/MinActiveStoppingCriterion.h"
+#include "mirtk/InflationStoppingCriterion.h"
 
 // External forces
-#include <mirtkBalloonForce.h>
-#include <mirtkImageEdgeForce.h>
-#include <mirtkImplicitSurfaceDistance.h>
-#include <mirtkImplicitSurfaceSpringForce.h>
+#include "mirtk/BalloonForce.h"
+#include "mirtk/ImageEdgeForce.h"
+#include "mirtk/ImplicitSurfaceDistance.h"
+#include "mirtk/ImplicitSurfaceSpringForce.h"
 
 // Internal forces
-#include <mirtkSpringForce.h>
-#include <mirtkInflationForce.h>
-#include <mirtkCurvatureConstraint.h>
-#include <mirtkQuadraticCurvatureConstraint.h>
-#include <mirtkMetricDistortion.h>
-#include <mirtkStretchingForce.h>
-#include <mirtkRepulsiveForce.h>
-#include <mirtkNonSelfIntersectionConstraint.h>
+#include "mirtk/SpringForce.h"
+#include "mirtk/InflationForce.h"
+#include "mirtk/CurvatureConstraint.h"
+#include "mirtk/QuadraticCurvatureConstraint.h"
+#include "mirtk/MetricDistortion.h"
+#include "mirtk/StretchingForce.h"
+#include "mirtk/RepulsiveForce.h"
+#include "mirtk/NonSelfIntersectionConstraint.h"
 
 // Transformation constraints
-#include <mirtkSmoothnessConstraint.h>
+#include "mirtk/SmoothnessConstraint.h"
 
 // VTK
-#include <vtkPointData.h>
-#include <vtkCellData.h>
-#include <vtkDataArray.h>
-#include <vtkFloatArray.h>
-#include <vtkGenericCell.h>
-#include <vtkCellTreeLocator.h>
-#include <vtkSortDataArray.h>
-#include <vtkPolyDataNormals.h>
+#include "vtkPointData.h"
+#include "vtkCellData.h"
+#include "vtkDataArray.h"
+#include "vtkFloatArray.h"
+#include "vtkGenericCell.h"
+#include "vtkCellTreeLocator.h"
+#include "vtkSortDataArray.h"
+#include "vtkPolyDataNormals.h"
 
 
 using namespace mirtk;

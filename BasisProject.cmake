@@ -69,7 +69,7 @@ basis_project (
     TBB{tbb}
     #<optional-dependency>
   TOOLS_DEPENDS
-    MIRTK{ImageIO}
+    MIRTK{IO}
   TEST_DEPENDS
     #<test-dependency>
   OPTIONAL_TEST_DEPENDS

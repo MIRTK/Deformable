@@ -28,7 +28,7 @@ mirtk_add_executable(
     LibCommon
     LibNumerics
     LibImage
-    LibImageIO
+    LibIO
     LibPointSet
     LibTransformation
     LibDeformable

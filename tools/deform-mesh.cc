@@ -20,7 +20,7 @@
 #include <mirtkCommon.h>
 #include <mirtkOptions.h>
 
-#include <mirtkImageIOConfig.h>
+#include <mirtkIOConfig.h>
 #include <mirtkNumericsConfig.h>
 #include <mirtkDeformableConfig.h>
 #include <mirtkTransformationConfig.h>
@@ -484,7 +484,7 @@ int main(int argc, char *argv[])
 
   // Initialize libraries / object factories
   InitializeNumericsLibrary();
-  InitializeImageIOLibrary();
+  InitializeIOLibrary();
   InitializeTransformationLibrary();
   InitializeDeformableLibrary();
 

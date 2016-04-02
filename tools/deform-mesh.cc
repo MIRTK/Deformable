@@ -25,6 +25,7 @@
 #include "mirtk/DeformableConfig.h"
 #include "mirtk/TransformationConfig.h"
 
+#include "mirtk/PointSetIO.h"
 #include "mirtk/PointSetUtils.h"
 #include "mirtk/Transformation.h"
 #include "mirtk/BSplineFreeFormTransformation3D.h"

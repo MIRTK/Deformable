@@ -24,7 +24,7 @@
 #include "mirtk/Parallel.h"
 #include "mirtk/Profiling.h"
 #include "mirtk/EdgeTable.h"
-#include "mirtk/PointSetUtils.h"
+#include "mirtk/PointSetIO.h"
 #include "mirtk/MultiLevelTransformation.h"
 
 #include "vtkSmartPointer.h"

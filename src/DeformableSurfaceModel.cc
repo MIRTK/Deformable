@@ -35,6 +35,7 @@
 #include "mirtk/SurfaceCollisions.h"
 #include "mirtk/DataStatistics.h"
 #include "mirtk/PointSamples.h"
+#include "mirtk/PointSetIO.h"
 
 #include "mirtk/ImplicitSurfaceForce.h"
 #include "mirtk/ImplicitSurfaceUtils.h"

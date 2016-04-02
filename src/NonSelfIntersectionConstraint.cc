@@ -23,7 +23,7 @@
 #include "mirtk/Memory.h"
 #include "mirtk/Parallel.h"
 #include "mirtk/EdgeTable.h"
-#include "mirtk/PointSetUtils.h"
+#include "mirtk/PointSetIO.h"
 #include "mirtk/ObjectFactory.h"
 #include "mirtk/VtkMath.h"
 

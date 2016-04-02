@@ -21,7 +21,7 @@
 
 #include "mirtk/DeformableSurfaceModel.h"
 #include "mirtk/EulerMethod.h"
-#include "mirtk/PointSetUtils.h"
+#include "mirtk/PointSetIO.h"
 
 #include "mirtk/CommonExport.h"
 

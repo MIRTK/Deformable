@@ -56,7 +56,7 @@ basis_project (
   # ----------------------------------------------------------------------------
   # dependencies
   DEPENDS
-    MIRTK{Common,Numerics,Image,Transformation,PointSet}
+    MIRTK{Common,Numerics,Image,Transformation,PointSet,IO}
     "VTK-7|6{
       vtkCommonCore,
       vtkCommonDataModel,
@@ -68,8 +68,6 @@ basis_project (
   OPTIONAL_DEPENDS
     TBB{tbb}
     #<optional-dependency>
-  TOOLS_DEPENDS
-    MIRTK{IO}
   TEST_DEPENDS
     #<test-dependency>
   OPTIONAL_TEST_DEPENDS

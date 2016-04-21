@@ -43,7 +43,7 @@ basis_project (
   # ----------------------------------------------------------------------------
   # meta-data
   NAME        "Deformable"
-  VERSION     "1.1.0" # version of this module
+  VERSION     "0.0.0" # version of this module
   SOVERSION   "0"     # API yet unstable
   PACKAGE     "MIRTK"
   AUTHORS     "Andreas Schuh"

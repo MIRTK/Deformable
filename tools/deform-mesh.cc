@@ -490,11 +490,11 @@ int main(int argc, char *argv[])
   InitializeDeformableLibrary();
 
   // Deformable surface model and default optimizer
-  unique_ptr<Transformation> dof;
+  UniquePtr<Transformation> dof;
   DeformableSurfaceModel     model;
   DeformableSurfaceLogger    logger;
   DeformableSurfaceDebugger  debugger(&model);
-  unique_ptr<LocalOptimizer> optimizer(new EulerMethod(&model));
+  UniquePtr<LocalOptimizer> optimizer(new EulerMethod(&model));
   ParameterList              params;
 
   // Read input point set
@@ -600,7 +600,7 @@ int main(int argc, char *argv[])
       max_step_length = .9;
       step_length_magnification = 1.0;
       model.NeighborhoodRadius(2);
-      unique_ptr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
+      UniquePtr<EulerMethodWithMomentum> euler(new EulerMethodWithMomentum());
       euler->Momentum(.9);
       euler->NormalizeStepLength(false);
       euler->MaximumDisplacement(1.0);

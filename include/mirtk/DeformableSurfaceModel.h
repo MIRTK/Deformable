@@ -31,7 +31,7 @@
 #include "mirtk/ExternalForce.h"
 #include "mirtk/InternalForce.h"
 #include "mirtk/TransformationConstraint.h"
-#include "mirtk/PolyDataSmoothing.h"
+#include "mirtk/MeshSmoothing.h"
 
 #include "vtkSmartPointer.h"
 #include "vtkPointSet.h"
@@ -76,7 +76,7 @@ class DeformableSurfaceModel : public ObjectiveFunction
   mirtkPublicAttributeMacro(int, GradientAveraging);
 
   /// Weighting function used for averaging of gradient vectors
-  mirtkPublicAttributeMacro(PolyDataSmoothing::WeightFunction, GradientWeighting);
+  mirtkPublicAttributeMacro(MeshSmoothing::WeightFunction, GradientWeighting);
 
   /// Whether to only average gradient vectors pointing in the same direction
   /// as the unsmoothed gradient at the central node (i.e., positive dot product)

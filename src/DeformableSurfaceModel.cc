@@ -29,9 +29,9 @@
 #include "mirtk/Vtk.h"
 #include "mirtk/VtkMath.h"
 
-#include "mirtk/PolyDataRemeshing.h"
-#include "mirtk/PolyDataSmoothing.h"
-#include "mirtk/PolyDataCurvature.h"
+#include "mirtk/MeshSmoothing.h"
+#include "mirtk/SurfaceRemeshing.h"
+#include "mirtk/SurfaceCurvature.h"
 #include "mirtk/SurfaceCollisions.h"
 #include "mirtk/DataStatistics.h"
 #include "mirtk/PointSamples.h"
@@ -357,7 +357,8 @@ SmoothGyri(vtkSmartPointer<vtkPolyData> surface,
 {
   if (IsNaN(mu)) mu = lambda;
 
-  EdgeTable  edgeTable(surface);
+  SharedPtr<EdgeTable> edgeTable = NewShared<EdgeTable>(surface);
+
   int        numAdjPts;
   const int *adjPtIds;
   double     k2, k2_range[2], e2[3], p1[3], p2[3], p[3], e[3], d, w, wsum;
@@ -365,19 +366,19 @@ SmoothGyri(vtkSmartPointer<vtkPolyData> surface,
 
   vtkSmartPointer<vtkDataArray> k2_array, e2_array;
   {
-    PolyDataCurvature curvature;
-    int curvature_type = PolyDataCurvature::Maximum;
-    curvature_type    |= PolyDataCurvature::MaximumDirection;
+    SurfaceCurvature curvature;
+    int curvature_type = SurfaceCurvature::Maximum;
+    curvature_type    |= SurfaceCurvature::MaximumDirection;
     curvature.Input(surface);
-    curvature.EdgeTable(&edgeTable);
+    curvature.EdgeTable(edgeTable);
     curvature.CurvatureType(curvature_type);
     curvature.VtkCurvatures(false);
     curvature.TensorAveraging(3);
     curvature.Normalize(false);
     curvature.Run();
     vtkPointData *curvaturePD = curvature.Output()->GetPointData();
-    k2_array = curvaturePD->GetArray(PolyDataCurvature::MAXIMUM);
-    e2_array = curvaturePD->GetArray(PolyDataCurvature::MAXIMUM_DIRECTION);
+    k2_array = curvaturePD->GetArray(SurfaceCurvature::MAXIMUM);
+    e2_array = curvaturePD->GetArray(SurfaceCurvature::MAXIMUM_DIRECTION);
   }
 
   vtkSmartPointer<vtkPoints> points;
@@ -405,7 +406,7 @@ SmoothGyri(vtkSmartPointer<vtkPolyData> surface,
         e2_array->GetTuple(ptId, e2);
         vtkMath::Normalize(e2);
         p[0] = p[1] = p[2] = wsum = .0;
-        edgeTable.GetAdjacentPoints(ptId, numAdjPts, adjPtIds);
+        edgeTable->GetAdjacentPoints(ptId, numAdjPts, adjPtIds);
         for (int i = 0; i < numAdjPts; ++i) {
           output->GetPoint(adjPtIds[i], p2);
           vtkMath::Subtract(p2, p1, e);
@@ -757,11 +758,11 @@ void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dm
     normal_distances->SetComponent(ptId, 0, d);
   }
 
-  PolyDataSmoothing smoother;
+  MeshSmoothing smoother;
   smoother.Input(surface);
   smoother.SmoothPointsOff();
   smoother.SmoothArray(normal_distances->GetName());
-  smoother.Weighting(PolyDataSmoothing::Gaussian);
+  smoother.Weighting(MeshSmoothing::Gaussian);
   smoother.Run();
   normal_distances->DeepCopy(smoother.Output()->GetPointData()->GetArray(normal_distances->GetName()));
 }
@@ -783,7 +784,7 @@ DeformableSurfaceModel::DeformableSurfaceModel()
   _NumberOfTerms(0),
   _NeighborhoodRadius(2),
   _GradientAveraging(0),
-  _GradientWeighting(PolyDataSmoothing::Default),
+  _GradientWeighting(MeshSmoothing::Default),
   _AverageSignedGradients(false),
   _AverageGradientMagnitude(false),
   _MinEdgeLength(-1.0),
@@ -1375,16 +1376,16 @@ bool DeformableSurfaceModel::Remesh()
   }
 
   // Compute local edge length intervals
-  PolyDataRemeshing remesher;
+  SurfaceRemeshing remesher;
   if (_IsSurfaceMesh && _RemeshAdaptively) {
     vtkSmartPointer<vtkDataArray> adaptive_edge_length;
     if (false && _ImplicitSurface) {
       // FIXME: Experimental code that is not ready for use
       adaptive_edge_length = ComputeEdgeLengthRange(_PointSet.Surface(), _MinEdgeLength, _MaxEdgeLength, _ImplicitSurface);
     } else {
-      PolyDataCurvature curv;
+      SurfaceCurvature curv;
       curv.Input(_PointSet.Surface());
-      curv.CurvatureType(PolyDataCurvature::Curvedness);
+      curv.CurvatureType(SurfaceCurvature::Curvedness);
       curv.Run();
       adaptive_edge_length = curv.GetCurvedness();
       _PointSet.Surface()->GetPointData()->AddArray(adaptive_edge_length);
@@ -1399,7 +1400,7 @@ bool DeformableSurfaceModel::Remesh()
 
   // Remesh surface
   remesher.Input(input);
-  remesher.MeltingOrder(PolyDataRemeshing::AREA);
+  remesher.MeltingOrder(SurfaceRemeshing::AREA);
   remesher.MeltNodesOn();
   remesher.MeltTrianglesOff();
   remesher.InvertTrianglesSharingOneLongEdgeOn();
@@ -1608,7 +1609,7 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
     MIRTK_START_TIMING();
     const int ndofs = this->NumberOfDOFs();
 
-    if (_IsSurfaceMesh && _GradientWeighting != PolyDataSmoothing::Combinatorial) {
+    if (_IsSurfaceMesh && _GradientWeighting != MeshSmoothing::Combinatorial) {
 
       vtkSmartPointer<vtkPolyData> surface;
       surface = vtkSmartPointer<vtkPolyData>::New();
@@ -1624,7 +1625,7 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
       memcpy(gradient->GetVoidPointer(0), dx, ndofs * sizeof(double));
       surface->GetPointData()->AddArray(gradient);
 
-      PolyDataSmoothing smoother;
+      MeshSmoothing smoother;
       smoother.Input(surface);
       smoother.Lambda(1.0);
       smoother.SmoothPointsOff();
@@ -1632,8 +1633,8 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
       smoother.SignedSmoothing(_AverageSignedGradients);
       smoother.SmoothMagnitude(_AverageGradientMagnitude);
       smoother.SmoothArray("Gradient");
-      if (_GradientWeighting == PolyDataSmoothing::Default) {
-        smoother.Weighting(PolyDataSmoothing::InverseDistance);
+      if (_GradientWeighting == MeshSmoothing::Default) {
+        smoother.Weighting(MeshSmoothing::InverseDistance);
       } else {
         smoother.Weighting(_GradientWeighting);
       }
@@ -1645,8 +1646,8 @@ void DeformableSurfaceModel::SmoothGradient(double *dx) const
 
     } else {
 
-      if (_GradientWeighting != PolyDataSmoothing::Combinatorial &&
-          _GradientWeighting != PolyDataSmoothing::Default) {
+      if (_GradientWeighting != MeshSmoothing::Combinatorial &&
+          _GradientWeighting != MeshSmoothing::Default) {
         cerr << this->NameOfType() << "::SmoothGradient: Only combinatorial weighting available"
                                       " for non-polygonal point sets" << endl;
         exit(1);
@@ -1838,12 +1839,12 @@ void DeformableSurfaceModel::EnforceHardConstraints(double *dx) const
 
         // Smooth displacement scaling factors
 #if 0   // Too expensive and possibly must be fixed to work properly
-        PolyDataSmoothing smoother;
+        MeshSmoothing smoother;
         smoother.Input(surface);
         smoother.EdgeTable(_PointSet.Edges());
         smoother.SmoothPointsOff();
         smoother.SmoothArray(scale->GetName());
-        smoother.Weighting(PolyDataSmoothing::Combinatorial);
+        smoother.Weighting(MeshSmoothing::Combinatorial);
         smoother.Run();
 #endif
 

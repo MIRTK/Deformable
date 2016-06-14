@@ -974,15 +974,13 @@ void DeformableSurfaceModel::Add(class InternalForce *term, bool ownit)
 // -----------------------------------------------------------------------------
 void DeformableSurfaceModel::Sub(class InternalForce *term)
 {
-  Array<class InternalForce *>::iterator it = _InternalForce.begin();
-  while (it != _InternalForce.end()) {
+  for (auto it = _InternalForce.begin(); it != _InternalForce.end(); ++it) {
     if (*it == term) {
       _InternalForce.erase(it);
       _InternalForceOwner.erase(_InternalForceOwner.begin() + distance(_InternalForce.begin(), it));
       --_NumberOfTerms;
       break;
     }
-    ++it;
   }
 }
 
@@ -997,15 +995,13 @@ void DeformableSurfaceModel::Add(TransformationConstraint *term, bool ownit)
 // -----------------------------------------------------------------------------
 void DeformableSurfaceModel::Sub(TransformationConstraint *term)
 {
-  Array<TransformationConstraint *>::iterator it = _Constraint.begin();
-  while (it != _Constraint.end()) {
+  for (auto it = _Constraint.begin(); it != _Constraint.end(); ++it) {
     if (*it == term) {
       _Constraint.erase(it);
       _ConstraintOwner.erase(_ConstraintOwner.begin() + distance(_Constraint.begin(), it));
       --_NumberOfTerms;
       break;
     }
-    ++it;
   }
 }
 

@@ -252,8 +252,8 @@ void PrintHelp(const char *name)
   cout << "      Minimum maximum node displacement or :option:`-dof` parameter value." << endl;
   cout << "  -minenergy <value>" << endl;
   cout << "      Target deformable surface energy value. (default: 0)" << endl;
-  cout << "  -minactive <n>" << endl;
-  cout << "      Minimum percentage of active nodes. (default: 0)" << endl;
+  cout << "  -minactive <ratio>" << endl;
+  cout << "      Minimum ratio of active nodes in [0, 1]. (default: 0)" << endl;
   cout << "  -inflation-error <threshold>" << endl;
   cout << "      Threshold of surface inflation RMS measure. (default: off)" << endl;
   cout << endl;
@@ -484,21 +484,21 @@ int main(int argc, char *argv[])
   EXPECTS_POSARGS(2);
 
   // Initialize libraries / object factories
-  InitializeNumericsLibrary();
   InitializeIOLibrary();
-  InitializeTransformationLibrary();
+  InitializeNumericsLibrary();
   InitializeDeformableLibrary();
+  InitializeTransformationLibrary();
 
   // Deformable surface model and default optimizer
   UniquePtr<Transformation> dof;
-  DeformableSurfaceModel     model;
-  DeformableSurfaceLogger    logger;
-  DeformableSurfaceDebugger  debugger(&model);
+  DeformableSurfaceModel    model;
+  DeformableSurfaceLogger   logger;
+  DeformableSurfaceDebugger debugger(&model);
   UniquePtr<LocalOptimizer> optimizer(new EulerMethod(&model));
-  ParameterList              params;
+  ParameterList             params;
 
   // Read input point set
-  vtkSmartPointer<vtkPointSet> input = ReadPointSet(POSARG(1), NULL, true);
+  vtkSmartPointer<vtkPointSet> input = ReadPointSet(POSARG(1));
   vtkPointData * const inputPD = input->GetPointData();
   vtkCellData  * const inputCD = input->GetCellData();
   ImageAttributes domain = PointSetDomain(input);
@@ -559,11 +559,14 @@ int main(int argc, char *argv[])
   int         max_level        = 0;
   int         nsteps1          = nsteps; // iterations at level 1
   int         nstepsN          = nsteps; // iterations at level N
-  double      max_step_length           = dt;
-  double      step_length_magnification = 1.0;
-  double      edge_length_magnification = 1.0;
-  bool        inflate_brain  = false; // mimick mris_inflate
+  bool        inflate_brain    = false; // mimick mris_inflate
 
+  double max_step_length           = dt;
+  double step_length_magnification = 1.0;
+  double edge_length_magnification = 1.0;
+
+  int    iarg;
+  double farg;
 
   for (ALL_OPTIONS) {
     // Input
@@ -574,7 +577,7 @@ int main(int argc, char *argv[])
       dmap_name = ARGUMENT;
     }
     else if (OPTION("-dmap-offset") || OPTION("-distance-offset") || OPTION("-implicit-surface-offset")) {
-      dmap_offset = atof(ARGUMENT);
+      PARSE_ARGUMENT(dmap_offset);
     }
     else if (OPTION("-mask")) {
       mask_name = ARGUMENT;
@@ -583,11 +586,7 @@ int main(int argc, char *argv[])
       initial_name = ARGUMENT;
     }
     else if (OPTION("-padding")) {
-      const char *arg = ARGUMENT;
-      if (!FromString(arg, padding)) {
-        cerr << "Invalid -padding argument" << endl;
-        exit(1);
-      }
+      PARSE_ARGUMENT(padding);
     }
     // Presets
     else if (OPTION("-inflate-brain")) { // cf. FreeSurfer's mris_inflate
@@ -615,30 +614,21 @@ int main(int argc, char *argv[])
     }
     // Optimization method
     else if (OPTION("-optimizer") || OPTION("-optimiser")) {
-      const char *arg = ARGUMENT;
       OptimizationMethod m;
-      if (!FromString(arg, m)) {
-        cerr << "Unknown optimization method: " << arg << endl;
-        exit(1);
-      }
+      PARSE_ARGUMENT(m);
       optimizer.reset(LocalOptimizer::New(m, &model));
     }
-    else if (OPTION("-linesearch")) {
+    else if (OPTION("-linesearch") || OPTION("-line-search")) {
       Insert(params, "Line search strategy", ARGUMENT);
     }
     else if (OPTION("-dof")) {
       string arg = ARGUMENT;
       double dx = 1.0, dy = 1.0, dz = 1.0;
       if (HAS_ARGUMENT) {
-        if (!FromString(ARGUMENT, dx)) {
-          cerr << "Invalid -dof control point spacing argument" << endl;
-          exit(1);
-        }
+        PARSE_ARGUMENT(dx);
         if (HAS_ARGUMENT) {
-          if (!FromString(ARGUMENT, dy) || !FromString(ARGUMENT, dz)) {
-            cerr << "Invalid -dof control point spacing argument" << endl;
-            exit(1);
-          }
+          PARSE_ARGUMENT(dy);
+          PARSE_ARGUMENT(dz);
         } else {
           dy = dz = dx;
         }
@@ -660,31 +650,29 @@ int main(int argc, char *argv[])
       model.Transformation(dof.get());
     }
     else if (OPTION("-levels")) {
-      const int i = atoi(ARGUMENT);
+      PARSE_ARGUMENT(min_level);
       if (HAS_ARGUMENT) {
-        min_level = i;
-        max_level = atoi(ARGUMENT);
+        PARSE_ARGUMENT(max_level);
       } else {
+        max_level = min_level;
         min_level = 1;
-        max_level = i;
       }
       if (min_level < 1 || max_level < 1) {
-        cerr << "Error: Invalid -levels argument" << endl;
-        exit(1);
+        FatalError("Invalid -levels argument");
       }
     }
     else if (OPTION("-steps") || OPTION("-iterations")) {
-      nstepsN = atoi(ARGUMENT);
-      if (HAS_ARGUMENT) nsteps1 = atoi(ARGUMENT);
+      PARSE_ARGUMENT(nstepsN);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(nsteps1);
       else              nsteps1 = nstepsN;
     }
     else if (OPTION("-step") || OPTION("-dt") || OPTION("-h")) {
-      max_step_length = atof(ARGUMENT);
+      PARSE_ARGUMENT(max_step_length);
     }
     else if (OPTION("-step-magnification")) {
-      step_length_magnification = atof(ARGUMENT);
+      PARSE_ARGUMENT(step_length_magnification);
     }
-    else if (OPTION("-maxdx") || OPTION("-maxd") || OPTION("-dx") || OPTION("-d")) {
+    else if (OPTION("-max-dx") || OPTION("-maxdx") || OPTION("-maxd") || OPTION("-dx") || OPTION("-d")) {
       Insert(params, "Normalize length of steps", false);
       Insert(params, "Maximum node displacement", ARGUMENT);
     }
@@ -693,8 +681,13 @@ int main(int argc, char *argv[])
     else if (OPTION("-mass"))      Insert(params, "Deformable surface mass", ARGUMENT);
     else if (OPTION("-epsilon"))   Insert(params, "Epsilon", ARGUMENT);
     else if (OPTION("-delta"))     Insert(params, "Delta", ARGUMENT);
-    else if (OPTION("-minenergy")) Insert(params, "Target energy function value", ARGUMENT);
-    else if (OPTION("-minactive")) min_active.Threshold(atof(ARGUMENT));
+    else if (OPTION("-min-energy") || OPTION("-minenergy")) {
+      Insert(params, "Target energy function value", ARGUMENT);
+    }
+    else if (OPTION("-min-active") || OPTION("-minactive")) {
+      PARSE_ARGUMENT(farg);
+      min_active.Threshold(farg);
+    }
     else if (OPTION("-extrinsic-energy")) {
       model.MinimizeExtrinsicEnergy(true);
     }
@@ -704,7 +697,8 @@ int main(int argc, char *argv[])
       model.NeighborhoodRadius(atoi(ARGUMENT));
     }
     else if (OPTION("-distance")) {
-      distance.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      distance.Weight(farg);
       signed_gradient = true;
     }
     else if (OPTION("-distance-measure")) {
@@ -713,79 +707,134 @@ int main(int argc, char *argv[])
       distance.DistanceMeasure(measure);
     }
     else if (OPTION("-balloon-inflation") || OPTION("-balloon")) {
-      balloon.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      balloon.Weight(farg);
       balloon.DeflateSurface(false);
     }
     else if (OPTION("-balloon-deflation")) {
-      balloon.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      balloon.Weight(farg);
       balloon.DeflateSurface(true);
     }
     else if (OPTION("-edges")) {
-      edges.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      edges.Weight(farg);
     }
     else if (OPTION("-inflation")) {
+      PARSE_ARGUMENT(farg);
       inflation.Name("Inflation");
-      inflation.Weight(atof(ARGUMENT));
+      inflation.Weight(farg);
     }
     else if (OPTION("-bending-energy")) {
-      dofbending.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      dofbending.Weight(farg);
     }
 		else if (OPTION("-spring") || OPTION("-bending")) {
-      spring.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      spring.Weight(farg);
     }
     else if (OPTION("-normal-spring") || OPTION("-nspring")) {
-      spring.NormalWeight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      spring.NormalWeight(farg);
     }
     else if (OPTION("-tangential-spring") || OPTION("-tspring")) {
-      spring.TangentialWeight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      spring.TangentialWeight(farg);
     }
     else if (OPTION("-normalized-spring")) {
-      normspring.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      normspring.Weight(farg);
     }
     else if (OPTION("-distance-spring") || OPTION("-dspring")) {
-      dspring.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      dspring.Weight(farg);
     }
     else if (OPTION("-curvature")) {
-      curvature.Weight(atof(ARGUMENT));
-      curvature.Sigma(HAS_ARGUMENT ? atof(ARGUMENT) : .0);
+      PARSE_ARGUMENT(farg);
+      curvature.Weight(farg);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(farg);
+      else farg = 0.;
+      curvature.Sigma(farg);
     }
     else if (OPTION("-quadratic-curvature") || OPTION("-qcurvature")) {
-      qcurvature.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      qcurvature.Weight(farg);
     }
     else if (OPTION("-distortion")) {
-      distortion.Weight(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      distortion.Weight(farg);
     }
     else if (OPTION("-stretching")) {
-      stretching.Weight(atof(ARGUMENT));
-      stretching.RestLength(HAS_ARGUMENT ? atof(ARGUMENT) : -1.0);
+      PARSE_ARGUMENT(farg);
+      stretching.Weight(farg);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(farg);
+      else farg = -1.;
+      stretching.RestLength(farg);
     }
     else if (OPTION("-repulsion")) {
-      repulsion.Weight(atof(ARGUMENT));
-      repulsion.Radius(HAS_ARGUMENT ? atof(ARGUMENT) : 0);
+      PARSE_ARGUMENT(farg);
+      repulsion.Weight(farg);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(farg);
+      else farg = 0.;
+      repulsion.Radius(farg);
     }
-    else if (OPTION("-collision")) collision.Weight(atof(ARGUMENT));
+    else if (OPTION("-collision")) {
+      PARSE_ARGUMENT(farg);
+      collision.Weight(farg);
+    }
     // Stopping criteria
     else if (OPTION("-inflation-error")) {
-      inflation_error.Threshold(atof(ARGUMENT));
+      PARSE_ARGUMENT(farg);
+      inflation_error.Threshold(farg);
     }
     // Iterative local remeshing
-    else if (OPTION("-remesh")) model.RemeshInterval(atoi(ARGUMENT));
-    else if (OPTION("-remesh-adaptively")) model.RemeshAdaptively(true);
-    else if (OPTION("-minedgelength")) model.MinEdgeLength(atof(ARGUMENT));
-    else if (OPTION("-maxedgelength")) model.MaxEdgeLength(atof(ARGUMENT));
-    else if (OPTION("-edgelength-magnification")) {
-      edge_length_magnification = atof(ARGUMENT);
+    else if (OPTION("-remesh")) {
+      PARSE_ARGUMENT(iarg);
+      model.RemeshInterval(iarg);
     }
-    else if (OPTION("-minangle")) model.MinFeatureAngle(atof(ARGUMENT));
-    else if (OPTION("-maxangle")) model.MaxFeatureAngle(atof(ARGUMENT));
+    else if (OPTION("-remesh-adaptively")) model.RemeshAdaptively(true);
+    else if (OPTION("-min-edge-length") || OPTION("-minedgelength")) {
+      PARSE_ARGUMENT(farg);
+      model.MinEdgeLength(farg);
+    }
+    else if (OPTION("-max-edge-length") || OPTION("-maxedgelength")) {
+      PARSE_ARGUMENT(farg);
+      model.MaxEdgeLength(farg);
+    }
+    else if (OPTION("-edge-length-magnification") || OPTION("-edgelength-magnification")) {
+      PARSE_ARGUMENT(edge_length_magnification);
+    }
+    else if (OPTION("-min-angle") || OPTION("-minangle")) {
+      PARSE_ARGUMENT(farg);
+      model.MinFeatureAngle(farg);
+    }
+    else if (OPTION("-max-angle") || OPTION("-maxangle")) {
+      PARSE_ARGUMENT(farg);
+      model.MaxFeatureAngle(farg);
+    }
     // Iterative low-pass filtering
-    else if (OPTION("-lowpass"))            model.LowPassInterval(atoi(ARGUMENT));
-    else if (OPTION("-lowpass-iterations")) model.LowPassIterations(atoi(ARGUMENT));
-    else if (OPTION("-lowpass-band"))       model.LowPassBand(atof(ARGUMENT));
+    else if (OPTION("-lowpass")) {
+      PARSE_ARGUMENT(iarg);
+      model.LowPassInterval(iarg);
+    }
+    else if (OPTION("-lowpass-iterations")) {
+      PARSE_ARGUMENT(iarg);
+      model.LowPassIterations(iarg);
+    }
+    else if (OPTION("-lowpass-band")) {
+      PARSE_ARGUMENT(farg);
+      model.LowPassBand(farg);
+    }
     // Non-self-intersection / collision detection
     else if (OPTION("-nointersection")) model.HardNonSelfIntersection(true);
-    else if (OPTION("-mindistance") || OPTION("-mind")) model.MinFrontfaceDistance(atof(ARGUMENT));
-    else if (OPTION("-minwidth")    || OPTION("-minw")) model.MinBackfaceDistance (atof(ARGUMENT));
+    else if (OPTION("-min-distance") || OPTION("-mindistance") || OPTION("-mind")) {
+      PARSE_ARGUMENT(farg);
+      model.MinFrontfaceDistance(farg);
+    }
+    else if (OPTION("-min-width") || OPTION("-minwidth") || OPTION("-minw")) {
+      PARSE_ARGUMENT(farg);
+      model.MinBackfaceDistance(farg);
+    }
     // Output format
     else if (OPTION("-center-output"))  center_output  = true;
     else if (OPTION("-match-area"))     match_area     = true;
@@ -847,8 +896,13 @@ int main(int argc, char *argv[])
       const char *value = ARGUMENT;
       Insert(params, name, value);
     }
-    else if (OPTION("-debugprefix")) debug_prefix = ARGUMENT;
-    else if (OPTION("-debuginterval")) debugger.Interval(atoi(ARGUMENT));
+    else if (OPTION("-debug-prefix") || OPTION("-debugprefix")) {
+      debug_prefix = ARGUMENT;
+    }
+    else if (OPTION("-debug-interval") || OPTION("-debuginterval")) {
+      PARSE_ARGUMENT(iarg);
+      debugger.Interval(iarg);
+    }
     else HANDLE_COMMON_OR_UNKNOWN_OPTION();
   }
 

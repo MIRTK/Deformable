@@ -676,7 +676,7 @@ void BalloonForce::Update(bool gradient)
   const int _MagnitudeSmoothing = 0;
   if (_MagnitudeSmoothing > 0) {
     vtkSmartPointer<vtkDataArray> smoothed_magnitude;
-    smoothed_magnitude = vtkSmartPointer<vtkDataArray>::NewInstance(magnitude);
+    smoothed_magnitude.TakeReference(magnitude->NewInstance());
     smoothed_magnitude->SetNumberOfComponents(magnitude->GetNumberOfComponents());
     smoothed_magnitude->SetNumberOfTuples(magnitude->GetNumberOfTuples());
     EdgeTable edgeTable(_PointSet->Surface());

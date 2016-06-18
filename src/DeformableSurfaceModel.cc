@@ -386,7 +386,7 @@ SmoothGyri(vtkSmartPointer<vtkPolyData> surface,
   points->DeepCopy(surface->GetPoints());
 
   vtkSmartPointer<vtkPolyData> output;
-  output = vtkSmartPointer<vtkPolyData>::NewInstance(surface);
+  output.TakeReference(surface->NewInstance());
   output->ShallowCopy(surface);
   output->SetPoints(points);
 

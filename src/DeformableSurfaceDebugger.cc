@@ -85,7 +85,7 @@ void DeformableSurfaceDebugger::HandleEvent(Observable *obj, Event event, const 
         _Model->WriteGradient(_Prefix.c_str(), suffix);
         if (euler) {
           vtkSmartPointer<vtkPointSet> model;
-          model = vtkSmartPointer<vtkPointSet>::NewInstance(_Model->Output());
+          model.TakeReference(_Model->Output()->NewInstance());
           model->ShallowCopy(_Model->Output());
           vtkSmartPointer<vtkFloatArray> gradient;
           gradient = vtkSmartPointer<vtkFloatArray>::New();

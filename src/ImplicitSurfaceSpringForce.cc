@@ -32,8 +32,14 @@
 #include "vtkDataArray.h"
 #include "vtkFloatArray.h"
 
+#define USE_QUADRATIC_CURVATURE_GRADIENT 1
+
 
 namespace mirtk {
+
+
+// Register energy term with object factory during static initialization
+mirtkAutoRegisterEnergyTermMacro(ImplicitSurfaceSpringForce);
 
 
 // =============================================================================
@@ -387,7 +393,7 @@ void ImplicitSurfaceSpringForce::EvaluateGradient(double *gradient, double step,
     data::statistic::AbsPercentile::Calculate(95, distances);
   }
 
-#if 1
+#if USE_QUADRATIC_CURVATURE_GRADIENT
   ComputeQuadraticCurvatureGradient eval;
   eval._Status    = _PointSet->SurfaceStatus();
   eval._Normals   = _PointSet->SurfaceNormals();
@@ -415,7 +421,7 @@ void ImplicitSurfaceSpringForce::EvaluateGradient(double *gradient, double step,
   scale._Gradient    = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), scale);
 
-#if 0
+#if !USE_QUADRATIC_CURVATURE_GRADIENT
   WeightComponents mul;
   mul._Normals          = _PointSet->SurfaceNormals();
   mul._NormalWeight     = .67;

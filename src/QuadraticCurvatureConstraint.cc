@@ -34,6 +34,10 @@
 namespace mirtk {
 
 
+// Register energy term with object factory during static initialization
+mirtkAutoRegisterEnergyTermMacro(QuadraticCurvatureConstraint);
+
+
 // =============================================================================
 // Auxiliaries
 // =============================================================================

@@ -332,7 +332,7 @@ void DemeanValues(vtkDataArray *values, bool use_median = false)
   // Compute mean (or median)
   if (use_median) {
     vtkSmartPointer<vtkDataArray> sorted;
-    sorted = vtkSmartPointer<vtkDataArray>::NewInstance(values);
+    sorted.TakeReference(values->NewInstance());
     sorted->DeepCopy(values);
     vtkSortDataArray::Sort(sorted);
     mu = sorted->GetComponent(sorted->GetNumberOfTuples() / 2, 0);
@@ -384,7 +384,7 @@ void NormalizeValues(vtkDataArray *values, bool use_median = false)
   // Compute mean (or median)
   if (use_median) {
     vtkSmartPointer<vtkDataArray> sorted;
-    sorted = vtkSmartPointer<vtkDataArray>::NewInstance(values);
+    sorted.TakeReference(values->NewInstance());
     sorted->DeepCopy(values);
     vtkSortDataArray::Sort(sorted);
     mu = sorted->GetComponent(sorted->GetNumberOfTuples() / 2, 0);
@@ -435,7 +435,7 @@ ResampleAtInitialPoints(vtkSmartPointer<vtkPointSet> input, vtkSmartPointer<vtkP
   }
 
   vtkSmartPointer<vtkPointSet> initial;
-  initial = vtkSmartPointer<vtkPointSet>::NewInstance(output);
+  initial.TakeReference(output->NewInstance());
   initial->ShallowCopy(output);
   initial->SetPoints(initial_points);
 
@@ -467,7 +467,7 @@ ResampleAtInitialPoints(vtkSmartPointer<vtkPointSet> input, vtkSmartPointer<vtkP
   delete[] weights;
 
   vtkSmartPointer<vtkPointSet> resampled;
-  resampled = vtkSmartPointer<vtkPointSet>::NewInstance(input);
+  resampled.TakeReference(input->NewInstance());
   resampled->ShallowCopy(input);
   resampled->SetPoints(resampled_points);
   return resampled;

@@ -775,7 +775,7 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(farg);
       repulsion.Weight(farg);
       if (HAS_ARGUMENT) PARSE_ARGUMENT(farg);
-      else farg = 0.;
+      else farg = -1.;
       repulsion.Radius(farg);
     }
     else if (OPTION("-collision")) {

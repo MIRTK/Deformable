@@ -53,6 +53,9 @@ class StretchingForce : public InternalForce
   /// Average edge length, used only when _RestLength < 0
   mirtkAttributeMacro(double, AverageLength);
 
+  /// Whether to use current average edge length at each iteration
+  mirtkPublicAttributeMacro(bool, UseCurrentAverageLength);
+
   /// Copy attributes of this class from another instance
   void CopyAttributes(const StretchingForce &);
 
@@ -97,6 +100,9 @@ public:
 
   /// Reinitialize internal force term after change of input topology
   virtual void Reinitialize();
+
+  /// Update internal force data structures
+  virtual void Update(bool);
 
 protected:
 

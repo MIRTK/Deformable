@@ -88,8 +88,9 @@ struct Evaluate
     for (it.InitTraversal(re); (edgeId = it.GetNextEdge(ptId1, ptId2) != -1);) {
       _Points->GetPoint(ptId1, p1);
       _Points->GetPoint(ptId2, p2);
-      d = sqrt(vtkMath::Distance2BetweenPoints(p1, p2));
-      _Sum += pow(d - _RestLength, 2);
+      d  = sqrt(vtkMath::Distance2BetweenPoints(p1, p2));
+      d -= _RestLength;
+      _Sum += d * d;
     }
   }
 };
@@ -118,10 +119,10 @@ struct EvaluateGradient
       _EdgeTable->GetAdjacentPoints(ptId, numAdjPts, adjPts);
       for (int i = 0; i < numAdjPts; ++i) {
         _Points->GetPoint(adjPts[i], p2);
-        vtkMath::Subtract(p1, p2, e);
+        vtkMath::Subtract(p2, p1, e);
         d = vtkMath::Norm(e);
         w = 2.0 * (d - _RestLength) / d;
-        _Gradient[ptId] += w * Force(e[0], e[1], e[2]);
+        _Gradient[ptId] -= w * Force(e[0], e[1], e[2]);
       }
     }
   }
@@ -138,7 +139,9 @@ struct EvaluateGradient
 StretchingForce::StretchingForce(const char *name, double weight)
 :
   InternalForce(name, weight),
-  _RestLength(-1.0)
+  _RestLength(-1.),
+  _AverageLength(0.),
+  _UseCurrentAverageLength(true)
 {
   _ParameterPrefix.push_back("Stretching ");
   _ParameterPrefix.push_back("Edge stretching ");
@@ -150,7 +153,9 @@ StretchingForce::StretchingForce(const char *name, double weight)
 // -----------------------------------------------------------------------------
 void StretchingForce::CopyAttributes(const StretchingForce &other)
 {
-  _RestLength = other._RestLength;
+  _RestLength              = other._RestLength;
+  _AverageLength           = other._AverageLength;
+  _UseCurrentAverageLength = other._UseCurrentAverageLength;
 }
 
 // -----------------------------------------------------------------------------
@@ -242,9 +247,23 @@ void StretchingForce::Reinitialize()
 void StretchingForce::Init()
 {
   if (_RestLength < .0) {
-    _AverageLength = AverageEdgeLength(_PointSet->Points(), *_PointSet->Edges());
+    if (!_UseCurrentAverageLength) {
+      _AverageLength = AverageEdgeLength(_PointSet->Points(), *_PointSet->Edges());
+    }
   } else {
     _AverageLength = _RestLength;
+  }
+}
+
+// -----------------------------------------------------------------------------
+void StretchingForce::Update(bool gradient)
+{
+  // Update base class
+  InternalForce::Update(gradient);
+
+  // Update average edge length
+  if (_UseCurrentAverageLength) {
+    _AverageLength = AverageEdgeLength(_PointSet->Points(), *_PointSet->Edges());
   }
 }
 
@@ -258,7 +277,7 @@ double StretchingForce::Evaluate()
   eval._EdgeTable  = _PointSet->Edges();
   eval._RestLength = _AverageLength;
   parallel_reduce(blocked_range<int>(0, _PointSet->NumberOfEdges()), eval);
-  MIRTK_DEBUG_TIMING(3, "evaluation of stretching");
+  MIRTK_DEBUG_TIMING(3, "evaluation of stretching penalty");
   return eval._Sum / _PointSet->NumberOfEdges();
 }
 
@@ -285,7 +304,7 @@ void StretchingForce::EvaluateGradient(double *gradient, double step, double wei
   }
 
   InternalForce::EvaluateGradient(gradient, step, weight / _NumberOfPoints);
-  MIRTK_DEBUG_TIMING(3, "evaluation of StretchingForce force");
+  MIRTK_DEBUG_TIMING(3, "evaluation of stretching force");
 }
 
 

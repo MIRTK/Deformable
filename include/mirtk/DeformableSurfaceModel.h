@@ -407,6 +407,14 @@ protected:
   /// Smooth gradient such that neighboring points move coherently
   virtual void SmoothGradient(double *dx) const;
 
+  /// Adjust node displacements to avoid self-intersections and collisions
+  ///
+  /// \param[in,out] dx   (Scaled) gradient of objective function.
+  /// \param[in]     nsi  Enforce non-self-intersection.
+  /// \param[in]     mind Minimum front-facing distance.
+  /// \param[in]     minw Minimum back-facing distance.
+  void ResolveSurfaceCollisions(double *dx, bool nsi, double mind, double minw) const;
+
   /// Enforce hard constraints on surface model deformation
   ///
   /// This function clamps a nodes' displacement vector (velocity times \f$\delta t\f$),

@@ -28,6 +28,8 @@
 #include "vtkPoints.h"
 #include "vtkDataArray.h"
 
+using namespace mirtk::data::statistic;
+
 
 namespace mirtk {
 
@@ -44,44 +46,92 @@ namespace ImplicitSurfaceDistanceUtils {
 
 
 // -----------------------------------------------------------------------------
+/// Compute magnitude of implicit surface distance force
+struct ComputeMagnitude
+{
+  vtkDataArray *_Status;
+  vtkDataArray *_Distances;
+  double        _DistanceScale;
+  vtkDataArray *_Magnitude;
+
+  void operator ()(const blocked_range<int> &ptIds) const
+  {
+    double d, m;
+
+    const vtkIdType begin = static_cast<vtkIdType>(ptIds.begin());
+    const vtkIdType end   = static_cast<vtkIdType>(ptIds.end  ());
+
+    for (vtkIdType ptId = begin; ptId != end; ++ptId) {
+      if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
+        _Magnitude->SetComponent(ptId, 0, 0.);
+      } else {
+        d = _Distances->GetComponent(ptId, 0);
+        if (_DistanceScale > 0.) { // e.g. _Force->DistanceMeasure() == DM_Normal
+          d *= _DistanceScale;
+          d *= d;
+          m = d / (1. + d);
+        } else { // _Force->DistanceMeasure() == DM_Minimum
+          m = clamp(abs(d), 0., 1.);
+        }
+        _Magnitude->SetComponent(ptId, 0, -copysign(m, d));
+      }
+    }
+  }
+};
+
+// -----------------------------------------------------------------------------
+/// Compute magnitude of implicit surface distance force
+struct EvaluateMagnitude
+{
+  typedef ImplicitSurfaceForce::ImageFunction MagnitudeFunction;
+
+  MagnitudeFunction *_Function;
+  vtkPoints         *_Points;
+  vtkDataArray      *_Status;
+  vtkDataArray      *_Distances;
+  vtkDataArray      *_Magnitude;
+
+  void operator ()(const blocked_range<int> &ptIds) const
+  {
+    double p[3], d, m;
+
+    const vtkIdType begin = static_cast<vtkIdType>(ptIds.begin());
+    const vtkIdType end   = static_cast<vtkIdType>(ptIds.end  ());
+
+    for (vtkIdType ptId = begin; ptId != end; ++ptId) {
+      if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
+        _Magnitude->SetComponent(ptId, 0, 0.);
+      } else {
+        _Points->GetPoint(ptId, p);
+        _Function->WorldToImage(p[0], p[1], p[2]);
+        m = _Function->Evaluate(p[0], p[1], p[2]);
+        d = _Distances->GetComponent(ptId, 0);
+        _Magnitude->SetComponent(ptId, 0, -copysign(m, d));
+      }
+    }
+  }
+};
+
+// -----------------------------------------------------------------------------
 /// Compute gradient of implicit surface distance force term (i.e., negative force)
 struct ComputeGradient
 {
   typedef ImplicitSurfaceDistance::GradientType GradientType;
 
-  ImplicitSurfaceForce *_Force;
-  vtkPoints            *_Points;
-  vtkDataArray         *_Status;
-  vtkDataArray         *_Normals;
-  vtkDataArray         *_Distances;
-  double                _MaxDistance;
-  double                _Scale;
-  GradientType         *_Gradient;
+  vtkDataArray *_Normals;
+  vtkDataArray *_Magnitude;
+  GradientType *_Gradient;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double n[3], d;
-    GradientType *g = _Gradient + ptIds.begin();
-    for (vtkIdType ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, ++g) {
-      if (_Status && _Status->GetComponent(ptId, 0) == .0) continue;
+    double n[3];
+
+    const vtkIdType begin = static_cast<vtkIdType>(ptIds.begin());
+    const vtkIdType end   = static_cast<vtkIdType>(ptIds.end  ());
+
+    for (vtkIdType ptId = begin; ptId != end; ++ptId) {
       _Normals->GetTuple(ptId, n);
-      d = _Distances->GetComponent(ptId, 0);
-      if (d < .0) (*g) = -GradientType(n[0], n[1], n[2]);
-      else        (*g) =  GradientType(n[0], n[1], n[2]);
-
-      if (_MaxDistance > .0) { // e.g. _Force->DistanceMeasure() == DM_Normal
-
-        d /= _MaxDistance;
-        d *= _Scale;
-        d *= d;
-        (*g) *= d / (1.0 + d);
-
-      } else { // _Force->DistanceMeasure() == DM_Minimum
-
-        d = fabs(d);
-        if (d < 1.0) (*g) *= d;
-
-      }
+      _Gradient[ptId] = -_Magnitude->GetComponent(ptId, 0) * GradientType(n);
     }
   }
 };
@@ -95,9 +145,22 @@ using namespace ImplicitSurfaceDistanceUtils;
 // =============================================================================
 
 // -----------------------------------------------------------------------------
+void ImplicitSurfaceDistance::CopyAttributes(const ImplicitSurfaceDistance &other)
+{
+  _MagnitudeImage     = other._MagnitudeImage;
+  _NormalizeMagnitude = other._NormalizeMagnitude;
+  _InvertMagnitude    = other._InvertMagnitude;
+  _DistanceScale      = other._DistanceScale;
+}
+
+// -----------------------------------------------------------------------------
 ImplicitSurfaceDistance::ImplicitSurfaceDistance(const char *name, double weight)
 :
-  ImplicitSurfaceForce(name, weight)
+  ImplicitSurfaceForce(name, weight),
+  _MagnitudeImage(nullptr),
+  _NormalizeMagnitude(false),
+  _InvertMagnitude(false),
+  _DistanceScale(1.)
 {
   _MaxDistance = 5.0;
 }
@@ -107,12 +170,16 @@ ImplicitSurfaceDistance::ImplicitSurfaceDistance(const ImplicitSurfaceDistance &
 :
   ImplicitSurfaceForce(other)
 {
+  CopyAttributes(other);
 }
 
 // -----------------------------------------------------------------------------
 ImplicitSurfaceDistance &ImplicitSurfaceDistance::operator =(const ImplicitSurfaceDistance &other)
 {
-  ImplicitSurfaceForce::operator =(other);
+  if (this != &other) {
+    ImplicitSurfaceForce::operator =(other);
+    CopyAttributes(other);
+  }
   return *this;
 }
 
@@ -124,8 +191,14 @@ ImplicitSurfaceDistance::~ImplicitSurfaceDistance()
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceDistance::Initialize()
 {
+  // Initialize base class
   ImplicitSurfaceForce::Initialize();
+
+  // Initialize point data array of implicit surface distances
   InitializeDistances();
+
+  // Add point data array of force magnitude
+  AddPointData("Magnitude", 1, VTK_FLOAT);
 }
 
 // =============================================================================
@@ -135,18 +208,102 @@ void ImplicitSurfaceDistance::Initialize()
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceDistance::Update(bool gradient)
 {
+  // Update base class
   ImplicitSurfaceForce::Update(gradient);
+
+  // Calculate distances of surface points to the implicit target surface
   UpdateDistances();
+
+  // Calculate force magnitude at surface points
+  UpdateMagnitude();
+}
+
+// -----------------------------------------------------------------------------
+void ImplicitSurfaceDistance::UpdateDistances()
+{
+  ImplicitSurfaceForce::UpdateDistances();
+  if (_DistanceMeasure != DM_Minimum) {
+    _DistanceScale = 1. / AbsPercentile::Calculate(95, this->Distances());
+  } else {
+    _DistanceScale = 1.;
+  }
+}
+
+// -----------------------------------------------------------------------------
+void ImplicitSurfaceDistance::UpdateMagnitude()
+{
+  vtkDataArray *distances = this->Distances();
+  vtkDataArray *magnitude = GetPointData("Magnitude");
+
+  // Evaluate/compute magnitude function at active surface points
+  if (_MagnitudeImage) {
+
+    ImageFunction func;
+    func.Input(_MagnitudeImage);
+    func.Initialize();
+    EvaluateMagnitude eval;
+    eval._Points    = _PointSet->SurfacePoints();
+    eval._Status    = _PointSet->SurfaceStatus();
+    eval._Function  = &func;
+    eval._Distances = distances;
+    eval._Magnitude = magnitude;
+    parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
+
+  } else {
+
+    ComputeMagnitude calc;
+    calc._Status        = _PointSet->SurfaceStatus();
+    calc._Distances     = distances;
+    calc._DistanceScale = (_DistanceMeasure == DM_Minimum ? 0. : _DistanceScale);
+    calc._Magnitude     = magnitude;
+    parallel_for(blocked_range<int>(0, _NumberOfPoints), calc);
+
+  }
+
+  // Invert magnitude
+  if (_InvertMagnitude) {
+    double m;
+    double range[2] = { inf, 0. };
+    for (vtkIdType ptId = 0; ptId < magnitude->GetNumberOfTuples(); ++ptId) {
+      m = abs(magnitude->GetComponent(ptId, 0));
+      if (m != 0.) {
+        range[0] = min(range[0], m);
+        range[1] = max(range[1], m);
+      }
+    }
+    double extent = range[1] - range[0];
+    for (vtkIdType ptId = 0; ptId < magnitude->GetNumberOfTuples(); ++ptId) {
+      m = magnitude->GetComponent(ptId, 0);
+      if (m != 0.) {
+        m = copysign(extent - (abs(m) - range[0]) + range[0], m);
+        magnitude->SetComponent(ptId, 0, m);
+      }
+    }
+  }
+
+  // Divide by maximum absolute magnitude value
+  if (_NormalizeMagnitude) {
+    double range[2];
+    magnitude->GetRange(range, 0);
+    double norm = max(abs(range[0]), abs(range[1]));
+    if (norm > 0.) {
+      norm = 1. / norm;
+      for (vtkIdType ptId = 0; ptId < magnitude->GetNumberOfTuples(); ++ptId) {
+        magnitude->SetComponent(ptId, 0, norm * magnitude->GetComponent(ptId, 0));
+      }
+    }
+  }
 }
 
 // -----------------------------------------------------------------------------
 double ImplicitSurfaceDistance::Evaluate()
 {
-  if (_NumberOfPoints == 0) return .0;
-  double sum = .0;
-  vtkDataArray *distances = Distances();
+  if (_NumberOfPoints == 0) return 0.;
+  double d, sum = 0.;
+  vtkDataArray *distances = this->Distances();
   for (int ptId = 0; ptId < _NumberOfPoints; ++ptId) {
-    sum += abs(distances->GetComponent(ptId, 0));
+    d = distances->GetComponent(ptId, 0);
+    sum += abs(d);
   }
   return sum / _NumberOfPoints;
 }
@@ -156,24 +313,13 @@ void ImplicitSurfaceDistance::EvaluateGradient(double *gradient, double step, do
 {
   if (_NumberOfPoints == 0) return;
 
+  vtkDataArray *magnitude = GetPointData("Magnitude");
   memset(_Gradient, 0, _NumberOfPoints * sizeof(GradientType));
 
-  vtkDataArray *distances = this->Distances();
-
-  double max_distance = .0;
-  if (_DistanceMeasure != DM_Minimum) {
-    data::statistic::AbsPercentile::Calculate(95, distances);
-  }
-
   ComputeGradient eval;
-  eval._Force       = this;
-  eval._Points      = _PointSet->SurfacePoints();
-  eval._Status      = _PointSet->SurfaceStatus();
-  eval._Normals     = _PointSet->SurfaceNormals();
-  eval._Distances   = distances;
-  eval._MaxDistance = max_distance;
-  eval._Scale       = 1.0;
-  eval._Gradient    = _Gradient;
+  eval._Normals   = _PointSet->SurfaceNormals();
+  eval._Magnitude = magnitude;
+  eval._Gradient  = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
   ImplicitSurfaceForce::EvaluateGradient(gradient, step, weight / _NumberOfPoints);

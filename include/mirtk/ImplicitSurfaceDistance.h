@@ -29,7 +29,7 @@ namespace mirtk {
 /**
  * Force attracting the surface towards a given implicit surface / object boundary
  *
- * This force term is similar to an BalloonForce with the implicit surface
+ * This force term is similar to a BalloonForce with the implicit surface
  * model given as input image. Unlike the balloon force, however, this force
  * does not vanish for a node which is close to the implicit surface. A separate
  * image edge force which takes over once a vertex is nearby an image edge is
@@ -46,6 +46,30 @@ namespace mirtk {
 class ImplicitSurfaceDistance : public ImplicitSurfaceForce
 {
   mirtkEnergyTermMacro(ImplicitSurfaceDistance, EM_ImplicitSurfaceDistance);
+
+  // ---------------------------------------------------------------------------
+  // Attributes
+
+  /// (Transformed) force magnitude image
+  ///
+  /// By default, points move either with constant magnitude or with magnitude
+  /// proportional to the implicit surface distance. When this optional input
+  /// is given, the force magnitude is set equal to the respective magnitude
+  /// value evaluated at each point location.
+  mirtkPublicAggregateMacro(RegisteredImage, MagnitudeImage);
+
+  /// Whether to divide magnitude of forces by maximum magnitude
+  mirtkPublicAttributeMacro(bool, NormalizeMagnitude);
+
+  /// Whether to invert magnitude, i.e., move points with lower magnitude value
+  /// faster then points with positive magnitude value
+  mirtkPublicAttributeMacro(bool, InvertMagnitude);
+
+  /// Distance scaling factor used by magnitude function
+  mirtkAttributeMacro(double, DistanceScale);
+
+  /// Copy attributes of this class from another instance
+  void CopyAttributes(const ImplicitSurfaceDistance &);
 
   // ---------------------------------------------------------------------------
   // Construction/Destruction
@@ -79,6 +103,15 @@ protected:
 
   /// Evaluate external force
   virtual void EvaluateGradient(double *, double, double);
+
+  // ---------------------------------------------------------------------------
+  // Force magnitude
+
+  /// Update implicit surface distance measures
+  void UpdateDistances();
+
+  /// Update force magnitude at surface points
+  void UpdateMagnitude();
 
 };
 

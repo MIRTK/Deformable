@@ -480,6 +480,8 @@ ResampleAtInitialPoints(vtkSmartPointer<vtkPointSet> input, vtkSmartPointer<vtkP
 // -----------------------------------------------------------------------------
 int main(int argc, char *argv[])
 {
+  FileOption output_fopt = FO_Default;
+
   verbose = 1; // default verbosity level
   EXPECTS_POSARGS(2);
 
@@ -498,7 +500,7 @@ int main(int argc, char *argv[])
   ParameterList             params;
 
   // Read input point set
-  vtkSmartPointer<vtkPointSet> input = ReadPointSet(POSARG(1));
+  vtkSmartPointer<vtkPointSet> input = ReadPointSet(POSARG(1), output_fopt);
   vtkPointData * const inputPD = input->GetPointData();
   vtkCellData  * const inputCD = input->GetCellData();
   ImageAttributes domain = PointSetDomain(input);
@@ -548,8 +550,6 @@ int main(int argc, char *argv[])
   double      padding          = numeric_limits<double>::quiet_NaN();
   bool        level_prefix     = true;
   bool        reset_status     = false;
-  bool        ascii            = false;
-  bool        compress         = true;
   bool        center_output    = false;
   bool        match_area       = false;
   bool        match_sampling   = false;
@@ -883,13 +883,9 @@ int main(int argc, char *argv[])
     else if (OPTION("-track-without-momentum")) {
       Insert(params, "Exclude momentum from tracked normal displacement", true);
     }
-    else if (OPTION("-save-status"))    save_status    = true;
-    else if (OPTION("-ascii" ) || OPTION("-nobinary")) ascii = true;
-    else if (OPTION("-binary") || OPTION("-noascii" )) ascii = false;
-    else if (OPTION("-compress"))   compress = true;
-    else if (OPTION("-nocompress")) compress = false;
     else if (OPTION("-levelprefix")) level_prefix = true;
     else if (OPTION("-nolevelprefix")) level_prefix = false;
+    else if (OPTION("-save-status")) save_status = true;
     // Debugging and other common/advanced options
     else if (OPTION("-par")) {
       const char *name  = ARGUMENT;
@@ -903,6 +899,7 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(iarg);
       debugger.Interval(iarg);
     }
+    else HANDLE_POINTSETIO_OPTION(output_fopt);
     else HANDLE_COMMON_OR_UNKNOWN_OPTION();
   }
 
@@ -1225,5 +1222,9 @@ int main(int argc, char *argv[])
   if (match_area) Scale(output, sqrt(Area(input) / Area(output)));
 
   // Write deformed output surface
-  return WritePointSet(POSARG(2), output, compress, ascii) ? 0 : 1;
+  if (!WritePointSet(POSARG(2), output, output_fopt)) {
+    FatalError("Failed to write output to file " << output);
+  }
+
+  return 0;
 }

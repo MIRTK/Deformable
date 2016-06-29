@@ -161,9 +161,9 @@ struct EvaluateGradient
     GradientType *g = _Gradient + ptIds.begin();
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, ++g) {
       if (_Status && _Status->GetComponent(ptId, 0) == .0) continue;
-      _Points->GetPoint(ptId, c);
       _EdgeTable->GetAdjacentPoints(ptId, numAdjPts, adjPtIds);
       if (numAdjPts > 0) {
+        _Points->GetPoint(ptId, c);
         for (int i = 0; i < numAdjPts; ++i) {
           _Points->GetPoint(adjPtIds[i], p);
           g->_x += c[0] - p[0];

@@ -791,6 +791,7 @@ DeformableSurfaceModel::DeformableSurfaceModel()
   _MaxEdgeLength(-1.0),
   _MinFeatureAngle(180.0),
   _MaxFeatureAngle(180.0),
+  _AllowTriangleInversion(true),
   _RemeshInterval(0),
   _RemeshCounter(0),
   _RemeshAdaptively(false),
@@ -1131,6 +1132,9 @@ bool DeformableSurfaceModel::Set(const char *name, const char *value)
   if (strcmp(name, "Maximum collision angle") == 0) {
     return FromString(value, _MaxCollisionAngle);
   }
+  if (strcmp(name, "Allow triangle inversion") == 0) {
+    return FromString(value, _AllowTriangleInversion);
+  }
   if (strcmp(name, "Allow surface expansion") == 0) {
     return FromString(value, _AllowExpansion);
   }
@@ -1165,6 +1169,7 @@ ParameterList DeformableSurfaceModel::Parameter() const
   Insert(params, "Minimum frontface distance", _MinFrontfaceDistance);
   Insert(params, "Minimum backface distance", _MinBackfaceDistance);
   Insert(params, "Maximum collision angle", _MaxCollisionAngle);
+  Insert(params, "Allow triangle inversion", _AllowTriangleInversion);
   Insert(params, "Allow surface expansion", _AllowExpansion);
   Insert(params, "Allow surface contraction", _AllowContraction);
   return params;
@@ -1407,8 +1412,8 @@ bool DeformableSurfaceModel::Remesh()
   remesher.MeltingOrder(SurfaceRemeshing::AREA);
   remesher.MeltNodesOn();
   remesher.MeltTrianglesOff();
-  remesher.InvertTrianglesSharingOneLongEdgeOn();
-  remesher.InvertTrianglesToIncreaseMinHeightOn();
+  remesher.InvertTrianglesSharingOneLongEdge(_AllowTriangleInversion);
+  remesher.InvertTrianglesToIncreaseMinHeight(_AllowTriangleInversion);
   remesher.MinEdgeLength(_MinEdgeLength);
   remesher.MaxEdgeLength(_MaxEdgeLength);
   remesher.MinFeatureAngle(_MinFeatureAngle);

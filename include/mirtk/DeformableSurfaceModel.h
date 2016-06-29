@@ -97,6 +97,9 @@ class DeformableSurfaceModel : public ObjectiveFunction
   /// Maximum edge end point normal angle of feature edges
   mirtkPublicAttributeMacro(double, MaxFeatureAngle);
 
+  /// Whether inversion of triangles is allowed during local remeshing
+  mirtkPublicAttributeMacro(bool, AllowTriangleInversion);
+
   /// Remesh deformed surface every n-th iteration
   mirtkPublicAttributeMacro(int, RemeshInterval);
 

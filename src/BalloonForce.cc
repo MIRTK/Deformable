@@ -115,12 +115,12 @@ BinaryImage ImageStencilToMask(const ImageAttributes &attr,
   attr.WorldToLattice(x, y, z);
 
   int extent[6];
-  extent[0] = floor(x - rx);
-  extent[1] = ceil (x + rx);
-  extent[2] = floor(y - ry);
-  extent[3] = ceil (y + ry);
-  extent[4] = floor(z - rz);
-  extent[5] = ceil (z + rz);
+  extent[0] = ifloor(x - rx);
+  extent[1] = iceil (x + rx);
+  extent[2] = ifloor(y - ry);
+  extent[3] = iceil (y + ry);
+  extent[4] = ifloor(z - rz);
+  extent[5] = iceil (z + rz);
 
   int i, i2, j, k, iter;
   for (k = extent[4]; k <= extent[5]; ++k)
@@ -164,12 +164,12 @@ struct ComputeLocalIntensityThresholds
       _Points->GetPoint(ptId, p);
       _Image->WorldToImage(p[0], p[1], p[2]);
 
-      extent[0] = floor(p[0] - _RadiusX);
-      extent[1] = ceil (p[0] + _RadiusX);
-      extent[2] = floor(p[1] - _RadiusY);
-      extent[3] = ceil (p[1] + _RadiusY);
-      extent[4] = floor(p[2] - _RadiusZ);
-      extent[5] = ceil (p[2] + _RadiusZ);
+      extent[0] = ifloor(p[0] - _RadiusX);
+      extent[1] = iceil (p[0] + _RadiusX);
+      extent[2] = ifloor(p[1] - _RadiusY);
+      extent[3] = iceil (p[1] + _RadiusY);
+      extent[4] = ifloor(p[2] - _RadiusZ);
+      extent[5] = iceil (p[2] + _RadiusZ);
 
       for (k = extent[4]; k <= extent[5]; ++k)
       for (j = extent[2]; j <= extent[3]; ++j) {
@@ -190,8 +190,6 @@ struct ComputeLocalIntensityThresholds
       sigma = sqrt(var);
       _LowerIntensity->SetComponent(ptId, 0, mu - _SigmaFactor * sigma);
       _UpperIntensity->SetComponent(ptId, 0, mu + _SigmaFactor * sigma);
-//      _LowerIntensity->SetComponent(ptId, 0, mu - 50);
-//      _UpperIntensity->SetComponent(ptId, 0, mu + 200);
     }
   }
 };
@@ -264,7 +262,7 @@ struct ComputeLocalIntensityStatistics
 };
 
 // -----------------------------------------------------------------------------
-/// Update balloon force magnitude and direction
+/// Update balloon force magnitude and sign
 struct UpdateMagnitude
 {
   vtkPoints           *_Points;
@@ -285,11 +283,11 @@ struct UpdateMagnitude
   void operator ()(const blocked_range<vtkIdType> &re) const
   {
     bool   inside;
-    double w, p[3], v, mean, sigma, bgPb, fgPb;
+    double m, p[3], v, mean, sigma, bgPb, fgPb;
 
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
-      w = _Magnitude->GetComponent(ptId, 0);
-      if (w == .0) continue;
+      m = _Magnitude->GetComponent(ptId, 0);
+      if (m == .0) continue;
       // Get intensity at current node position
       _Points->GetPoint(ptId, p);
       _Image->WorldToImage(p[0], p[1], p[2]);
@@ -330,24 +328,24 @@ struct UpdateMagnitude
         // Adjust sign of balloon force and damp magnitude if direction changes
         if (_DeflateSurface) {
           if (inside) {
-            if (w < .0) w = - _MagnitudeDamping * w;
+            if (m < .0) m = - _MagnitudeDamping * m;
           } else {
-            if (w > .0) w = - _MagnitudeDamping * w;
+            if (m > .0) m = - _MagnitudeDamping * m;
           }
         } else {
           if (inside) {
-            if (w < .0) w = - _MagnitudeDamping * w;
+            if (m < .0) m = - _MagnitudeDamping * m;
           } else {
-            if (w > .0) w = - _MagnitudeDamping * w;
+            if (m > .0) m = - _MagnitudeDamping * m;
           }
         }
-        if (abs(w) < _MagnitudeThreshold) w = .0;
+        if (abs(m) < _MagnitudeThreshold) m = .0;
       // Zero force outside image foreground
       } else {
-        w = .0;
+        m = .0;
       }
       // Set new force magnitude
-      _Magnitude->SetComponent(ptId, 0, w);
+      _Magnitude->SetComponent(ptId, 0, m);
     }
   }
 };
@@ -396,21 +394,19 @@ struct SmoothMagnitude
 /// Compute balloon force gradient (i.e., negative force)
 struct ComputeGradient
 {
-  typedef BalloonForce::GradientType Force;
+  typedef BalloonForce::GradientType GradientType;
 
   vtkDataArray *_Normals;
   vtkDataArray *_Magnitude;
-  Force        *_Gradient;
+  GradientType *_Gradient;
 
   void operator ()(const blocked_range<vtkIdType> &re) const
   {
-    double w, n[3];
+    double n[3];
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
-      w = _Magnitude->GetComponent(ptId, 0);
-      if (w == .0) continue;
       _Normals->GetTuple(ptId, n);
-      vtkMath::MultiplyScalar(n, w);
-      _Gradient[ptId] = -Force(n[0], n[1], n[2]);
+      vtkMath::MultiplyScalar(n, -_Magnitude->GetComponent(ptId, 0));
+      _Gradient[ptId] = GradientType(n);
     }
   }
 };
@@ -428,8 +424,8 @@ BalloonForce::BalloonForce(const char *name, double weight)
 :
   SurfaceForce(name, weight),
   _DeflateSurface(false),
-  _LowerIntensity(-numeric_limits<double>::infinity()),
-  _UpperIntensity( numeric_limits<double>::infinity()),
+  _LowerIntensity(-inf),
+  _UpperIntensity(+inf),
   _SigmaFactor(5.0),
   _ForegroundSigmaFactor(1.0),
   _BackgroundSigmaFactor(1.0),
@@ -673,6 +669,7 @@ void BalloonForce::Update(bool gradient)
   parallel_for(blocked_range<vtkIdType>(0, _NumberOfPoints), update);
 
   // Smooth magnitude such that adjacent nodes move coherently
+  // (EXPERIMENTAL, see also PointSetForce::GradientAveraging)
   const int _MagnitudeSmoothing = 0;
   if (_MagnitudeSmoothing > 0) {
     vtkSmartPointer<vtkDataArray> smoothed_magnitude;

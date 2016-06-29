@@ -55,43 +55,9 @@ class CurvatureConstraint : public SurfaceConstraint
   mirtkEnergyTermMacro(CurvatureConstraint, EM_Curvature);
 
   // ---------------------------------------------------------------------------
-  // Types
-
-public:
-
-  /// Structure for node neighborhood set entry
-  struct NeighborInfo
-  {
-    int    _PointId; ///< ID of neighoring node
-    double _Weight;  ///< Normalized weight of neighboring node
-
-    NeighborInfo(int ptId = -1, double w = .0)
-    :
-      _PointId(ptId), _Weight(w)
-    {}
-
-    bool operator <(const NeighborInfo &other) const
-    {
-      return _PointId < other._PointId;
-    }
-  };
-
-  /// Set of neighboring nodes of a given node
-  typedef List<NeighborInfo> NeighborList;
-
-  // ---------------------------------------------------------------------------
   // Attributes
 
 protected:
-
-  /// Standard deviation for Gaussian weighted centroids
-  ///
-  /// If non-positive, the centroid of the equally weighted adjacent points
-  /// is computed instead of a Gaussian weighted centroid of neighboring nodes.
-  mirtkPublicAttributeMacro(double, Sigma);
-
-  /// Set of Gaussian weighted centroid neighors and their normalized weights
-  mirtkAttributeMacro(Array<NeighborList>, Neighbors);
 
   /// Centroids of adjacent nodes
   mirtkAttributeMacro(vtkSmartPointer<vtkPoints>, Centroids);

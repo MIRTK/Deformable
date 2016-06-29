@@ -1107,6 +1107,12 @@ bool DeformableSurfaceModel::Set(const char *name, const char *value)
   if (strcmp(name, "Maximum edge length") == 0) {
     return FromString(value, _MaxEdgeLength);
   }
+  if (strcmp(name, "Minimum feature angle") == 0 || strcmp(name, "Minimum edge angle") == 0) {
+    return FromString(value, _MinFeatureAngle);
+  }
+  if (strcmp(name, "Maximum feature angle") == 0 || strcmp(name, "Maximum edge angle") == 0) {
+    return FromString(value, _MaxFeatureAngle);
+  }
   if (strcmp(name, "Remesh interval") == 0) {
     return FromString(value, _RemeshInterval);
   }
@@ -1151,6 +1157,8 @@ ParameterList DeformableSurfaceModel::Parameter() const
   Insert(params, "Average magnitude of gradient vectors", _AverageGradientMagnitude);
   Insert(params, "Minimum edge length", _MinEdgeLength);
   Insert(params, "Maximum edge length", _MaxEdgeLength);
+  Insert(params, "Minimum feature angle", _MinFeatureAngle);
+  Insert(params, "Maximum feature angle", _MaxFeatureAngle);
   Insert(params, "Remesh interval", _RemeshInterval);
   Insert(params, "Adaptive remeshing", _RemeshAdaptively);
   Insert(params, "Hard non-self-intersection constraint", _HardNonSelfIntersection);

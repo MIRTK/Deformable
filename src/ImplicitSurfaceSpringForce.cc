@@ -347,8 +347,6 @@ void ImplicitSurfaceSpringForce::Update(bool gradient)
   ImplicitSurfaceForce::Update(gradient);
 
   // Compute surface distances in normal direction
-  // TODO: Store modified flag for "global" point data arrays such that
-  //       the values of these global arrays are only re-computed when needed.
   UpdateDistances();
 
   // Compute normal coefficients of quadratic fit

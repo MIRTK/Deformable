@@ -67,8 +67,14 @@ private:
   /// Signed distance offset
   mirtkPublicAttributeMacro(double, Offset);
 
+  /// Minimum length of step when casting ray in normal direction
+  mirtkPublicAttributeMacro(double, MinStepLength);
+
   /// Maximum implicit surface distance considered for ray casting
   mirtkPublicAttributeMacro(double, MaxDistance);
+
+  /// Tolerance for implicit surface distance evaluation
+  mirtkPublicAttributeMacro(double, Tolerance);
 
   /// Continuous implicit surface distance function
   ImageFunction _Distance;

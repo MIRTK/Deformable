@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -682,91 +682,6 @@ ComputeEdgeLengthRange(vtkPolyData *surface, double minl, double maxl, const Dis
   return NULL;
 }
 
-// -----------------------------------------------------------------------------
-void UpdateImplicitSurfaceDistance(vtkPolyData *surface, const DistanceImage *dmap,
-                                   bool   minimum_distance = true,
-                                   bool   normal_distance  = true,
-                                   double offset           = .0)
-{
-  const double minh =   .1;
-  const double maxh = 10.0;
-  const double tol  =   .1;
-
-  vtkSmartPointer<vtkDataArray> normals;
-  normals = surface->GetPointData()->GetNormals();
-  if (normal_distance && !normals) {
-    vtkNew<vtkPolyDataNormals> calc_normals;
-    SetVTKInput(calc_normals, surface);
-    calc_normals->ComputePointNormalsOn();
-    calc_normals->ComputeCellNormalsOff();
-    calc_normals->AutoOrientNormalsOn();
-    calc_normals->SplittingOff();
-    calc_normals->Update();
-    normals = calc_normals->GetOutput()->GetPointData()->GetNormals();
-  }
-
-  vtkSmartPointer<vtkDataArray> minimum_distances;
-  minimum_distances = surface->GetPointData()->GetArray("MinimumImplicitSurfaceDistance");
-  if ((minimum_distance || normal_distance) && !minimum_distances) {
-    minimum_distances = vtkSmartPointer<vtkFloatArray>::New();
-    minimum_distances->SetName("MinimumImplicitSurfaceDistance");
-    minimum_distances->SetNumberOfComponents(1);
-    minimum_distances->SetNumberOfTuples(surface->GetNumberOfPoints());
-    if (minimum_distance) surface->GetPointData()->AddArray(minimum_distances);
-  }
-
-  vtkSmartPointer<vtkDataArray> normal_distances;
-  normal_distances = surface->GetPointData()->GetArray("NormalImplicitSurfaceDistance");
-  if (normal_distance && !normal_distances) {
-    normal_distances = vtkSmartPointer<vtkFloatArray>::New();
-    normal_distances->SetName("NormalImplicitSurfaceDistance");
-    normal_distances->SetNumberOfComponents(1);
-    normal_distances->SetNumberOfTuples(surface->GetNumberOfPoints());
-    surface->GetPointData()->AddArray(normal_distances);
-  }
-
-  DistanceFunction distance;
-  distance.Input(dmap);
-  distance.Initialize();
-
-  double p[3], n[3], e[3], d, mind;
-
-  // Compute minimum surface distances
-  if (minimum_distance) {
-    for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId) {
-      surface->GetPoint(ptId, p);
-      mind = Evaluate(distance, p, offset);
-      minimum_distances->SetComponent(ptId, 0, mind);
-    }
-  }
-
-  if (!normal_distance) return;
-
-  // Determine intersections along ray cast in normal direction
-  Array<double> distances;
-  for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId) {
-    surface->GetPoint(ptId, p);
-    normals->GetTuple(ptId, n);
-    e[0] = -n[0], e[1] = -n[1], e[2] = -n[2];
-    mind = minimum_distances->GetComponent(ptId, 0);
-    Intersections(distances, p, e, mind, minh, maxh, distance, offset, tol);
-    if (mind < .0 && !fequal(mind, .0, tol)) {
-      d = -IntersectWithLine(p, n, mind, minh, maxh, distance, offset, tol);
-    } else {
-      d = (distances.empty() ? maxh : distances[0]);
-    }
-    normal_distances->SetComponent(ptId, 0, d);
-  }
-
-  MeshSmoothing smoother;
-  smoother.Input(surface);
-  smoother.SmoothPointsOff();
-  smoother.SmoothArray(normal_distances->GetName());
-  smoother.Weighting(MeshSmoothing::Gaussian);
-  smoother.Run();
-  normal_distances->DeepCopy(smoother.Output()->GetPointData()->GetArray(normal_distances->GetName()));
-}
-
 
 } // namespace DeformableSurfaceModelUtils
 using namespace DeformableSurfaceModelUtils;
@@ -1310,26 +1225,6 @@ void DeformableSurfaceModel::Update(bool gradient)
     MIRTK_START_TIMING();
     // Update edge table needed for smoothing operations
     if (_Transformation) _PointSet.Update(true);
-    // Update implicit surface distances
-    if (_ImplicitSurface && _IsSurfaceMesh) {
-      // FIXME: Should update be in ImplicitSurfaceForce::UpdateNormalDistances?
-      //        On the other hand, then the distances are recomputed every time
-      //        although they could be shared by different ImplicitSurfaceForce
-      //        subclass instances (e.g., ImplicitSurfaceDistance and
-      //        ImplicitSurfaceSpringForce).
-      bool minimum_distance = false;
-      bool normal_distance  = false;
-      const ImplicitSurfaceForce *force;
-      for (int i = 0; i < NumberOfExternalForces(); ++i) {
-        force = dynamic_cast<ImplicitSurfaceForce *>(ExternalForce(i));
-        if (force) {
-          minimum_distance = minimum_distance || (force->DistanceMeasure() == ImplicitSurfaceForce::DM_Minimum);
-          normal_distance  = normal_distance  || (force->DistanceMeasure() == ImplicitSurfaceForce::DM_Normal);
-        }
-      }
-      UpdateImplicitSurfaceDistance(_PointSet.Surface(), _ImplicitSurface,
-                                    minimum_distance, normal_distance);
-    }
     // Update energy terms
     for (int i = 0; i < _NumberOfTerms; ++i) {
       EnergyTerm *term = Term(i);

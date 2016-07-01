@@ -56,7 +56,7 @@ struct ComputeMagnitude
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double d, m;
+    double d, d2, m;
 
     const vtkIdType begin = static_cast<vtkIdType>(ptIds.begin());
     const vtkIdType end   = static_cast<vtkIdType>(ptIds.end  ());
@@ -66,11 +66,11 @@ struct ComputeMagnitude
         _Magnitude->SetComponent(ptId, 0, 0.);
       } else {
         d = _Distances->GetComponent(ptId, 0);
-        if (_DistanceScale > 0.) { // e.g. _Force->DistanceMeasure() == DM_Normal
-          d *= _DistanceScale;
-          d *= d;
-          m = d / (1. + d);
-        } else { // _Force->DistanceMeasure() == DM_Minimum
+        if (_DistanceScale > 0.) {
+          d2 = _DistanceScale * d;
+          d2 *= d2;
+          m = d2 / (1. + d2);
+        } else {
           m = clamp(abs(d), 0., 1.);
         }
         _Magnitude->SetComponent(ptId, 0, -copysign(m, d));

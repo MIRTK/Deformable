@@ -58,6 +58,8 @@
 #include "mirtk/SpringForce.h"
 #include "mirtk/InflationForce.h"
 #include "mirtk/CurvatureConstraint.h"
+#include "mirtk/GaussCurvatureConstraint.h"
+#include "mirtk/MeanCurvatureConstraint.h"
 #include "mirtk/QuadraticCurvatureConstraint.h"
 #include "mirtk/MetricDistortion.h"
 #include "mirtk/StretchingForce.h"
@@ -570,7 +572,9 @@ int main(int argc, char *argv[])
   InflationForce                normspring("Bending",        .0);
   InflationForce                inflation ("Inflation",      .0);
   CurvatureConstraint           curvature ("Curvature",      .0);
-  QuadraticCurvatureConstraint  qcurvature("QCurvature",     .0);
+  GaussCurvatureConstraint      gcurvature("Gauss curv.",    .0);
+  MeanCurvatureConstraint       mcurvature("Mean curv.",     .0);
+  QuadraticCurvatureConstraint  qcurvature("Quad. curv.",    .0);
   MetricDistortion              distortion("Distortion",     .0);
   StretchingForce               stretching("Stretching",     .0);
   RepulsiveForce                repulsion ("Repulsion",      .0);
@@ -862,6 +866,14 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(farg);
       curvature.Weight(farg);
     }
+    else if (OPTION("-gauss-curvature") || OPTION("-gaussian-curvature") || OPTION("-gcurvature")) {
+      PARSE_ARGUMENT(farg);
+      gcurvature.Weight(farg);
+    }
+    else if (OPTION("-mean-curvature")) {
+      PARSE_ARGUMENT(farg);
+      mcurvature.Weight(farg);
+    }
     else if (OPTION("-quadratic-curvature") || OPTION("-qcurvature")) {
       PARSE_ARGUMENT(farg);
       qcurvature.Weight(farg);
@@ -1114,6 +1126,8 @@ int main(int argc, char *argv[])
   model.Add(&normspring, false);
   model.Add(&inflation,  false);
   model.Add(&curvature,  false);
+  model.Add(&gcurvature, false);
+  model.Add(&mcurvature, false);
   model.Add(&qcurvature, false);
   model.Add(&distortion, false);
   model.Add(&stretching, false);

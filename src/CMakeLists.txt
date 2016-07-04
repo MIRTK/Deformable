@@ -35,6 +35,7 @@ set(HEADERS
   EulerMethodWithMomentum.h
   ExternalForce.h
   ExternalForceTerm.h
+  GaussCurvatureConstraint.h
   ImageEdgeForce.h
   ImplicitSurfaceDistance.h
   ImplicitSurfaceForce.h
@@ -43,6 +44,7 @@ set(HEADERS
   InflationStoppingCriterion.h
   InternalForce.h
   InternalForceTerm.h
+  MeanCurvatureConstraint.h
   MetricDistortion.h
   MinActiveStoppingCriterion.h
   NonSelfIntersectionConstraint.h
@@ -66,6 +68,7 @@ set(SOURCES
   EulerMethodWithDamping.cc
   EulerMethodWithMomentum.cc
   ExternalForce.cc
+  GaussCurvatureConstraint.cc
   ImageEdgeForce.cc
   ImplicitSurfaceDistance.cc
   ImplicitSurfaceForce.cc
@@ -73,6 +76,7 @@ set(SOURCES
   InflationForce.cc
   InflationStoppingCriterion.cc
   InternalForce.cc
+  MeanCurvatureConstraint.cc
   MetricDistortion.cc
   MinActiveStoppingCriterion.cc
   NonSelfIntersectionConstraint.cc

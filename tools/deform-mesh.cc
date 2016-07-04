@@ -873,9 +873,21 @@ int main(int argc, char *argv[])
     else if (OPTION("-stretching")) {
       PARSE_ARGUMENT(farg);
       stretching.Weight(farg);
-      if (HAS_ARGUMENT) PARSE_ARGUMENT(farg);
-      else farg = -1.;
-      stretching.RestLength(farg);
+    }
+    else if (OPTION("-stretching-rest-length")) {
+      const char *arg = ARGUMENT;
+      if (strcmp(arg, "avg") == 0) {
+        stretching.RestLength(-1.);
+        stretching.UseCurrentAverageLength(false);
+      } else if (strcmp(arg, "curavg") == 0) {
+        stretching.RestLength(-1.);
+        stretching.UseCurrentAverageLength(true);
+      } else if (FromString(arg, farg)) {
+        stretching.RestLength(farg);
+        stretching.UseCurrentAverageLength(false);
+      } else {
+        FatalError("Invalid -stretching-rest-length argument: " << arg);
+      }
     }
     else if (OPTION("-repulsion")) {
       PARSE_ARGUMENT(farg);

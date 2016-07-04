@@ -51,6 +51,10 @@ class BalloonForce : public SurfaceForce
   // ---------------------------------------------------------------------------
   // Attributes
 
+  /// Mask defining intensity values used for local intensity statistics
+  /// When not specified, the interior of the current surface is used.
+  mirtkPublicAggregateMacro(BinaryImage, ForegroundMask);
+
   /// Whether to deflate the surface inside the object
   mirtkPublicAttributeMacro(bool, DeflateSurface);
 
@@ -60,8 +64,11 @@ class BalloonForce : public SurfaceForce
   /// Upper global intensity threshold for inside regin
   mirtkPublicAttributeMacro(double, UpperIntensity);
 
-  /// Multiplier of intensity standard deviation
-  mirtkPublicAttributeMacro(double, SigmaFactor);
+  /// Multiplier of intensity standard deviation for local lower intensity threshold
+  mirtkPublicAttributeMacro(double, LowerIntensitySigma);
+
+  /// Multiplier of intensity standard deviation for local upper intensity threshold
+  mirtkPublicAttributeMacro(double, UpperIntensitySigma);
 
   /// Multiplier of standard deviation of foreground intensities
   mirtkPublicAttributeMacro(double, ForegroundSigmaFactor);

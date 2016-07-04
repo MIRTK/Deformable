@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,9 @@
 
 namespace mirtk {
 
+
+// See mirtk/Options.h
+MIRTK_Common_EXPORT extern int debug;
 
 // Register energy term with object factory during static initialization
 mirtkAutoRegisterEnergyTermMacro(BalloonForce);
@@ -140,56 +143,58 @@ BinaryImage ImageStencilToMask(const ImageAttributes &attr,
 /// Compute point intensity thresholds based on local image statistics
 struct ComputeLocalIntensityThresholds
 {
-  vtkPoints           *_Points;
-  BaseImage           *_Image;
-  vtkImageStencilData *_Stencil;
-  vtkDataArray        *_LowerIntensity;
-  vtkDataArray        *_UpperIntensity;
-  double               _SigmaFactor;
-  double               _RadiusX;
-  double               _RadiusY;
-  double               _RadiusZ;
+  vtkPoints    *_Points;
+  vtkDataArray *_Status;
+  BaseImage    *_Image;
+  BinaryImage  *_Mask;
+  vtkDataArray *_LowerIntensity;
+  vtkDataArray *_UpperIntensity;
+  double        _LowerSigma;
+  double        _UpperSigma;
+  double        _RadiusX;
+  double        _RadiusY;
+  double        _RadiusZ;
 
   void operator ()(const blocked_range<vtkIdType> &re) const
   {
-    int    n, extent[6], i, i2, j, k, iter;
+    int    num, i, j, k, i1, i2, j1, j2, k1, k2;
     double p[3], value, mu, var, delta, sigma;
     vtkSmartPointer<vtkImageStencilData> roi = vtkSmartPointer<vtkImageStencilData>::New();
     vtkImageStencilIterator<float> it;
 
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
-      n  = 0;
       mu = var = .0;
-
-      _Points->GetPoint(ptId, p);
-      _Image->WorldToImage(p[0], p[1], p[2]);
-
-      extent[0] = ifloor(p[0] - _RadiusX);
-      extent[1] = iceil (p[0] + _RadiusX);
-      extent[2] = ifloor(p[1] - _RadiusY);
-      extent[3] = iceil (p[1] + _RadiusY);
-      extent[4] = ifloor(p[2] - _RadiusZ);
-      extent[5] = iceil (p[2] + _RadiusZ);
-
-      for (k = extent[4]; k <= extent[5]; ++k)
-      for (j = extent[2]; j <= extent[3]; ++j) {
-        iter = 0;
-        while (_Stencil->GetNextExtent(i, i2, extent[0], extent[1], j, k, iter)) {
-          for (; i <= i2; ++i) {
-            ++n;
+      if (_Status == nullptr || _Status->GetComponent(ptId, 0) != 0.) {
+        _Points->GetPoint(ptId, p);
+        _Image->WorldToImage(p[0], p[1], p[2]);
+        i1 = ifloor(p[0] - _RadiusX);
+        i2 = iceil (p[0] + _RadiusX);
+        j1 = ifloor(p[1] - _RadiusY);
+        j2 = iceil (p[1] + _RadiusY);
+        k1 = ifloor(p[2] - _RadiusZ);
+        k2 = iceil (p[2] + _RadiusZ);
+        num = 0;
+        for (k = k1; k <= k2; ++k)
+        for (j = j1; j <= j2; ++j)
+        for (i = i1; i <= i2; ++i) {
+          if (_Mask->Get(i, j, k) != 0) {
+            ++num;
             value = _Image->GetAsDouble(i, j, k);
             delta = value - mu;
-            mu  += delta / n;
+            mu  += delta / num;
             var += delta * (value - mu);
           }
         }
+        if (num > 2) var /= num - 1;
+        else         var  = 0.;
+        sigma = sqrt(var);
       }
-      if (n > 2) var /= n - 1;
-      else       var = .0;
-
-      sigma = sqrt(var);
-      _LowerIntensity->SetComponent(ptId, 0, mu - _SigmaFactor * sigma);
-      _UpperIntensity->SetComponent(ptId, 0, mu + _SigmaFactor * sigma);
+      if (_LowerIntensity) {
+        _LowerIntensity->SetComponent(ptId, 0, mu - _LowerSigma * sigma);
+      }
+      if (_UpperIntensity) {
+        _UpperIntensity->SetComponent(ptId, 0, mu + _UpperSigma * sigma);
+      }
     }
   }
 };
@@ -199,6 +204,7 @@ struct ComputeLocalIntensityThresholds
 struct ComputeLocalIntensityStatistics
 {
   vtkPoints         *_Points;
+  vtkDataArray      *_Status;
   const BaseImage   *_Image;
   const BinaryImage *_ForegroundMask;
   const BinaryImage *_BackgroundMask;
@@ -218,41 +224,41 @@ struct ComputeLocalIntensityStatistics
     Component c;
 
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
-      num[0] = num[1] = 0;
       mean[0] = mean[1] = var[0] = var[1] = .0;
+      if (_Status == nullptr || _Status->GetComponent(ptId, 0) != 0.) {
+        _Points->GetPoint(ptId, p);
+        _Image->WorldToImage(p[0], p[1], p[2]);
 
-      _Points->GetPoint(ptId, p);
-      _Image->WorldToImage(p[0], p[1], p[2]);
+        i1 = ifloor(p[0] - _RadiusX);
+        i2 = iceil (p[0] + _RadiusX);
+        j1 = ifloor(p[1] - _RadiusY);
+        j2 = iceil (p[1] + _RadiusY);
+        k1 = ifloor(p[2] - _RadiusZ);
+        k2 = iceil (p[2] + _RadiusZ);
 
-      i1 = floor(p[0] - _RadiusX);
-      i2 = ceil (p[0] + _RadiusX);
-      j1 = floor(p[1] - _RadiusY);
-      j2 = ceil (p[1] + _RadiusY);
-      k1 = floor(p[2] - _RadiusZ);
-      k2 = ceil (p[2] + _RadiusZ);
-
-      for (k = k1; k <= k2; ++k)
-      for (j = j1; j <= j2; ++j)
-      for (i = i1; i <= i2; ++i) {
-        if (_ForegroundMask->IsInside(i, j, k)) {
-          is_bg = (_BackgroundMask ? _BackgroundMask->Get(i, j, k) != 0
-                                   : _Image->IsForeground(i, j, k));
-          is_fg = (_ForegroundMask->Get(i, j, k) != 0);
-          if (is_fg || is_bg) {
-            c = static_cast<Component>(is_fg);
-            value = _Image->GetAsDouble(i, j, k);
-            delta = value - mean[c];
-            num [c] += 1;
-            mean[c] += delta / num[c];
-            var [c] += delta * (value - mean[c]);
+        num[0] = num[1] = 0;
+        for (k = k1; k <= k2; ++k)
+        for (j = j1; j <= j2; ++j)
+        for (i = i1; i <= i2; ++i) {
+          if (_ForegroundMask->IsInside(i, j, k)) {
+            is_bg = (_BackgroundMask ? _BackgroundMask->Get(i, j, k) != 0
+                                     : _Image->IsForeground(i, j, k));
+            is_fg = (_ForegroundMask->Get(i, j, k) != 0);
+            if (is_fg || is_bg) {
+              c = static_cast<Component>(is_fg);
+              value = _Image->GetAsDouble(i, j, k);
+              delta = value - mean[c];
+              num [c] += 1;
+              mean[c] += delta / num[c];
+              var [c] += delta * (value - mean[c]);
+            }
           }
         }
+        if (num[0] > 2) var[0] /= num[0] - 1;
+        else            var[0]  = 0.;
+        if (num[1] > 2) var[1] /= num[1] - 1;
+        else            var[1]  = 0.;
       }
-      if (num[0] > 2) var[0] /= num[0] - 1;
-      else            var[0] = .0;
-      if (num[1] > 2) var[1] /= num[1] - 1;
-      else            var[1] = .0;
-
       _BackgroundStatistics->SetComponent(ptId, 0, mean[BG]);
       _BackgroundStatistics->SetComponent(ptId, 1, sqrt(var[BG]));
       _ForegroundStatistics->SetComponent(ptId, 0, mean[FG]);
@@ -266,8 +272,10 @@ struct ComputeLocalIntensityStatistics
 struct UpdateMagnitude
 {
   vtkPoints           *_Points;
+  vtkDataArray        *_Status;
   const ImageFunction *_Image;
   bool                 _DeflateSurface;
+  vtkDataArray        *_Intensity;
   double               _LowerIntensity;
   double               _UpperIntensity;
   vtkDataArray        *_LocalLowerIntensity;
@@ -286,6 +294,10 @@ struct UpdateMagnitude
     double m, p[3], v, mean, sigma, bgPb, fgPb;
 
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
+      if (_Status && _Status->GetComponent(ptId, 0) == .0) {
+        _Magnitude->SetComponent(ptId, 0, 0.);
+        continue;
+      }
       m = _Magnitude->GetComponent(ptId, 0);
       if (m == .0) continue;
       // Get intensity at current node position
@@ -293,6 +305,7 @@ struct UpdateMagnitude
       _Image->WorldToImage(p[0], p[1], p[2]);
       if (_Image->IsForeground(p[0], p[1], p[2])) {
         v = _Image->Evaluate(p[0], p[1], p[2]);
+        if (_Intensity) _Intensity->SetComponent(ptId, 0, v);
         // Check global intensity thresholds
         inside = (_LowerIntensity <= v && v <= _UpperIntensity);
         // Check local intensity thresholds
@@ -405,8 +418,7 @@ struct ComputeGradient
     double n[3];
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
       _Normals->GetTuple(ptId, n);
-      vtkMath::MultiplyScalar(n, -_Magnitude->GetComponent(ptId, 0));
-      _Gradient[ptId] = GradientType(n);
+      _Gradient[ptId] = -_Magnitude->GetComponent(ptId, 0) * GradientType(n);
     }
   }
 };
@@ -423,13 +435,15 @@ using namespace BalloonForceUtils;
 BalloonForce::BalloonForce(const char *name, double weight)
 :
   SurfaceForce(name, weight),
+  _ForegroundMask(nullptr),
   _DeflateSurface(false),
   _LowerIntensity(-inf),
   _UpperIntensity(+inf),
-  _SigmaFactor(5.0),
-  _ForegroundSigmaFactor(1.0),
-  _BackgroundSigmaFactor(1.0),
-  _Radius(-1.0),
+  _LowerIntensitySigma(5.),
+  _UpperIntensitySigma(5.),
+  _ForegroundSigmaFactor(-1.),
+  _BackgroundSigmaFactor(-1.),
+  _Radius(-1.),
   _DampingFactor(.67),
   _MagnitudeThreshold(.1)
 {
@@ -438,10 +452,12 @@ BalloonForce::BalloonForce(const char *name, double weight)
 // -----------------------------------------------------------------------------
 void BalloonForce::CopyAttributes(const BalloonForce &other)
 {
+  _ForegroundMask        = other._ForegroundMask;
   _DeflateSurface        = other._DeflateSurface;
   _LowerIntensity        = other._LowerIntensity;
   _UpperIntensity        = other._UpperIntensity;
-  _SigmaFactor           = other._SigmaFactor;
+  _LowerIntensitySigma   = other._LowerIntensitySigma;
+  _UpperIntensitySigma   = other._UpperIntensitySigma;
   _ForegroundSigmaFactor = other._ForegroundSigmaFactor;
   _BackgroundSigmaFactor = other._BackgroundSigmaFactor;
   _Radius                = other._Radius;
@@ -497,7 +513,18 @@ bool BalloonForce::SetWithoutPrefix(const char *param, const char *value)
   }
   if (strcmp(param, "Local intensity sigma")        == 0 ||
       strcmp(param, "Local intensity sigma factor") == 0) {
-    return FromString(value, _SigmaFactor);
+    double sigma;
+    if (!FromString(value, sigma)) return false;
+    _LowerIntensitySigma = _UpperIntensitySigma = sigma;
+    return true;
+  }
+  if (strcmp(param, "Lower local intensity sigma")        == 0 ||
+      strcmp(param, "Lower local intensity sigma factor") == 0) {
+    return FromString(value, _LowerIntensitySigma);
+  }
+  if (strcmp(param, "Upper local intensity sigma")        == 0 ||
+      strcmp(param, "Upper local intensity sigma factor") == 0) {
+    return FromString(value, _UpperIntensitySigma);
   }
   if (strcmp(param, "Background intensity sigma")        == 0 ||
       strcmp(param, "Background intensity sigma factor") == 0) {
@@ -525,15 +552,16 @@ bool BalloonForce::SetWithoutPrefix(const char *param, const char *value)
 ParameterList BalloonForce::Parameter() const
 {
   ParameterList params = SurfaceForce::Parameter();
-  InsertWithPrefix(params, "Deflate surface",            _DeflateSurface);
-  InsertWithPrefix(params, "Lower intensity",            _LowerIntensity);
-  InsertWithPrefix(params, "Upper intensity",            _UpperIntensity);
-  InsertWithPrefix(params, "Local intensity sigma",      _SigmaFactor);
-  InsertWithPrefix(params, "Background intensity sigma", _BackgroundSigmaFactor);
-  InsertWithPrefix(params, "Foreground intensity sigma", _ForegroundSigmaFactor);
-  InsertWithPrefix(params, "Local window radius",        _Radius);
-  InsertWithPrefix(params, "Damping factor",             _DampingFactor);
-  InsertWithPrefix(params, "Magnitude threshold",        _MagnitudeThreshold);
+  InsertWithPrefix(params, "Deflate surface",             _DeflateSurface);
+  InsertWithPrefix(params, "Lower intensity",             _LowerIntensity);
+  InsertWithPrefix(params, "Upper intensity",             _UpperIntensity);
+  InsertWithPrefix(params, "Lower local intensity sigma", _LowerIntensitySigma);
+  InsertWithPrefix(params, "Upper local intensity sigma", _UpperIntensitySigma);
+  InsertWithPrefix(params, "Background intensity sigma",  _BackgroundSigmaFactor);
+  InsertWithPrefix(params, "Foreground intensity sigma",  _ForegroundSigmaFactor);
+  InsertWithPrefix(params, "Local window radius",         _Radius);
+  InsertWithPrefix(params, "Damping factor",              _DampingFactor);
+  InsertWithPrefix(params, "Magnitude threshold",         _MagnitudeThreshold);
   return params;
 }
 
@@ -546,31 +574,37 @@ void BalloonForce::ComputeLocalIntensityAttributes(bool thresholds, bool bg_fg_s
 {
   if (!thresholds && !bg_fg_stats) return;
 
-  vtkSmartPointer<vtkImageData>        imagedata = ConvertImage(_Image);
-  vtkSmartPointer<vtkPointSet>         surface   = WorldToImage(_PointSet->InputSurface(), _Image);
-  vtkSmartPointer<vtkImageStencilData> stencil   = ImageStencil(imagedata, surface);
+  BinaryImage fg_mask;
+  if (_ForegroundMask == nullptr) {
+    vtkSmartPointer<vtkImageData>        imagedata = ConvertImage(_Image);
+    vtkSmartPointer<vtkPointSet>         surface   = WorldToImage(_PointSet->InputSurface(), _Image);
+    vtkSmartPointer<vtkImageStencilData> stencil   = ImageStencil(imagedata, surface);
+    fg_mask = ImageStencilToMask(_Image->Attributes(), imagedata, stencil);
+  }
 
   if (thresholds) {
     ComputeLocalIntensityThresholds eval;
     eval._Points         = _PointSet->Points();
+    eval._Status         = _PointSet->Status();
     eval._Image          = _Image;
-    eval._Stencil        = stencil;
+    eval._Mask           = (_ForegroundMask ? _ForegroundMask : &fg_mask);
     eval._RadiusX        = _Radius / _Image->GetXSize();
     eval._RadiusY        = _Radius / _Image->GetYSize();
     eval._RadiusZ        = _Radius / _Image->GetZSize();
-    eval._SigmaFactor    = _SigmaFactor;
-    eval._LowerIntensity = GetPointData("Lower intensity");
-    eval._UpperIntensity = GetPointData("Upper intensity");
+    eval._LowerSigma     = _LowerIntensitySigma;
+    eval._UpperSigma     = _UpperIntensitySigma;
+    eval._LowerIntensity = GetPointData("Lower intensity", true);
+    eval._UpperIntensity = GetPointData("Upper intensity", true);
     parallel_for(blocked_range<vtkIdType>(0, _NumberOfPoints), eval);
   }
 
   if (bg_fg_stats) {
-    BinaryImage fg_mask = ImageStencilToMask(_Image->Attributes(), imagedata, stencil);
     ComputeLocalIntensityStatistics eval;
     eval._Points               = _PointSet->Points();
+    eval._Status               = _PointSet->Status();
     eval._Image                = _Image;
-    eval._BackgroundMask       = NULL; // use foreground region of _Image
-    eval._ForegroundMask       = &fg_mask;
+    eval._ForegroundMask       = (_ForegroundMask ? _ForegroundMask : &fg_mask);
+    eval._BackgroundMask       = nullptr; // use foreground region of _Image
     eval._RadiusX              = _Radius / _Image->GetXSize();
     eval._RadiusY              = _Radius / _Image->GetYSize();
     eval._RadiusZ              = _Radius / _Image->GetZSize();
@@ -587,6 +621,12 @@ void BalloonForce::Initialize()
   SurfaceForce::Initialize();
   if (_NumberOfPoints == 0) return;
 
+  // Check foreground mask attributes
+  if (_ForegroundMask && !_ForegroundMask->HasSpatialAttributesOf(_Image)) {
+    cerr << this->NameOfType() << "::Initialize: Mismatch of foreground mask and image attributes!" << endl;
+    exit(1);
+  }
+
   // Initial magnitude and direction of balloon force
   AddPointData("Signed magnitude")->FillComponent(0, _DeflateSurface ? -1.0 : 1.0);
   _DampingFactor      = max(.0, min(_DampingFactor,      1.0));
@@ -602,11 +642,14 @@ void BalloonForce::Initialize()
 
   // Add/remove point data arrays for local intensity thresholds
   // If sigma multiplier is negative, no local thresholds are used
-  if (_Radius == .0 || _SigmaFactor < .0) {
+  if (_Radius == .0 || _LowerIntensitySigma < .0) {
     RemovePointData("Lower intensity");
-    RemovePointData("Upper intensity");
   } else {
     AddPointData("Lower intensity");
+  }
+  if (_Radius == .0 || _UpperIntensitySigma < .0) {
+    RemovePointData("Upper intensity");
+  } else {
     AddPointData("Upper intensity");
   }
 
@@ -619,6 +662,8 @@ void BalloonForce::Initialize()
     AddPointData("Background statistics", 2);
     AddPointData("Foreground statistics", 2);
   }
+
+  if (debug > 0) AddPointData("Intensity");
 }
 
 // -----------------------------------------------------------------------------
@@ -633,13 +678,14 @@ void BalloonForce::Update(bool gradient)
   // Delayed initialization of local intensity thresholds
   // and update of local background/foreground statistics
   if (_Radius > .0) {
-    const bool thresholds  = initial && _SigmaFactor > .0;
+    const bool thresholds  = initial && (_LowerIntensitySigma >= 0. || _UpperIntensitySigma >= 0.);
     const bool bg_fg_stats = _BackgroundSigmaFactor > .0 && _ForegroundSigmaFactor > .0;
     ComputeLocalIntensityAttributes(thresholds, bg_fg_stats);
   }
 
   // Get (optional) point data (possibly interpolated during remeshing)
   vtkDataArray *magnitude       = GetPointData("Signed magnitude");
+  vtkDataArray *intensity       = GetPointData("Intensity",             true);
   vtkDataArray *lower_intensity = GetPointData("Lower intensity",       true);
   vtkDataArray *upper_intensity = GetPointData("Upper intensity",       true);
   vtkDataArray *bg_statistics   = GetPointData("Background statistics", true);
@@ -654,7 +700,9 @@ void BalloonForce::Update(bool gradient)
   UpdateMagnitude update;
   update._Image                 = &image;
   update._Points                = _PointSet->SurfacePoints();
+  update._Status                = _PointSet->SurfaceStatus();
   update._DeflateSurface        = _DeflateSurface;
+  update._Intensity             = intensity;
   update._LowerIntensity        = _LowerIntensity;
   update._UpperIntensity        = _UpperIntensity;
   update._LocalLowerIntensity   = lower_intensity;
@@ -702,8 +750,6 @@ void BalloonForce::Update(bool gradient)
 void BalloonForce::EvaluateGradient(double *gradient, double step, double weight)
 {
   if (_NumberOfPoints == 0) return;
-
-  memset(_Gradient, 0, _NumberOfPoints * sizeof(GradientType));
 
   ComputeGradient eval;
   eval._Normals   = _PointSet->SurfaceNormals();

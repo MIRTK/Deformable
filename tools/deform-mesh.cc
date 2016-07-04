@@ -205,6 +205,19 @@ void PrintHelp(const char *name)
   cout << "      Weight of inflation force based on local intensity statistics. (default: 0)" << endl;
   cout << "  -balloon-deflation <w>" << endl;
   cout << "      Weight of deflation force based on local intensity statistics. (default: 0)" << endl;
+  cout << "  -balloon-min <intensity>" << endl;
+  cout << "      Global lower intensity threshold for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: -inf)" << endl;
+  cout << "  -balloon-max <intensity>" << endl;
+  cout << "      Global lower intensity threshold for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: +inf)" << endl;
+  cout << "  -balloon-range <min> <max>" << endl;
+  cout << "      Global intensity thresholds for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: [-inf +inf])" << endl;
+  cout << "  -balloon-radius <r>" << endl;
+  cout << "      Radius for local intensity statistics of :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: 7 times voxel size)" << endl;
+  cout << "  -balloon-sigma <sigma>" << endl;
+  cout << "      Local intensity standard deviation scaling factor of :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: 5)" << endl;
+  cout << "  -balloon-mask <file>" << endl;
+  cout << "      Image mask used for local intensity statistics for :option:`-balloon-inflation` or :option:`-balloon-deflation`." << endl;
+  cout << "      (default: interior of deformed surface)" << endl;
   cout << "  -edges <w>" << endl;
   cout << "      Weight of image edge force. (default: 0)" << endl;
   cout << "  -inflation <w>" << endl;
@@ -573,6 +586,7 @@ int main(int argc, char *argv[])
 
   // Optional arguments
   const char *image_name        = nullptr;
+  const char *balloon_mask_name = nullptr;
   const char *dmap_name         = nullptr;
   const char *dmag_name         = nullptr;
   double      dmap_offset       = .0;
@@ -596,6 +610,7 @@ int main(int argc, char *argv[])
 
   Array<int>    navgs;           // no. of total gradient averaging steps
   Array<int>    distance_navgs;  // no. of distance gradient averaging steps
+  Array<int>    balloon_navgs;   // no. of balloon force gradient averaging steps
   Array<int>    nsteps;          // maximum no. of integration steps
   Array<double> max_dt;          // maximum integration step length
   Array<double> max_dx;          // maximum node displacement at each integration step
@@ -767,6 +782,43 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(farg);
       balloon.Weight(farg);
       balloon.DeflateSurface(true);
+    }
+    else if (OPTION("-balloon-min")) {
+      PARSE_ARGUMENT(farg);
+      balloon.LowerIntensity(farg);
+    }
+    else if (OPTION("-balloon-max")) {
+      PARSE_ARGUMENT(farg);
+      balloon.UpperIntensity(farg);
+    }
+    else if (OPTION("-balloon-range")) {
+      PARSE_ARGUMENT(farg);
+      balloon.LowerIntensity(farg);
+      PARSE_ARGUMENT(farg);
+      balloon.UpperIntensity(farg);
+    }
+    else if (OPTION("-balloon-radius")) {
+      PARSE_ARGUMENT(farg);
+      balloon.Radius(farg);
+    }
+    else if (OPTION("-balloon-sigma")) {
+      PARSE_ARGUMENT(farg);
+      balloon.LowerIntensitySigma(farg);
+      balloon.UpperIntensitySigma(farg);
+    }
+    else if (OPTION("-balloon-lower-sigma")) {
+      PARSE_ARGUMENT(farg);
+      balloon.LowerIntensitySigma(farg);
+    }
+    else if (OPTION("-balloon-upper-sigma")) {
+      PARSE_ARGUMENT(farg);
+      balloon.UpperIntensitySigma(farg);
+    }
+    else if (OPTION("-balloon-averaging")) {
+      PARSE_ARGUMENTS(int, balloon_navgs);
+    }
+    else if (OPTION("-balloon-mask")) {
+      balloon_mask_name = ARGUMENT;
     }
     else if (OPTION("-edges")) {
       PARSE_ARGUMENT(farg);
@@ -1025,6 +1077,13 @@ int main(int argc, char *argv[])
     distance.NormalizeMagnitude(false);
   }
 
+  // Read foreground mask of balloon force
+  BinaryImage balloon_mask;
+  if (balloon_mask_name) {
+    balloon_mask.Read(balloon_mask_name);
+    balloon.ForegroundMask(&balloon_mask);
+  }
+
   // Add energy terms
   model.Add(&distance,   false);
   model.Add(&balloon,    false);
@@ -1214,6 +1273,7 @@ int main(int argc, char *argv[])
     } else {
       model.GradientAveraging(navg);
       distance.GradientAveraging(ParameterValue(level, nlevels, distance_navgs, 0));
+      balloon .GradientAveraging(ParameterValue(level, nlevels, balloon_navgs,  0));
     }
 
     // Reset node status

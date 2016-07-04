@@ -33,8 +33,8 @@
 #include "mirtk/SurfaceRemeshing.h"
 #include "mirtk/SurfaceCurvature.h"
 #include "mirtk/SurfaceCollisions.h"
-#include "mirtk/DataStatistics.h"
 #include "mirtk/PointSamples.h"
+#include "mirtk/PointSetUtils.h"
 #include "mirtk/PointSetIO.h"
 
 #include "mirtk/ImplicitSurfaceForce.h"
@@ -55,7 +55,6 @@
 namespace mirtk {
 
 
-using namespace data;
 using namespace ImplicitSurfaceUtils;
 
 

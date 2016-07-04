@@ -262,7 +262,7 @@ void StretchingForce::Update(bool gradient)
   InternalForce::Update(gradient);
 
   // Update average edge length
-  if (_UseCurrentAverageLength) {
+  if (_RestLength < .0 && _UseCurrentAverageLength) {
     _AverageLength = AverageEdgeLength(_PointSet->Points(), *_PointSet->Edges());
   }
 }

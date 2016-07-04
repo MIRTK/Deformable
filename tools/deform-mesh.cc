@@ -186,6 +186,11 @@ void PrintHelp(const char *name)
   cout << "      Minimum distance to other triangles in front of a given triangle." << endl;
   cout << "  -minw, -min-width <value>" << endl;
   cout << "      Minimum distance to other triangles in the back of a given triangle." << endl;
+  cout << "  -max-collision-angle <degrees>" << endl;
+  cout << "      Maximum angle between vector connecting centers of nearby triangles and the face normal" << endl;
+  cout << "      of the reference triangle for a collision to be detected. When the triangles are within" << endl;
+  cout << "      the same flat neighborhood of the surface mesh, this angle will be close to 90 degrees." << endl;
+  cout << "      This parameter reduces false collision detection between neighboring triangles. (default: " << model.MaxCollisionAngle() << ")" << endl;
   cout << "  -reset-status" << endl;
   cout << "      Set status of all mesh nodes to active again after each level (see :option:`-levels`). (default: off)" << endl;
   cout << endl;
@@ -944,6 +949,10 @@ int main(int argc, char *argv[])
     else if (OPTION("-min-width") || OPTION("-minwidth") || OPTION("-minw")) {
       PARSE_ARGUMENT(farg);
       model.MinBackfaceDistance(farg);
+    }
+    else if (OPTION("-max-collision-angle")) {
+      PARSE_ARGUMENT(farg);
+      model.MaxCollisionAngle(farg);
     }
     // Output format
     else if (OPTION("-center-output"))  center_output  = true;

@@ -350,7 +350,7 @@ vtkDataArray *PointSetForce::AddPointData(const char *name, int c, int type, boo
 {
   vtkSmartPointer<vtkDataArray> data = GetPointData(name, true);
   if (!data || data->GetDataType() != type || data->GetNumberOfComponents() != c) {
-    data = NewVTKDataArray(type);
+    data = NewVtkDataArray(type);
     data->SetNumberOfComponents(c);
   }
   if (_NumberOfPoints > 0) data->SetNumberOfTuples(_NumberOfPoints);

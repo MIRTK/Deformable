@@ -193,6 +193,8 @@ void PrintHelp(const char *name)
   cout << "      of the reference triangle for a collision to be detected. When the triangles are within" << endl;
   cout << "      the same flat neighborhood of the surface mesh, this angle will be close to 90 degrees." << endl;
   cout << "      This parameter reduces false collision detection between neighboring triangles. (default: " << model.MaxCollisionAngle() << ")" << endl;
+  cout << "  -fast-collision-test\n";
+  cout << "      Use fast approximate triangle-triangle collision test based on distance of their centers only. (default: off)" << endl;
   cout << "  -reset-status" << endl;
   cout << "      Set status of all mesh nodes to active again after each level (see :option:`-levels`). (default: off)" << endl;
   cout << endl;
@@ -628,6 +630,7 @@ int main(int argc, char *argv[])
   Array<double> min_edge_angle;  // minimum angle between edge end points to allow melting
   Array<double> max_edge_angle;  // maximum angle between edge end points before enforcing subdivision
 
+  bool   barg;
   int    iarg;
   double farg;
 
@@ -977,6 +980,10 @@ int main(int argc, char *argv[])
     else if (OPTION("-max-collision-angle")) {
       PARSE_ARGUMENT(farg);
       model.MaxCollisionAngle(farg);
+    }
+    else if (OPTION("-fast-collision-test")) {
+      PARSE_ARGUMENT(barg);
+      model.FastCollisionTest(barg);
     }
     // Output format
     else if (OPTION("-center-output"))  center_output  = true;

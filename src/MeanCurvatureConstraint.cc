@@ -28,6 +28,7 @@
 #include "mirtk/VtkMath.h"
 #include "vtkPointData.h"
 #include "vtkDataArray.h"
+#include "vtkIdList.h"
 
 
 #define USE_CURVATURE_WEIGHTED_SPRING_FORCE 1

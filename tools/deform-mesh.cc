@@ -52,7 +52,6 @@
 #include "mirtk/BalloonForce.h"
 #include "mirtk/ImageEdgeForce.h"
 #include "mirtk/ImplicitSurfaceDistance.h"
-#include "mirtk/ImplicitSurfaceSpringForce.h"
 
 // Internal forces
 #include "mirtk/SpringForce.h"
@@ -149,6 +148,10 @@ void PrintHelp(const char *name)
   cout << "      is similar to computing the forces on a coarser mesh. See :option:`-force-averaging`. (default: 0 0)" << endl;
   cout << "  -force-averaging <n>..." << endl;
   cout << "      Number of force averaging steps. (default: 0)" << endl;
+  cout << "      Cannot be combined with :option:`-magnitude-averaging`." << endl;
+  cout << "  -magnitude-averaging <n>..." << endl;
+  cout << "      Number of force magnitude averaging steps. (default: 0)" << endl;
+  cout << "      Cannot be combined with :option:`-force-averaging`." << endl;
   cout << "  -distance-averaging <n>..." << endl;
   cout << "      Number of :option:`-distance` force averaging steps. (default: 0)" << endl;
   cout << "  -steps, -max-steps, -iterations, -max-iterations <n>..." << endl;
@@ -204,8 +207,6 @@ void PrintHelp(const char *name)
   cout << "      than only the adjacent nodes, but also up to n-connected nodes. (default: " << model.NeighborhoodRadius() << ")" << endl;
   cout << "  -distance <w>" << endl;
   cout << "      Weight of implicit surface distance. (default: 0)" << endl;
-  cout << "  -distance-spring, -dspring <w>" << endl;
-  cout << "      Weight of implicit surface spring force. (default: 0)" << endl;
   cout << "  -distance-measure <name>" << endl;
   cout << "      Implicit surface distance measure used by :option:`-distance` and :option:`-distance-spring`):" << endl;
   cout << "      - ``minimum``: Minimum surface distance (see :option:`-distance-image`, default)" << endl;
@@ -244,10 +245,17 @@ void PrintHelp(const char *name)
   cout << "  -curvature <w>" << endl;
   cout << "      Weight of surface curvature. (default: 0)" << endl;
   cout << "  -quadratic-curvature, -qcurvature <w>" << endl;
-  cout << "      Weight of surface curvature estimated by quadratic fit of node neighbor" << endl;
-  cout << "      to tangent plane distance. (default: 0)" << endl;
+  cout << "      Weight of surface curvature estimated by quadratic fit of node neighbor to tangent plane distance. (default: 0)" << endl;
+  cout << "  -distant-quadratic-curvature, -distant-qcurvature <w>" << endl;
+  cout << "      Weight of :option:`-quadratic-curvature` proportional to the :option:`-distance` magnitude. (default: 0)" << endl;
+  cout << "  -mean-curvature, -mcurvature <w>" << endl;
+  cout << "      Weight of mean curvature constraint. (default: 0)" << endl;
+  cout << "  -distant-mean-curvature, -distant-mcurvature <w>" << endl;
+  cout << "      Weight of :option:`-mean-curvature` proportional to the :option:`-distance` magnitude. (default: 0)" << endl;
   cout << "  -gauss-curvature, -gcurvature <w>" << endl;
   cout << "      Weight of Gauss curvature constraint. (default: 0)" << endl;
+  cout << "  -distant-gauss-curvature, -distant-gcurvature <w>" << endl;
+  cout << "      Weight of :option:`-gauss-curvature` proportional to the :option:`-distance` magnitude. (default: 0)" << endl;
   cout << "  -distortion <w>" << endl;
   cout << "      Weight of metric distortion." << endl;
   cout << "  -stretching <w>" << endl;
@@ -352,10 +360,10 @@ T ParameterValue(int level, int nlevels, const Array<T> &values, T default_value
 {
   mirtkAssert(nlevels > 0,                   "at least one level");
   mirtkAssert(0 <= level && level < nlevels, "valid level index");
-  if (values.empty()) return default_value;
   const int nvalues = static_cast<int>(values.size());
-  while (level >= nvalues) --level;
-  return values[level];
+  if (nvalues == 0) return default_value;
+  const int idx = level - (nlevels - nvalues);
+  return values[idx < 0 ? 0 : idx];
 }
 
 // -----------------------------------------------------------------------------
@@ -564,10 +572,9 @@ int main(int argc, char *argv[])
   model.Input(input);
 
   // External forces (inactive if weight == 0)
-  BalloonForce               balloon ("Balloon force", .0);
-  ImageEdgeForce             edges   ("Edge force",    .0);
-  ImplicitSurfaceDistance    distance("Distance",      .0);
-  ImplicitSurfaceSpringForce dspring ("Dist. spring",  .0);
+  BalloonForce            balloon ("Balloon force", .0);
+  ImageEdgeForce          edges   ("Edge force",    .0);
+  ImplicitSurfaceDistance distance("Distance",      .0);
 
   // Internal forces (inactive if weight == 0)
   SpringForce                   spring    ("Bending",        .0);
@@ -583,6 +590,17 @@ int main(int argc, char *argv[])
   NonSelfIntersectionConstraint collision ("Collision",      .0);
   SmoothnessConstraint          dofbending("Bending energy", .0);
 
+  // Internal forces proportional to implicit surface distance
+  QuadraticCurvatureConstraint dqcurvature("Dist. quad. curv.", .0);
+  MeanCurvatureConstraint      dmcurvature("Dist. mean curv.",  .0);
+  GaussCurvatureConstraint     dgcurvature("Dist. Gauss curv.", .0);
+
+  const string dmagnitude = distance.Name() + " magnitude";
+  dqcurvature.ExternalMagnitudeArrayName(dmagnitude);
+  dmcurvature.ExternalMagnitudeArrayName(dmagnitude);
+  dgcurvature.ExternalMagnitudeArrayName(dmagnitude);
+
+  // Default force settings
   spring.NormalWeight(.0);
   spring.TangentialWeight(.0);
 
@@ -606,8 +624,8 @@ int main(int argc, char *argv[])
   bool        track_zero_mean   = false;   // subtract mean from tracked normal movements
   bool        track_unit_var    = false;   // Z-score normalize tracked normal movements
   bool        track_use_median  = false;   // use median instead of mean for normalization
-  const char *initial_name      = NULL;
-  const char *debug_prefix      = "deform_mesh_";
+  const char *initial_name      = nullptr;
+  const char *debug_prefix      = "deform-mesh_";
   double      padding           = NaN;
   bool        level_prefix      = true;
   bool        reset_status      = false;
@@ -615,6 +633,7 @@ int main(int argc, char *argv[])
   bool        match_area        = false;
   bool        match_sampling    = false;
   bool        signed_gradient   = false; // average gradient vectors with positive dot product
+  bool        average_magnitude = false; // average gradient magnitude only
   bool        save_status       = false;
   bool        inflate_brain     = false; // mimick mris_inflate
   int         nlevels           = 1;     // no. of levels
@@ -737,6 +756,11 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-force-averaging")) {
       PARSE_ARGUMENTS(int, navgs);
+      average_magnitude = false;
+    }
+    else if (OPTION("-magnitude-averaging")) {
+      PARSE_ARGUMENTS(int, navgs);
+      average_magnitude = true;
     }
     else if (OPTION("-max-steps")      || OPTION("-steps")      ||
              OPTION("-max-iterations") || OPTION("-iterations") ||
@@ -761,13 +785,29 @@ int main(int argc, char *argv[])
       Insert(params, "Target energy function value", ARGUMENT);
     }
     else if (OPTION("-min-active") || OPTION("-minactive")) {
-      PARSE_ARGUMENT(farg);
+      string value, units = ValueUnits(ARGUMENT, &value);
+      if (!FromString(value, farg)) {
+        FatalError("Invalid -min-active value: " << value);
+      }
+      if (units == "%") {
+        farg /= 100.;
+      } else if (!units.empty()) {
+        FatalError("Invalid -min-active units: " << units);
+      }
       min_active.Threshold(farg);
     }
     else if (OPTION("-extrinsic-energy")) {
-      model.MinimizeExtrinsicEnergy(true);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(barg);
+      else barg = true;
+      model.MinimizeExtrinsicEnergy(barg);
     }
-    else if (OPTION("-reset-status")) reset_status = true;
+    else if (OPTION("-reset-status")) {
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(reset_status);
+      else reset_status = true;
+    }
+    else if (OPTION("-noreset-status")) {
+      reset_status = false;
+    }
     // Force terms
     else if (OPTION("-neighborhood") || OPTION("-neighbourhood")) {
       model.NeighborhoodRadius(atoi(ARGUMENT));
@@ -781,9 +821,7 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENTS(int, distance_navgs);
     }
     else if (OPTION("-distance-measure")) {
-      ImplicitSurfaceDistance::DistanceMeasureType measure;
-      PARSE_ARGUMENT(measure);
-      distance.DistanceMeasure(measure);
+      PARSE_ARGUMENT(distance.DistanceMeasure());
     }
     else if (OPTION("-balloon-inflation") || OPTION("-balloon")) {
       PARSE_ARGUMENT(farg);
@@ -861,10 +899,6 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(farg);
       normspring.Weight(farg);
     }
-    else if (OPTION("-distance-spring") || OPTION("-dspring")) {
-      PARSE_ARGUMENT(farg);
-      dspring.Weight(farg);
-    }
     else if (OPTION("-curvature")) {
       PARSE_ARGUMENT(farg);
       curvature.Weight(farg);
@@ -873,13 +907,61 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(farg);
       gcurvature.Weight(farg);
     }
-    else if (OPTION("-mean-curvature")) {
+    else if (OPTION("-distant-gauss-curvature") || OPTION("-distant-gaussian-curvature") || OPTION("-distant-gcurvature")) {
+      PARSE_ARGUMENT(farg);
+      dgcurvature.Weight(farg);
+      if (HAS_ARGUMENT) {
+        PARSE_ARGUMENT(farg);
+        const double winside = dgcurvature.Weight();
+        dgcurvature.Weight(max(winside, farg));
+        if (dgcurvature.Weight() != 0.) {
+          dgcurvature.WeightInside (winside / dgcurvature.Weight());
+          dgcurvature.WeightOutside(farg    / dgcurvature.Weight());
+        }
+      } else {
+        dgcurvature.WeightInside (1.);
+        dgcurvature.WeightOutside(1.);
+      }
+    }
+    else if (OPTION("-mean-curvature") || OPTION("-mcurvature")) {
       PARSE_ARGUMENT(farg);
       mcurvature.Weight(farg);
+    }
+    else if (OPTION("-distant-mean-curvature") || OPTION("-distant-mcurvature")) {
+      PARSE_ARGUMENT(farg);
+      dmcurvature.Weight(farg);
+      if (HAS_ARGUMENT) {
+        PARSE_ARGUMENT(farg);
+        const double winside = dmcurvature.Weight();
+        dmcurvature.Weight(max(winside, farg));
+        if (dmcurvature.Weight() != 0.) {
+          dmcurvature.WeightInside (winside / dmcurvature.Weight());
+          dmcurvature.WeightOutside(farg    / dmcurvature.Weight());
+        }
+      } else {
+        dmcurvature.WeightInside (1.);
+        dmcurvature.WeightOutside(1.);
+      }
     }
     else if (OPTION("-quadratic-curvature") || OPTION("-qcurvature")) {
       PARSE_ARGUMENT(farg);
       qcurvature.Weight(farg);
+    }
+    else if (OPTION("-distant-quadratic-curvature") || OPTION("-distant-qcurvature")) {
+      PARSE_ARGUMENT(farg);
+      dqcurvature.Weight(farg);
+      if (HAS_ARGUMENT) {
+        PARSE_ARGUMENT(farg);
+        const double winside = dqcurvature.Weight();
+        dqcurvature.Weight(max(winside, farg));
+        if (dqcurvature.Weight() != 0.) {
+          dqcurvature.WeightInside (winside / dqcurvature.Weight());
+          dqcurvature.WeightOutside(farg    / dqcurvature.Weight());
+        }
+      } else {
+        dqcurvature.WeightInside (1.);
+        dqcurvature.WeightOutside(1.);
+      }
     }
     else if (OPTION("-distortion")) {
       PARSE_ARGUMENT(farg);
@@ -968,7 +1050,14 @@ int main(int argc, char *argv[])
       model.LowPassBand(farg);
     }
     // Non-self-intersection / collision detection
-    else if (OPTION("-nointersection")) model.HardNonSelfIntersection(true);
+    else if (OPTION("-non-self-intersection")) {
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(barg);
+      else barg = true;
+      model.HardNonSelfIntersection(barg);
+    }
+    else if (OPTION("-nointersection")) {
+      model.HardNonSelfIntersection(true);
+    }
     else if (OPTION("-min-distance") || OPTION("-mindistance") || OPTION("-mind")) {
       PARSE_ARGUMENT(farg);
       model.MinFrontfaceDistance(farg);
@@ -982,8 +1071,12 @@ int main(int argc, char *argv[])
       model.MaxCollisionAngle(farg);
     }
     else if (OPTION("-fast-collision-test")) {
-      PARSE_ARGUMENT(barg);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(barg);
+      else barg = true;
       model.FastCollisionTest(barg);
+    }
+    else if (OPTION("-nofast-collision-test")) {
+      model.FastCollisionTest(false);
     }
     // Output format
     else if (OPTION("-center-output"))  center_output  = true;
@@ -1035,7 +1128,8 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-save-status")) save_status = true;
     else if (OPTION("-level-prefix") || OPTION("-levelprefix")) {
-      level_prefix = true;
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(level_prefix);
+      else level_prefix = true;
     }
     else if (OPTION("-nolevel-prefix") || OPTION("-nolevelprefix")) {
       level_prefix = false;
@@ -1068,12 +1162,10 @@ int main(int argc, char *argv[])
     spring.Weight(.0);
   }
   if ((balloon.Weight() || edges.Weight()) && !image_name) {
-    cerr << "Input -image required by external forces!" << endl;
-    exit(1);
+    FatalError("Input -image required by external forces!");
   }
-  if ((distance.Weight() || dspring.Weight()) && !dmap_name) {
-    cerr << "Input -dmap required by implicit surface forces!" << endl;
-    exit(1);
+  if ((distance.Weight() || dmcurvature.Weight() || dgcurvature.Weight() || dqcurvature.Weight()) && !dmap_name) {
+    FatalError("Input -distance-map required by distance weighted internal forces!");
   }
 
   // Read input image
@@ -1125,22 +1217,24 @@ int main(int argc, char *argv[])
   }
 
   // Add energy terms
-  model.Add(&distance,   false);
-  model.Add(&balloon,    false);
-  model.Add(&edges,      false);
-  model.Add(&dspring,    false);
-  model.Add(&spring,     false);
-  model.Add(&normspring, false);
-  model.Add(&inflation,  false);
-  model.Add(&curvature,  false);
-  model.Add(&gcurvature, false);
-  model.Add(&mcurvature, false);
-  model.Add(&qcurvature, false);
-  model.Add(&distortion, false);
-  model.Add(&stretching, false);
-  model.Add(&repulsion,  false);
-  model.Add(&collision,  false);
-  model.Add(&dofbending, false);
+  model.Add(&distance,    false);
+  model.Add(&balloon,     false);
+  model.Add(&edges,       false);
+  model.Add(&spring,      false);
+  model.Add(&normspring,  false);
+  model.Add(&inflation,   false);
+  model.Add(&curvature,   false);
+  model.Add(&gcurvature,  false);
+  model.Add(&dgcurvature, false);
+  model.Add(&mcurvature,  false);
+  model.Add(&dmcurvature, false);
+  model.Add(&qcurvature,  false);
+  model.Add(&dqcurvature, false);
+  model.Add(&distortion,  false);
+  model.Add(&stretching,  false);
+  model.Add(&repulsion,   false);
+  model.Add(&collision,   false);
+  model.Add(&dofbending,  false);
 
   // Add stopping criteria
   if (min_active.Threshold() >= .0) {
@@ -1157,7 +1251,7 @@ int main(int argc, char *argv[])
   for (ParameterConstIterator it = params.begin(); it != params.end(); ++it) {
     if (!model     .Set(it->first.c_str(), it->second.c_str()) &&
         !optimizer->Set(it->first.c_str(), it->second.c_str())) {
-      cerr << "Unused/invalid parameter: " << it->first << " = " << it->second << endl;
+      Warning("Unused/invalid parameter: " << it->first << " = " << it->second);
       ok = false;
     }
   }
@@ -1179,7 +1273,7 @@ int main(int argc, char *argv[])
 
   model.GradientAveraging(0);
   model.AverageSignedGradients(signed_gradient);
-  model.AverageGradientMagnitude(false);
+  model.AverageGradientMagnitude(average_magnitude);
   model.Initialize();
 
   vtkPointSet  *output   = model.Output();
@@ -1195,13 +1289,11 @@ int main(int argc, char *argv[])
   // of the output by those of the previous output mesh (-initial argument).
   if (initial_name) {
     if (model.Transformation()) {
-      cerr << "Error: Option -initial not allowed when optimizing a parametric deformation!" << endl;
-      exit(1);
+      FatalError("Option -initial not allowed when optimizing a parametric deformation!");
     }
     vtkSmartPointer<vtkPointSet> initial = ReadPointSet(initial_name);
     if (initial->GetNumberOfPoints() != output->GetNumberOfPoints()) {
-      cerr << "Error: Point set with initial deformed mesh points has differing number of points" << endl;
-      exit(1);
+      FatalError("Point set with initial deformed mesh points has differing number of points");
     }
     output->GetPoints()->DeepCopy(initial->GetPoints());
   }
@@ -1249,9 +1341,8 @@ int main(int argc, char *argv[])
   // (i.e., sulcal depth measure in case of surface -inflation)
   if (track_name) {
     if (euler == NULL || model.Transformation() != NULL || !IsSurfaceMesh(output)) {
-      cerr << "Error: Option -track can currently only be used with an Euler method as -optimizer to" << endl;
-      cerr << "       directly deform a surface mesh without a parametric transformation (no input -dof)." << endl;
-      exit(1);
+      FatalError("Option -track can currently only be used with an Euler method as -optimizer to\n"
+          "       directly deform a surface mesh without a parametric transformation (no input -dof).");
     }
     vtkSmartPointer<vtkDataArray> track_array;
     track_array = outputPD->GetArray(track_name);

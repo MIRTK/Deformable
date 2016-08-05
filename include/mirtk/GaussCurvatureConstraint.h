@@ -39,6 +39,9 @@ class GaussCurvatureConstraint : public SurfaceConstraint
   // ---------------------------------------------------------------------------
   // Attributes
 
+  /// Whether to scale force proportional to mean curvature
+  mirtkPublicAttributeMacro(bool, UseMeanCurvature);
+
   /// Copy attributes of this class from another instance
   void CopyAttributes(const GaussCurvatureConstraint &);
 

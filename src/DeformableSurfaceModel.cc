@@ -1227,14 +1227,29 @@ void DeformableSurfaceModel::Update(bool gradient)
 {
   if (this->Changed() || gradient) {
     MIRTK_START_TIMING();
-    // Update edge table needed for smoothing operations
-    if (_Transformation) _PointSet.Update(true);
-    // Update energy terms
-    for (int i = 0; i < _NumberOfTerms; ++i) {
-      EnergyTerm *term = Term(i);
-      if (term->Weight() != .0) {
-        term->Update(gradient);
-        term->ResetValue(); // in case energy term does not do this
+    // Update deformed point set
+    if (_Transformation) {
+      _PointSet.Update(true);
+    }
+    // 1. Update external forces
+    for (auto force : _ExternalForce) {
+      if (force->Weight() != 0.) {
+        force->Update(gradient);
+        force->ResetValue(); // in case energy term does not do this
+      }
+    }
+    // 2. Update internal forces
+    for (auto force : _InternalForce) {
+      if (force->Weight() != 0.) {
+        force->Update(gradient);
+        force->ResetValue(); // in case energy term does not do this
+      }
+    }
+    // 3. Update transformation constraints
+    for (auto constraint : _Constraint) {
+      if (constraint->Weight() != 0.) {
+        constraint->Update(gradient);
+        constraint->ResetValue(); // in case energy term does not do this
       }
     }
     // Mark deformable surface model as up-to-date

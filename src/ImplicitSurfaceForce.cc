@@ -244,7 +244,7 @@ void ImplicitSurfaceForce::DistanceGradient(const double p[3], double g[3], bool
 // -----------------------------------------------------------------------------
 vtkDataArray *ImplicitSurfaceForce::MinimumDistances() const
 {
-  return GetPointData("MinimumImplicitSurfaceDistance");
+  return PointData("MinimumImplicitSurfaceDistance");
 }
 
 // -----------------------------------------------------------------------------
@@ -261,7 +261,7 @@ void ImplicitSurfaceForce::UpdateMinimumDistances()
   if (distances->GetMTime() < _PointSet->Surface()->GetMTime()) {
     ComputeMinimumDistances eval;
     eval._Force     = this;
-    eval._Points    = _PointSet->SurfacePoints();
+    eval._Points    = Points();
     eval._Distances = distances;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
   }
@@ -270,7 +270,7 @@ void ImplicitSurfaceForce::UpdateMinimumDistances()
 // -----------------------------------------------------------------------------
 vtkDataArray *ImplicitSurfaceForce::NormalDistances() const
 {
-  return GetPointData("NormalImplicitSurfaceDistance");
+  return PointData("NormalImplicitSurfaceDistance");
 }
 
 // -----------------------------------------------------------------------------
@@ -283,18 +283,19 @@ void ImplicitSurfaceForce::InitializeNormalDistances()
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceForce::UpdateNormalDistances()
 {
+  vtkPolyData  * const surface   = DeformedSurface();
   vtkDataArray * const distances = NormalDistances();
-  if (distances->GetMTime() < _PointSet->Surface()->GetMTime()) {
+  if (distances->GetMTime() < surface->GetMTime()) {
 
     ComputeNormalDistances eval;
     eval._Force     = this;
-    eval._Points    = _PointSet->SurfacePoints();
-    eval._Normals   = _PointSet->SurfaceNormals();
+    eval._Points    = Points();
+    eval._Normals   = Normals();
     eval._Distances = distances;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
     MeshSmoothing smoother;
-    smoother.Input(_PointSet->Surface());
+    smoother.Input(surface);
     smoother.SmoothPointsOff();
     smoother.SmoothArray(distances->GetName());
     smoother.Weighting(MeshSmoothing::Gaussian);

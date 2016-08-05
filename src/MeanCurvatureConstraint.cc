@@ -758,8 +758,9 @@ struct EvaluateWeightedSpringForce
       if (numAdjPts > 0) {
         // Magnitude of spring force based on mean curvature
         H = _MeanCurvature->GetComponent(ptId, 0);
-        if (H < 0.) m = 1. - SShapedMembershipFunction(-H, 0., .1);
-        else        m = SShapedMembershipFunction(H, 0., 1.);
+//        if (H < 0.) m = 1. - SShapedMembershipFunction(-H, 0., .1);
+//        else        m = SShapedMembershipFunction(H, 0., 1.);
+        m = SShapedMembershipFunction(abs(H), 0., 1.);
         // Compute curvature weighted spring force
         _Points->GetPoint(ptId, c);
         f[0] = f[1] = f[2] = 0.;
@@ -853,11 +854,12 @@ void MeanCurvatureConstraint::Update(bool gradient)
 
   // Update mean curvature
   #if USE_CURVATURE_WEIGHTED_SPRING_FORCE
-  vtkDataArray * const meanCurvature = GetPointData(SurfaceCurvature::MEAN);
-  if (meanCurvature->GetMTime() < _PointSet->Surface()->GetMTime()) {
+  vtkPolyData  * const surface        = DeformedSurface();
+  vtkDataArray * const mean_curvature = PointData(SurfaceCurvature::MEAN);
+  if (mean_curvature->GetMTime() < surface->GetMTime()) {
 
     SurfaceCurvature curv(SurfaceCurvature::Mean);
-    curv.Input(_PointSet->Surface());
+    curv.Input(surface);
     curv.VtkCurvaturesOn();
     curv.Run();
 
@@ -869,8 +871,8 @@ void MeanCurvatureConstraint::Update(bool gradient)
     smoother.Run();
 
     vtkPointData * const smoothPD = smoother.Output()->GetPointData();
-    meanCurvature->DeepCopy(smoothPD->GetArray(SurfaceCurvature::MEAN));
-    meanCurvature->Modified();
+    mean_curvature->DeepCopy(smoothPD->GetArray(SurfaceCurvature::MEAN));
+    mean_curvature->Modified();
   }
   #endif // USE_CURVATURE_WEIGHTED_SPRING_FORCE
 }
@@ -882,17 +884,17 @@ double MeanCurvatureConstraint::Evaluate()
 
     if (_NumberOfPoints == 0) return 0.;
     MeanCurvatureConstraintUtils::Evaluate eval;
-    eval._MeanCurvature = GetPointData(SurfaceCurvature::MEAN);
+    eval._MeanCurvature = PointData(SurfaceCurvature::MEAN);
     parallel_reduce(blocked_range<int>(0, _NumberOfPoints), eval);
     return eval._Penalty / _NumberOfPoints;
 
   #else // USE_CURVATURE_WEIGHTED_SPRING_FORCE
 
-    const EdgeTable *edgeTable = _PointSet->SurfaceEdges();
+    const EdgeTable * const edgeTable = Edges();
     if (edgeTable->NumberOfEdges() == 0) return 0.;
     MeanCurvatureConstraintUtils::Evaluate eval;
-    eval._Surface   = _PointSet->Surface();
-    eval._Status    = _PointSet->SurfaceStatus();
+    eval._Surface   = DeformedSurface();
+    eval._Status    = Status();
     eval._EdgeTable = edgeTable;
     parallel_reduce(blocked_range<int>(0, _NumberOfPoints), eval);
     return 9. * eval._Penalty / edgeTable->NumberOfEdges();
@@ -911,25 +913,25 @@ void MeanCurvatureConstraint
   #if USE_CURVATURE_WEIGHTED_SPRING_FORCE
 
     MeanCurvatureConstraintUtils::EvaluateWeightedSpringForce eval;
-    eval._Points         = _PointSet->SurfacePoints();
-    eval._Status         = _PointSet->SurfaceStatus();
-    eval._EdgeTable      = _PointSet->SurfaceEdges();
-    eval._Normals        = _PointSet->SurfaceNormals();
-    eval._MeanCurvature  = GetPointData(SurfaceCurvature::MEAN);
+    eval._Points         = Points();
+    eval._Status         = Status();
+    eval._EdgeTable      = Edges();
+    eval._Normals        = Normals();
+    eval._MeanCurvature  = PointData(SurfaceCurvature::MEAN);
     eval._Gradient       = _Gradient;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
   #else // USE_CURVATURE_WEIGHTED_SPRING_FORCE
 
+    vtkPolyData * const surface = DeformedSurface();
     memset(_Count, 0, _NumberOfPoints * sizeof(int));
-    const EdgeTable * const edgeTable = _PointSet->SurfaceEdges();
     MeanCurvatureConstraintUtils::EvaluateGradient eval;
-    eval._Surface   = _PointSet->Surface();
-    eval._Status    = _PointSet->SurfaceStatus();
-    eval._EdgeTable = edgeTable;
+    eval._Surface   = surface;
+    eval._Status    = Status();
+    eval._EdgeTable = Edges();
     eval._Gradient  = _Gradient;
     eval._Count     = _Count;
-    eval(blocked_range<vtkIdType>(0, _PointSet->Surface()->GetNumberOfCells()));
+    eval(blocked_range<vtkIdType>(0, surface->GetNumberOfCells()));
     //parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
     for (int i = 0; i < _NumberOfPoints; ++i) {
       // - Factor 2 is from the derivative of the square function.

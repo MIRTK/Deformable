@@ -124,14 +124,15 @@ struct ComputeGradient
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double n[3];
+    double m, n[3];
 
     const vtkIdType begin = static_cast<vtkIdType>(ptIds.begin());
     const vtkIdType end   = static_cast<vtkIdType>(ptIds.end  ());
 
     for (vtkIdType ptId = begin; ptId != end; ++ptId) {
       _Normals->GetTuple(ptId, n);
-      _Gradient[ptId] = -_Magnitude->GetComponent(ptId, 0) * GradientType(n);
+      m = _Magnitude->GetComponent(ptId, 0);
+      _Gradient[ptId] = -m * GradientType(n);
     }
   }
 };
@@ -162,7 +163,7 @@ ImplicitSurfaceDistance::ImplicitSurfaceDistance(const char *name, double weight
   _InvertMagnitude(false),
   _DistanceScale(1.)
 {
-  _MaxDistance = 5.0;
+  _MaxDistance = 5.;
 }
 
 // -----------------------------------------------------------------------------
@@ -233,7 +234,7 @@ void ImplicitSurfaceDistance::UpdateDistances()
 void ImplicitSurfaceDistance::UpdateMagnitude()
 {
   vtkDataArray *distances = this->Distances();
-  vtkDataArray *magnitude = GetPointData("Magnitude");
+  vtkDataArray *magnitude = PointData("Magnitude");
 
   // Evaluate/compute magnitude function at active surface points
   if (_MagnitudeImage) {
@@ -242,8 +243,8 @@ void ImplicitSurfaceDistance::UpdateMagnitude()
     func.Input(_MagnitudeImage);
     func.Initialize();
     EvaluateMagnitude eval;
-    eval._Points    = _PointSet->SurfacePoints();
-    eval._Status    = _PointSet->SurfaceStatus();
+    eval._Points    = Points();
+    eval._Status    = Status();
     eval._Function  = &func;
     eval._Distances = distances;
     eval._Magnitude = magnitude;
@@ -252,7 +253,7 @@ void ImplicitSurfaceDistance::UpdateMagnitude()
   } else {
 
     ComputeMagnitude calc;
-    calc._Status        = _PointSet->SurfaceStatus();
+    calc._Status        = Status();
     calc._Distances     = distances;
     calc._DistanceScale = (_DistanceMeasure == DM_Minimum ? 0. : _DistanceScale);
     calc._Magnitude     = magnitude;
@@ -313,12 +314,11 @@ void ImplicitSurfaceDistance::EvaluateGradient(double *gradient, double step, do
 {
   if (_NumberOfPoints == 0) return;
 
-  vtkDataArray *magnitude = GetPointData("Magnitude");
   memset(_Gradient, 0, _NumberOfPoints * sizeof(GradientType));
 
   ComputeGradient eval;
-  eval._Normals   = _PointSet->SurfaceNormals();
-  eval._Magnitude = magnitude;
+  eval._Normals   = Normals();
+  eval._Magnitude = PointData("Magnitude");
   eval._Gradient  = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 

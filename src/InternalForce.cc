@@ -34,13 +34,13 @@ InternalForce *InternalForce::New(InternalForceTerm ift, const char *name, doubl
   if (IFT_Begin < em && em < IFT_End) {
     EnergyTerm *term = EnergyTerm::TryNew(em, name, w);
     if (term) return dynamic_cast<InternalForce *>(term);
-    cerr << NameOfType() << "::New: Internal point set force not available: ";
+    ThrowStatic(ERR_RuntimeError, NameOfType(), __FUNCTION__,
+                "Internal point set force not available: ", em, " (", int(em), ")");
   } else {
-    cerr << NameOfType() << "::New: Energy term is not an internal point set force: ";
+    ThrowStatic(ERR_RuntimeError, NameOfType(), __FUNCTION__,
+                "Energy term is not an internal point set force: ", em, " (", int(em), ")");
   }
-  cerr << ToString(em) << " (" << em << ")" << endl;
-  exit(1);
-  return NULL;
+  return nullptr;
 }
 
 // =============================================================================
@@ -48,9 +48,19 @@ InternalForce *InternalForce::New(InternalForceTerm ift, const char *name, doubl
 // =============================================================================
 
 // -----------------------------------------------------------------------------
+void InternalForce::CopyAttributes(const InternalForce &other)
+{
+  _ExternalMagnitudeArrayName = other._ExternalMagnitudeArrayName;
+  _WeightInside               = other._WeightInside;
+  _WeightOutside              = other._WeightOutside;
+}
+
+// -----------------------------------------------------------------------------
 InternalForce::InternalForce(const char *name, double weight)
 :
-  PointSetForce(name, weight)
+  PointSetForce(name, weight),
+  _WeightInside(1.),
+  _WeightOutside(1.)
 {
 }
 
@@ -59,18 +69,106 @@ InternalForce::InternalForce(const InternalForce &other)
 :
   PointSetForce(other)
 {
+  CopyAttributes(other);
 }
 
 // -----------------------------------------------------------------------------
 InternalForce &InternalForce::operator =(const InternalForce &other)
 {
-  PointSetForce::operator =(other);
+  if (this != &other) {
+    PointSetForce::operator =(other);
+    CopyAttributes(other);
+  }
   return *this;
 }
 
 // -----------------------------------------------------------------------------
 InternalForce::~InternalForce()
 {
+}
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+bool InternalForce::SetWithoutPrefix(const char *param, const char *value)
+{
+  if (strcmp(param, "weight inside") == 0 ||
+      strcmp(param, "weight factor inside") == 0) {
+    double weight;
+    if (!FromString(value, weight) || weight < 0.) return false;
+    _WeightInside = weight;
+    return true;
+  }
+  if (strcmp(param, "weight outside") == 0 ||
+      strcmp(param, "weight factor outside") == 0) {
+    double weight;
+    if (!FromString(value, weight) || weight < 0.) return false;
+    _WeightOutside = weight;
+    return true;
+  }
+  return PointSetForce::SetWithoutPrefix(param, value);
+}
+
+// -----------------------------------------------------------------------------
+ParameterList InternalForce::Parameter() const
+{
+  ParameterList params = PointSetForce::Parameter();
+  InsertWithPrefix(params, "weight factor inside",  _WeightInside);
+  InsertWithPrefix(params, "weight factor outside", _WeightOutside);
+  return params;
+}
+
+// =============================================================================
+// Auxiliaries
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+vtkDataArray *InternalForce::ExternalMagnitude() const
+{
+  vtkDataArray *mag = nullptr;
+  if (!_ExternalMagnitudeArrayName.empty()) {
+    const bool optional = false;
+    mag = PointData(_ExternalMagnitudeArrayName.c_str(), optional);
+    if (mag->GetNumberOfComponents() != 1) {
+      Throw(ERR_LogicError, __FUNCTION__, "External force magnitude array must"
+                                          " have only one scalar component!");
+    }
+  }
+  return mag;
+}
+
+// =============================================================================
+// Evaluation
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+void InternalForce::EvaluateGradient(double *gradient, double step, double weight)
+{
+  vtkDataArray * const scale = ExternalMagnitude();
+
+  // Scale by external force magnitude
+  if (scale != nullptr) {
+    double s;
+    GradientType *grad = _Gradient;
+    if (fequal(_WeightInside, _WeightOutside)) {
+      for (int i = 0; i < _NumberOfPoints; ++i, ++grad) {
+        s = scale->GetComponent(i, 0);
+        (*grad) *= abs(s);
+      }
+      weight *= _WeightInside;
+    } else {
+      for (int i = 0; i < _NumberOfPoints; ++i, ++grad) {
+        s  = scale->GetComponent(i, 0);
+        s *= (s < 0. ? _WeightOutside : _WeightInside);
+        (*grad) *= abs(s);
+      }
+    }
+  }
+
+  // Compute parametric gradient
+  PointSetForce::EvaluateGradient(gradient, step, weight);
 }
 
 

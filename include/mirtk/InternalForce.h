@@ -46,6 +46,33 @@ class InternalForce : public PointSetForce
   mirtkAbstractMacro(InternalForce);
 
   // ---------------------------------------------------------------------------
+  // Attributes
+
+  /// Name of point data array with external force magnitude
+  ///
+  /// When specified, the force vectors of the internal force should be
+  /// multiplied by the absolute value of the external force magnitude.
+  /// The internal force is therefore proportional to the external force
+  /// and vanishes at the same time as the external force.
+  ///
+  /// The deformable model has to ensure that the external forces are updated
+  /// before the internal forces such that the magnitude array is up-to-date.
+  mirtkPublicAttributeMacro(string, ExternalMagnitudeArrayName);
+
+  /// Weight of this internal force when "inside" the object,
+  /// i.e., when the external force magnitude is negative.
+  /// The force _Weight is multiplied by this positive weight.
+  mirtkPublicAttributeMacro(double, WeightInside);
+
+  /// Weight of this internal force when "outside" the object,
+  /// i.e., when the external force magnitude is positive.
+  /// The force _Weight is multiplied by this positive weight.
+  mirtkPublicAttributeMacro(double, WeightOutside);
+
+  /// Copy attributes of this class from another instance
+  void CopyAttributes(const InternalForce &);
+
+  // ---------------------------------------------------------------------------
   // Construction/Destruction
 
 protected:
@@ -66,6 +93,43 @@ public:
 
   /// Destructor
   virtual ~InternalForce();
+
+  // ---------------------------------------------------------------------------
+  // Configuration
+
+protected:
+
+  /// Set parameter value from string
+  virtual bool SetWithoutPrefix(const char *, const char *);
+
+public:
+
+  // Import other overloads
+  using PointSetForce::Parameter;
+
+  /// Get parameter key/value as string map
+  virtual ParameterList Parameter() const;
+
+  // ---------------------------------------------------------------------------
+  // Auxiliaries
+
+protected:
+
+  /// Get magnitude array of external force term
+  vtkDataArray *ExternalMagnitude() const;
+
+  // ---------------------------------------------------------------------------
+  // Evaluation
+
+protected:
+
+  /// Evaluate gradient of force term
+  ///
+  /// \param[in,out] gradient Gradient to which the computed gradient of the
+  ///                         force term is added after multiplying by \p weight.
+  /// \param[in]     step     Step length for finite differences (unused).
+  /// \param[in]     weight   Weight of force term.
+  virtual void EvaluateGradient(double *gradient, double step, double weight);
 
 };
 

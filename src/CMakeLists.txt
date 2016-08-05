@@ -37,9 +37,8 @@ set(HEADERS
   ExternalForceTerm.h
   GaussCurvatureConstraint.h
   ImageEdgeForce.h
-  ImplicitSurfaceDistance.h
   ImplicitSurfaceForce.h
-  ImplicitSurfaceSpringForce.h
+  ImplicitSurfaceDistance.h
   InflationForce.h
   InflationStoppingCriterion.h
   InternalForce.h
@@ -70,9 +69,8 @@ set(SOURCES
   ExternalForce.cc
   GaussCurvatureConstraint.cc
   ImageEdgeForce.cc
-  ImplicitSurfaceDistance.cc
   ImplicitSurfaceForce.cc
-  ImplicitSurfaceSpringForce.cc
+  ImplicitSurfaceDistance.cc
   InflationForce.cc
   InflationStoppingCriterion.cc
   InternalForce.cc

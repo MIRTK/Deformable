@@ -43,9 +43,6 @@ class QuadraticCurvatureConstraint : public SurfaceConstraint
   // ---------------------------------------------------------------------------
   // Attributes
 
-  /// Residuals of quadratic fit of distance to tangent plane
-  mirtkAttributeMacro(Array<double>, Residuals);
-
   /// Copy attributes of this class from another instance
   void CopyAttributes(const QuadraticCurvatureConstraint &);
 
@@ -68,6 +65,9 @@ public:
 
   // ---------------------------------------------------------------------------
   // Evaluation
+
+  /// Initialize force term once input and parameters have been set
+  virtual void Initialize();
 
   /// Update internal force data structures
   virtual void Update(bool);

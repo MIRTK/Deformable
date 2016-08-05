@@ -237,14 +237,14 @@ void PointSetForce::AllocateCount(int n)
 PointSetForce::PointSetForce(const char *name, double weight)
 :
   EnergyTerm(name, weight),
-  _PointSet(NULL),
+  _PointSet(nullptr),
   _GradientAveraging(0),
   _AverageSignedGradients(false),
   _AverageGradientMagnitude(false),
   _SurfaceForce(false),
-  _Gradient(NULL),
+  _Gradient(nullptr),
   _GradientSize(0),
-  _Count(NULL),
+  _Count(nullptr),
   _CountSize(0),
   _InitialUpdate(false)
 {
@@ -267,9 +267,9 @@ void PointSetForce::CopyAttributes(const PointSetForce &other)
 PointSetForce::PointSetForce(const PointSetForce &other)
 :
   EnergyTerm(other),
-  _Gradient(NULL),
+  _Gradient(nullptr),
   _GradientSize(0),
-  _Count(NULL),
+  _Count(nullptr),
   _CountSize(0)
 {
   CopyAttributes(other);
@@ -297,15 +297,42 @@ PointSetForce::~PointSetForce()
 // =============================================================================
 
 // -----------------------------------------------------------------------------
+vtkDataArray *PointSetForce::PointData(const char *name, bool optional) const
+{
+  vtkDataArray *data = nullptr;
+  vtkPointSet  * const ps = DeformedPointSet();
+  vtkPointData * const pd = ps->GetPointData();
+  auto it = _PointDataName.find(name);
+  if (it == _PointDataName.end()) {
+    data = pd->GetArray(name);
+  } else {
+    data = pd->GetArray(it->second.c_str());
+  }
+  if (data) {
+    if (data->GetNumberOfComponents() <= 0) {
+      Throw(ERR_LogicError, __FUNCTION__, "Point data array has no components!");
+    }
+    if (data->GetNumberOfTuples() != ps->GetNumberOfPoints()) {
+      Throw(ERR_LogicError, __FUNCTION__, "Point data array has invalid size!\n"
+            "  This indicates that the point data array was not correctly adjusted\n"
+            "  during the remeshing of the deformed ", _SurfaceForce ? "surface" : "point set",
+            ". Please report\n  this bug or debug the execution in order to fix this issue.");
+    }
+  } else if (!optional) {
+    Throw(ERR_LogicError, __FUNCTION__, _SurfaceForce ? "Surface" : "Point set",
+          " has no point data array named: ", name);
+  }
+  return data;
+}
+
+// -----------------------------------------------------------------------------
 void PointSetForce::AddPointData(const char *name, vtkSmartPointer<vtkDataArray> &data, bool global)
 {
   // Remove previously added array if any
   RemovePointData(name);
 
   // Remove array from point set attributes to prevent duplicate additions
-  vtkPointData *pd;
-  if (_SurfaceForce) pd = _PointSet->Surface ()->GetPointData();
-  else               pd = _PointSet->PointSet()->GetPointData();
+  vtkPointData * const pd = this->PointData();
   for (int i = 0; i < pd->GetNumberOfArrays(); ++i) {
     if (pd->GetArray(i) == data) pd->RemoveArray(i--);
   }
@@ -348,10 +375,18 @@ void PointSetForce::AddPointData(const char *name, vtkSmartPointer<vtkDataArray>
 // -----------------------------------------------------------------------------
 vtkDataArray *PointSetForce::AddPointData(const char *name, int c, int type, bool global)
 {
-  vtkSmartPointer<vtkDataArray> data = GetPointData(name, true);
-  if (!data || data->GetDataType() != type || data->GetNumberOfComponents() != c) {
+  const bool optional = true;
+  vtkSmartPointer<vtkDataArray> data = PointData(name, optional);
+  if (!data) {
     data = NewVtkDataArray(type);
     data->SetNumberOfComponents(c);
+  } else if (data->GetDataType() != type || data->GetNumberOfComponents() != c) {
+    if (global) {
+      Throw(ERR_LogicError, __FUNCTION__, "Mismatch of global data array type and/or number of components");
+    } else {
+      data = NewVtkDataArray(type);
+      data->SetNumberOfComponents(c);
+    }
   }
   if (_NumberOfPoints > 0) data->SetNumberOfTuples(_NumberOfPoints);
   AddPointData(name, data, global);
@@ -361,35 +396,10 @@ vtkDataArray *PointSetForce::AddPointData(const char *name, int c, int type, boo
 // -----------------------------------------------------------------------------
 void PointSetForce::RemovePointData(const char *name)
 {
-  NameMapIterator it = _PointDataName.find(name);
+  auto it = _PointDataName.find(name);
   if (it == _PointDataName.end()) return;
-  vtkPointData *pd;
-  if (_SurfaceForce) pd = _PointSet->Surface ()->GetPointData();
-  else               pd = _PointSet->PointSet()->GetPointData();
-  pd->RemoveArray(it->second.c_str());
+  PointData()->RemoveArray(it->second.c_str());
   _PointDataName.erase(it);
-}
-
-// -----------------------------------------------------------------------------
-vtkDataArray *PointSetForce::GetPointData(const char *name, bool optional) const
-{
-  vtkDataArray *data = NULL;
-  NameMapConstIterator it = _PointDataName.find(name);
-  if (it != _PointDataName.end()) {
-    vtkPointData *pd;
-    if (_SurfaceForce) pd = _PointSet->Surface ()->GetPointData();
-    else               pd = _PointSet->PointSet()->GetPointData();
-    data = pd->GetArray(it->second.c_str());
-    if (data) return data;
-  }
-  if (!optional) {
-    cerr << "PointSetForce::GetPointData: Point data array has invalid size!" << endl;
-    cerr << "  This indicates that the point data array was not correctly adjusted" << endl;
-    cerr << "  during the remeshing of the deformed point set/surface. Please report" << endl;
-    cerr << "  this bug or debug the program execution in order to fix this issue." << endl;
-    exit(1);
-  }
-  return NULL;
 }
 
 // =============================================================================

@@ -583,18 +583,19 @@ void BalloonForce::ComputeLocalIntensityAttributes(bool thresholds, bool bg_fg_s
   }
 
   if (thresholds) {
+    const bool optional = true;
     ComputeLocalIntensityThresholds eval;
-    eval._Points         = _PointSet->Points();
-    eval._Status         = _PointSet->Status();
+    eval._Points         = Points();
+    eval._Status         = Status();
     eval._Image          = _Image;
     eval._Mask           = (_ForegroundMask ? _ForegroundMask : &fg_mask);
-    eval._RadiusX        = _Radius / _Image->GetXSize();
-    eval._RadiusY        = _Radius / _Image->GetYSize();
-    eval._RadiusZ        = _Radius / _Image->GetZSize();
+    eval._RadiusX        = _Radius / _Image->XSize();
+    eval._RadiusY        = _Radius / _Image->YSize();
+    eval._RadiusZ        = _Radius / _Image->ZSize();
     eval._LowerSigma     = _LowerIntensitySigma;
     eval._UpperSigma     = _UpperIntensitySigma;
-    eval._LowerIntensity = GetPointData("Lower intensity", true);
-    eval._UpperIntensity = GetPointData("Upper intensity", true);
+    eval._LowerIntensity = PointData("Lower intensity", optional);
+    eval._UpperIntensity = PointData("Upper intensity", optional);
     parallel_for(blocked_range<vtkIdType>(0, _NumberOfPoints), eval);
   }
 
@@ -605,11 +606,11 @@ void BalloonForce::ComputeLocalIntensityAttributes(bool thresholds, bool bg_fg_s
     eval._Image                = _Image;
     eval._ForegroundMask       = (_ForegroundMask ? _ForegroundMask : &fg_mask);
     eval._BackgroundMask       = nullptr; // use foreground region of _Image
-    eval._RadiusX              = _Radius / _Image->GetXSize();
-    eval._RadiusY              = _Radius / _Image->GetYSize();
-    eval._RadiusZ              = _Radius / _Image->GetZSize();
-    eval._BackgroundStatistics = GetPointData("Background statistics");
-    eval._ForegroundStatistics = GetPointData("Foreground statistics");
+    eval._RadiusX              = _Radius / _Image->XSize();
+    eval._RadiusY              = _Radius / _Image->YSize();
+    eval._RadiusZ              = _Radius / _Image->ZSize();
+    eval._BackgroundStatistics = PointData("Background statistics");
+    eval._ForegroundStatistics = PointData("Foreground statistics");
     parallel_for(blocked_range<vtkIdType>(0, _NumberOfPoints), eval);
   }
 }
@@ -635,9 +636,9 @@ void BalloonForce::Initialize()
   // Radius of box window used for local intensity statistics
   // If zero, only the global intensity thresholds are considered
   if (_Radius < .0) {
-    _Radius = 7.0 * max(max(_Image->GetXSize(),
-                            _Image->GetYSize()),
-                            _Image->GetZSize());
+    _Radius = 7.0 * max(max(_Image->XSize(),
+                            _Image->YSize()),
+                            _Image->ZSize());
   }
 
   // Add/remove point data arrays for local intensity thresholds
@@ -684,12 +685,13 @@ void BalloonForce::Update(bool gradient)
   }
 
   // Get (optional) point data (possibly interpolated during remeshing)
-  vtkDataArray *magnitude       = GetPointData("Signed magnitude");
-  vtkDataArray *intensity       = GetPointData("Intensity",             true);
-  vtkDataArray *lower_intensity = GetPointData("Lower intensity",       true);
-  vtkDataArray *upper_intensity = GetPointData("Upper intensity",       true);
-  vtkDataArray *bg_statistics   = GetPointData("Background statistics", true);
-  vtkDataArray *fg_statistics   = GetPointData("Foreground statistics", true);
+  const bool optional = true;
+  vtkDataArray *magnitude       = PointData("Signed magnitude");
+  vtkDataArray *intensity       = PointData("Intensity",             optional);
+  vtkDataArray *lower_intensity = PointData("Lower intensity",       optional);
+  vtkDataArray *upper_intensity = PointData("Upper intensity",       optional);
+  vtkDataArray *bg_statistics   = PointData("Background statistics", optional);
+  vtkDataArray *fg_statistics   = PointData("Foreground statistics", optional);
 
   // Initialize continuous intensity function
   BalloonForceUtils::ImageFunction image;
@@ -699,8 +701,8 @@ void BalloonForce::Update(bool gradient)
   // Update force magnitude and direction
   UpdateMagnitude update;
   update._Image                 = &image;
-  update._Points                = _PointSet->SurfacePoints();
-  update._Status                = _PointSet->SurfaceStatus();
+  update._Points                = Points();
+  update._Status                = Status();
   update._DeflateSurface        = _DeflateSurface;
   update._Intensity             = intensity;
   update._LowerIntensity        = _LowerIntensity;
@@ -724,12 +726,11 @@ void BalloonForce::Update(bool gradient)
     smoothed_magnitude.TakeReference(magnitude->NewInstance());
     smoothed_magnitude->SetNumberOfComponents(magnitude->GetNumberOfComponents());
     smoothed_magnitude->SetNumberOfTuples(magnitude->GetNumberOfTuples());
-    EdgeTable edgeTable(_PointSet->Surface());
     SmoothMagnitude smooth;
     smooth._Input        = magnitude;
     smooth._Output       = smoothed_magnitude;
-    smooth._EdgeTable    = &edgeTable;
-    smooth._Normals      = _PointSet->SurfaceNormals();
+    smooth._EdgeTable    = Edges();
+    smooth._Normals      = Normals();
     smooth._MinMagnitude = _MagnitudeThreshold;
     blocked_range<vtkIdType> ptIds(0, magnitude->GetNumberOfTuples());
     for (int iter = 0; iter < _MagnitudeSmoothing; ++iter) {
@@ -752,8 +753,8 @@ void BalloonForce::EvaluateGradient(double *gradient, double step, double weight
   if (_NumberOfPoints == 0) return;
 
   ComputeGradient eval;
-  eval._Normals   = _PointSet->SurfaceNormals();
-  eval._Magnitude = GetPointData("Signed magnitude");
+  eval._Normals   = Normals();
+  eval._Magnitude = PointData("Signed magnitude");
   eval._Gradient  = _Gradient;
   parallel_for(blocked_range<vtkIdType>(0, _NumberOfPoints), eval);
 

@@ -53,6 +53,12 @@ public:
   /// Type of gradient w.r.t a single transformed data point
   typedef Vector3D<double> GradientType;
 
+  /// Adjacency matrix with edge IDs
+  typedef RegisteredPointSet::EdgeTable EdgeTable;
+
+  /// Table of n-connected node neighbors
+  typedef RegisteredPointSet::NodeNeighbors NodeNeighbors;
+
   // ---------------------------------------------------------------------------
   // Attributes
 protected:
@@ -99,6 +105,41 @@ protected:
   mirtkAttributeMacro(bool, InitialUpdate);
 
   // ---------------------------------------------------------------------------
+  // Point set accessors
+
+protected:
+
+  /// Get point set on which this force is acting on
+  vtkPointSet *OriginalPointSet() const;
+
+  /// Get point set on which this force is acting on
+  vtkPointSet *DeformedPointSet() const;
+
+  /// Get point set on which this force is acting on
+  vtkPolyData *OriginalSurface() const;
+
+  /// Get point set on which this force is acting on
+  vtkPolyData *DeformedSurface() const;
+
+  /// Get points of point set on which this force is acting on
+  vtkPoints *Points() const;
+
+  /// Get point status array
+  vtkDataArray *Status() const;
+
+  /// Get point normals array
+  vtkDataArray *Normals() const;
+
+  /// Get point data
+  vtkPointData *PointData() const;
+
+  /// Get edge table of point set mesh
+  const EdgeTable *Edges() const;
+
+  /// Get edge-connectivity table of point set node neighbors
+  const NodeNeighbors *Neighbors(int = -1) const;
+
+  // ---------------------------------------------------------------------------
   // Point set attributes
 private:
 
@@ -110,6 +151,16 @@ private:
   NameMap _PointDataName;
 
 protected:
+
+  /// Get point data array of deformed point set
+  ///
+  /// \param[in] name     Name of array as used when the array was added before.
+  ///                     This name may differ from the actual unique array name.
+  /// \param[in] optional Whether the array may not exist. If \c false, this
+  ///                     function raises an error if the array does not exist.
+  ///
+  /// \return Point data array or nullptr if not found (only if \p optional = \c true).
+  vtkDataArray *PointData(const char *name, bool optional = false) const;
 
   /// Add given array to point data attributes of deformed point set
   ///
@@ -157,16 +208,6 @@ protected:
   /// \param[in] name Name of array as used when the array was added before.
   ///                 This name may differ from the actual unique array name.
   void RemovePointData(const char *name);
-
-  /// Get point data array of deformed point set
-  ///
-  /// \param[in] name     Name of array as used when the array was added before.
-  ///                     This name may differ from the actual unique array name.
-  /// \param[in] optional Whether the array may not exist. If \c false, this
-  ///                     function raises an error if the array does not exist.
-  ///
-  /// \return Point data array or NULL if not found (only if \p optional = \c true).
-  vtkDataArray *GetPointData(const char *name, bool optional = false) const;
 
   // ---------------------------------------------------------------------------
   // Construction/Destruction
@@ -243,6 +284,75 @@ public:
   virtual void WriteGradient(const char *, const char *) const;
 
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Inline definitions
+////////////////////////////////////////////////////////////////////////////////
+
+// -----------------------------------------------------------------------------
+inline vtkPointSet *PointSetForce::OriginalPointSet() const
+{
+  if (_SurfaceForce) return _PointSet->InputSurface();
+  else               return _PointSet->InputPointSet();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkPointSet *PointSetForce::DeformedPointSet() const
+{
+  if (_SurfaceForce) return _PointSet->Surface();
+  else               return _PointSet->PointSet();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkPolyData *PointSetForce::OriginalSurface() const
+{
+  return _PointSet->InputSurface();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkPolyData *PointSetForce::DeformedSurface() const
+{
+  return _PointSet->Surface();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkPoints *PointSetForce::Points() const
+{
+  return _SurfaceForce ? _PointSet->SurfacePoints() : _PointSet->Points();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkDataArray *PointSetForce::Status() const
+{
+  return _SurfaceForce ? _PointSet->SurfaceStatus() : _PointSet->Status();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkDataArray *PointSetForce::Normals() const
+{
+  if (!_SurfaceForce) {
+    Throw(ERR_LogicError, __FUNCTION__, "Only surface meshes have point normals!");
+  }
+  return _PointSet->SurfaceNormals();
+}
+
+// -----------------------------------------------------------------------------
+inline const PointSetForce::EdgeTable *PointSetForce::Edges() const
+{
+  return _SurfaceForce ? _PointSet->SurfaceEdges() : _PointSet->Edges();
+}
+
+// -----------------------------------------------------------------------------
+inline const PointSetForce::NodeNeighbors *PointSetForce::Neighbors(int n) const
+{
+  return _SurfaceForce ? _PointSet->SurfaceNeighbors(n) : _PointSet->Neighbors(n);
+}
+
+// -----------------------------------------------------------------------------
+inline vtkPointData *PointSetForce::PointData() const
+{
+  return DeformedPointSet()->GetPointData();
+}
 
 
 } // namespace mirtk

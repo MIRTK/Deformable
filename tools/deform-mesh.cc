@@ -45,6 +45,7 @@
 #include "mirtk/BrentLineSearch.h"
 
 // Stopping criteria
+#include "mirtk/EnergyThreshold.h"
 #include "mirtk/MinActiveStoppingCriterion.h"
 #include "mirtk/InflationStoppingCriterion.h"
 
@@ -607,6 +608,7 @@ int main(int argc, char *argv[])
   repulsion.Radius(.0);
 
   // Stopping criteria (disabled by default)
+  EnergyThreshold            min_energy(&model);
   MinActiveStoppingCriterion min_active(&model);
   InflationStoppingCriterion inflation_error(&model);
 
@@ -782,7 +784,7 @@ int main(int argc, char *argv[])
     else if (OPTION("-epsilon"))   Insert(params, "Epsilon", ARGUMENT);
     else if (OPTION("-delta"))     Insert(params, "Delta", ARGUMENT);
     else if (OPTION("-min-energy") || OPTION("-minenergy")) {
-      Insert(params, "Target energy function value", ARGUMENT);
+      PARSE_ARGUMENT(min_energy.Threshold());
     }
     else if (OPTION("-min-active") || OPTION("-minactive")) {
       string value, units = ValueUnits(ARGUMENT, &value);
@@ -1237,6 +1239,9 @@ int main(int argc, char *argv[])
   model.Add(&dofbending,  false);
 
   // Add stopping criteria
+  if (min_energy.Threshold() > .0) {
+    optimizer->AddStoppingCriterion(&min_energy);
+  }
   if (min_active.Threshold() >= .0) {
     // Can be disabled with -minactive -1, otherwise, even when the stopping
     // criterion will never be fulfilled, it is needed to label nodes as passive
@@ -1456,6 +1461,7 @@ int main(int argc, char *argv[])
   optimizer->ClearObservers();
 
   // Remove stopping criteria to avoid their deletion by the optimizer
+  optimizer->RemoveStoppingCriterion(&min_energy);
   optimizer->RemoveStoppingCriterion(&min_active);
   optimizer->RemoveStoppingCriterion(&inflation_error);
 

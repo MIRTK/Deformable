@@ -52,6 +52,7 @@
 // External forces
 #include "mirtk/BalloonForce.h"
 #include "mirtk/ImageEdgeForce.h"
+#include "mirtk/ImageEdgeDistance.h"
 #include "mirtk/ImplicitSurfaceDistance.h"
 
 // Internal forces
@@ -231,6 +232,8 @@ void PrintHelp(const char *name)
   cout << "      (default: interior of deformed surface)" << endl;
   cout << "  -edges <w>" << endl;
   cout << "      Weight of image edge force. (default: 0)" << endl;
+  cout << "  -edge-distance <w>" << endl;
+  cout << "      Weight of closest image edge distance force. (default: 0)" << endl;
   cout << "  -inflation <w>" << endl;
   cout << "      Weight of surface inflation force used for cortical surface inflation. (default: 0)" << endl;
   cout << "  -bending-energy <w>" << endl;
@@ -575,6 +578,7 @@ int main(int argc, char *argv[])
   // External forces (inactive if weight == 0)
   BalloonForce            balloon ("Balloon force", .0);
   ImageEdgeForce          edges   ("Edge force",    .0);
+  ImageEdgeDistance       dedges  ("Edge distance", .0);
   ImplicitSurfaceDistance distance("Distance",      .0);
 
   // Internal forces (inactive if weight == 0)
@@ -875,6 +879,25 @@ int main(int argc, char *argv[])
     else if (OPTION("-edges")) {
       PARSE_ARGUMENT(farg);
       edges.Weight(farg);
+    }
+    else if (OPTION("-edge-distance")) {
+      PARSE_ARGUMENT(farg);
+      dedges.Weight(farg);
+    }
+    else if (OPTION("-edge-distance-type")) {
+      PARSE_ARGUMENT(dedges.EdgeType());
+    }
+    else if (OPTION("-edge-distance-threshold")) {
+      PARSE_ARGUMENT(dedges.MinIntensity());
+    }
+    else if (OPTION("-edge-distance-maximum")) {
+      PARSE_ARGUMENT(dedges.MaxDistance());
+    }
+    else if (OPTION("-edge-distance-median")) {
+      PARSE_ARGUMENT(dedges.MedianFilterRadius());
+    }
+    else if (OPTION("-edge-distance-smoothing")) {
+      PARSE_ARGUMENT(dedges.SmoothingIterations());
     }
     else if (OPTION("-inflation")) {
       PARSE_ARGUMENT(farg);
@@ -1222,6 +1245,7 @@ int main(int argc, char *argv[])
   model.Add(&distance,    false);
   model.Add(&balloon,     false);
   model.Add(&edges,       false);
+  model.Add(&dedges,      false);
   model.Add(&spring,      false);
   model.Add(&normspring,  false);
   model.Add(&inflation,   false);

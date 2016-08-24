@@ -36,6 +36,7 @@ set(HEADERS
   ExternalForce.h
   ExternalForceTerm.h
   GaussCurvatureConstraint.h
+  ImageEdgeDistance.h
   ImageEdgeForce.h
   ImplicitSurfaceForce.h
   ImplicitSurfaceDistance.h
@@ -68,6 +69,7 @@ set(SOURCES
   EulerMethodWithMomentum.cc
   ExternalForce.cc
   GaussCurvatureConstraint.cc
+  ImageEdgeDistance.cc
   ImageEdgeForce.cc
   ImplicitSurfaceForce.cc
   ImplicitSurfaceDistance.cc

@@ -39,6 +39,7 @@ enum ExternalForceTerm
   EFT_Unknown                    = EFT_Begin,
   EFT_BalloonForce               = EM_BalloonForce,
   EFT_ImageEdgeForce             = EM_ImageEdgeForce,
+  EFT_ImageEdgeDistance          = EM_ImageEdgeDistance,
   EFT_ImplicitSurfaceDistance    = EM_ImplicitSurfaceDistance,
   EFT_ImplicitSurfaceSpringForce = EM_ImplicitSurfaceSpringForce
 };

@@ -897,7 +897,7 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(dedges.MedianFilterRadius());
     }
     else if (OPTION("-edge-distance-smoothing")) {
-      PARSE_ARGUMENT(dedges.SmoothingIterations());
+      PARSE_ARGUMENT(dedges.DistanceSmoothing());
     }
     else if (OPTION("-inflation")) {
       PARSE_ARGUMENT(farg);

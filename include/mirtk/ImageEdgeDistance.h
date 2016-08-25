@@ -27,7 +27,7 @@ namespace mirtk {
 
 
 /**
- * External surface force which attracts the surface to the closest image edge
+ * External surface force which attracts the surface to nearby image edges
  */
 class ImageEdgeDistance : public SurfaceForce
 {
@@ -68,7 +68,10 @@ private:
   mirtkPublicAttributeMacro(int, MedianFilterRadius);
 
   /// Number of edge distance smoothing iterations
-  mirtkPublicAttributeMacro(int, SmoothingIterations);
+  mirtkPublicAttributeMacro(int, DistanceSmoothing);
+
+  /// Number of edge magnitude smoothing iterations
+  mirtkPublicAttributeMacro(int, MagnitudeSmoothing);
 
   /// Step length used for ray casting
   mirtkPublicAttributeMacro(double, StepLength);

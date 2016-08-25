@@ -410,11 +410,12 @@ string ToString(const enum ImageEdgeDistance::EdgeType &value, int w, char c, bo
 // -----------------------------------------------------------------------------
 void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
 {
-  _EdgeType            = other._EdgeType;
-  _MinIntensity        = other._MinIntensity;
-  _MaxDistance         = other._MaxDistance;
-  _MedianFilterRadius  = other._MedianFilterRadius;
-  _SmoothingIterations = other._SmoothingIterations;
+  _EdgeType           = other._EdgeType;
+  _MinIntensity       = other._MinIntensity;
+  _MaxDistance        = other._MaxDistance;
+  _MedianFilterRadius = other._MedianFilterRadius;
+  _DistanceSmoothing  = other._DistanceSmoothing;
+  _MagnitudeSmoothing = other._MagnitudeSmoothing;
 }
 
 // -----------------------------------------------------------------------------
@@ -425,7 +426,8 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _MinIntensity(-inf),
   _MaxDistance(0.),
   _MedianFilterRadius(0),
-  _SmoothingIterations(0)
+  _DistanceSmoothing(0),
+  _MagnitudeSmoothing(2)
 {
   _ParameterPrefix.push_back("Image edge distance ");
   _ParameterPrefix.push_back("Intensity edge distance ");
@@ -474,8 +476,14 @@ bool ImageEdgeDistance::SetWithoutPrefix(const char *param, const char *value)
   if (strcmp(param, "Median filtering") == 0 || strcmp(param, "Median filter radius") == 0) {
     return FromString(value, _MedianFilterRadius);
   }
-  if (strcmp(param, "Gaussian smoothing") == 0 || strcmp(param, "Smoothing iterations") == 0) {
-    return FromString(value, _SmoothingIterations);
+  if (strcmp(param, "Smoothing iterations")          == 0 ||
+      strcmp(param, "Distance smoothing")            == 0 ||
+      strcmp(param, "Distance smoothing iterations") == 0) {
+    return FromString(value, _DistanceSmoothing);
+  }
+  if (strcmp(param, "Magnitude smoothing")            == 0 ||
+      strcmp(param, "Magnitude smoothing iterations") == 0) {
+    return FromString(value, _MagnitudeSmoothing);
   }
   return SurfaceForce::SetWithoutPrefix(param, value);
 }
@@ -488,7 +496,8 @@ ParameterList ImageEdgeDistance::Parameter() const
   InsertWithPrefix(params, "Maximum",              _MaxDistance);
   InsertWithPrefix(params, "Intensity threshold",  _MinIntensity);
   InsertWithPrefix(params, "Median filter radius", _MedianFilterRadius);
-  InsertWithPrefix(params, "Smoothing iterations", _SmoothingIterations);
+  InsertWithPrefix(params, "Smoothing iterations", _DistanceSmoothing);
+  InsertWithPrefix(params, "Magnitude smoothing",  _MagnitudeSmoothing);
   return params;
 }
 
@@ -573,28 +582,28 @@ void ImageEdgeDistance::Update(bool gradient)
     MIRTK_DEBUG_TIMING(5, "edge distance median filtering");
   }
 
-  if (_SmoothingIterations > 0) {
+  if (_DistanceSmoothing > 0) {
     MIRTK_RESET_TIMING();
     MeshSmoothing smoother;
     smoother.Input(surface);
     smoother.SmoothPointsOff();
     smoother.SmoothArray(distances->GetName());
     smoother.Weighting(MeshSmoothing::Gaussian);
-    smoother.NumberOfIterations(_SmoothingIterations);
+    smoother.NumberOfIterations(_DistanceSmoothing);
     smoother.Run();
     distances->DeepCopy(smoother.Output()->GetPointData()->GetArray(distances->GetName()));
     MIRTK_DEBUG_TIMING(5, "edge distance smoothing");
   }
 
   // Make force magnitude proportional to both edge distance and strength
-  {
+  if (_MagnitudeSmoothing > 0) {
     MIRTK_RESET_TIMING();
     MeshSmoothing smoother;
     smoother.Input(surface);
     smoother.SmoothPointsOff();
     smoother.SmoothArray(magnitude->GetName());
     smoother.Weighting(MeshSmoothing::Combinatorial);
-    smoother.NumberOfIterations(5);
+    smoother.NumberOfIterations(_MagnitudeSmoothing);
     smoother.Run();
     magnitude->DeepCopy(smoother.Output()->GetPointData()->GetArray(magnitude->GetName()));
     MIRTK_DEBUG_TIMING(5, "edge magnitude smoothing");

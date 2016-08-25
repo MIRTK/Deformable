@@ -24,6 +24,7 @@
 #include "mirtk/Profiling.h"
 #include "mirtk/DataStatistics.h"
 #include "mirtk/MeshSmoothing.h"
+#include "mirtk/MedianMeshFilter.h"
 #include "mirtk/EdgeConnectivity.h"
 #include "mirtk/FastCubicBSplineInterpolateImageFunction.h"
 
@@ -33,9 +34,6 @@
 #include "vtkPointData.h"
 
 #include <algorithm>
-
-using mirtk::data::statistic::Mean;
-using mirtk::data::statistic::AbsPercentile;
 
 
 namespace mirtk {
@@ -235,39 +233,6 @@ struct ComputeDistances
       // Set point distance to found edge and edge strength
       _Distances->SetComponent(ptId, 0, static_cast<double>(j - r) * _StepLength);
       _Magnitude->SetComponent(ptId, 0, abs(g[j]));
-    }
-  }
-};
-
-// -----------------------------------------------------------------------------
-/// Median filter edge distance values to discard outliers
-///
-/// \todo Implement as MedianMeshFilter of PointSet module.
-struct MedianFilter
-{
-  vtkDataArray     *_Input;
-  vtkDataArray     *_Output;
-  EdgeConnectivity *_Neighbors;
-
-  void operator ()(const blocked_range<int> &ptIds) const
-  {
-    int        nbrPts, median;
-    const int *nbrIds;
-    Array<double> values(_Neighbors->Maximum());
-    for (auto ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
-      _Neighbors->GetConnectedPoints(ptId, nbrPts, nbrIds);
-      if (nbrPts > 0) {
-        median = nbrPts / 2;
-        values.resize(nbrPts + 1);
-        for (int i = 0; i < nbrPts; ++i) {
-          values[i] = _Input->GetComponent(nbrIds[i], 0);
-        }
-        values[nbrPts] = _Input->GetComponent(ptId, 0);
-        nth_element(values.begin(), values.begin() + median, values.end());
-        _Output->SetComponent(ptId, 0, values[median]);
-      } else {
-        _Output->SetComponent(ptId, 0, _Input->GetComponent(ptId, 0));
-      }
     }
   }
 };
@@ -548,21 +513,12 @@ void ImageEdgeDistance::Update(bool gradient)
   image.Input(_Image);
   image.Initialize();
 
-  vtkSmartPointer<vtkDataArray> dists;
-  if (_MedianFilterRadius > 0) {
-    dists.TakeReference(distances->NewInstance());
-    dists->SetNumberOfComponents(1);
-    dists->SetNumberOfTuples(_NumberOfPoints);
-  } else {
-    dists = distances;
-  }
-
   MIRTK_START_TIMING();
   ComputeDistances eval;
   eval._Points       = Points();
   eval._Normals      = Normals();
   eval._Image        = &image;
-  eval._Distances    = dists;
+  eval._Distances    = distances;
   eval._Magnitude    = magnitude;
   eval._MinIntensity = _MinIntensity;
   eval._MaxDistance  = _MaxDistance;
@@ -571,17 +527,17 @@ void ImageEdgeDistance::Update(bool gradient)
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
   MIRTK_DEBUG_TIMING(5, "computing edge distances");
 
+  // Smooth measurements
   if (_MedianFilterRadius > 0) {
     MIRTK_RESET_TIMING();
-    MedianFilter median;
-    EdgeConnectivity neighbors(surface, 1);
-    median._Input     = dists;
-    median._Output    = distances;
-    median._Neighbors = &neighbors;
-    parallel_for(blocked_range<int>(0, _NumberOfPoints), median);
+    MedianMeshFilter median;
+    median.Input(surface);
+    median.Connectivity(1);
+    median.DataArray(distances);
+    median.Run();
+    distances->DeepCopy(median.Output()->GetPointData()->GetArray(distances->GetName()));
     MIRTK_DEBUG_TIMING(5, "edge distance median filtering");
   }
-
   if (_DistanceSmoothing > 0) {
     MIRTK_RESET_TIMING();
     MeshSmoothing smoother;
@@ -594,8 +550,6 @@ void ImageEdgeDistance::Update(bool gradient)
     distances->DeepCopy(smoother.Output()->GetPointData()->GetArray(distances->GetName()));
     MIRTK_DEBUG_TIMING(5, "edge distance smoothing");
   }
-
-  // Make force magnitude proportional to both edge distance and strength
   if (_MagnitudeSmoothing > 0) {
     MIRTK_RESET_TIMING();
     MeshSmoothing smoother;
@@ -608,6 +562,10 @@ void ImageEdgeDistance::Update(bool gradient)
     magnitude->DeepCopy(smoother.Output()->GetPointData()->GetArray(magnitude->GetName()));
     MIRTK_DEBUG_TIMING(5, "edge magnitude smoothing");
   }
+
+  // Make force magnitude proportional to both edge distance and strength
+  using mirtk::data::statistic::Mean;
+  using mirtk::data::statistic::AbsPercentile;
 
   MIRTK_RESET_TIMING();
   bool * const mask = new bool[_NumberOfPoints];

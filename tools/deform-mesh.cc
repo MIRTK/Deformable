@@ -61,6 +61,7 @@
 #include "mirtk/CurvatureConstraint.h"
 #include "mirtk/GaussCurvatureConstraint.h"
 #include "mirtk/MeanCurvatureConstraint.h"
+#include "mirtk/MaximumCurvatureConstraint.h"
 #include "mirtk/QuadraticCurvatureConstraint.h"
 #include "mirtk/MetricDistortion.h"
 #include "mirtk/StretchingForce.h"
@@ -265,8 +266,14 @@ void PrintHelp(const char *name)
   cout << "  -stretching <w>" << endl;
   cout << "      Weight of spring force based on difference of neighbor distance compared to" << endl;
   cout << "      initial distance. (default: 0)" << endl;
-  cout << "  -repulsion <w> [<radius>]" << endl;
-  cout << "      Weight of node repulsion force. (default: 0 0)" << endl;
+  cout << "  -repulsion <w>" << endl;
+  cout << "      Weight of node repulsion force. (default: 0)" << endl;
+  cout << "  -repulsion-radius <r>" << endl;
+  cout << "      Radius of node repulsion force. (default: average edge length)" << endl;
+  cout << "  -repulsion-distance <r>" << endl;
+  cout << "      Frontface radius of node repulsion force. (default: average edge length)" << endl;
+  cout << "  -repulsion-width <r>" << endl;
+  cout << "      Backface radius of node repulsion force. (default: average edge length)" << endl;
   cout << "  -collision <w>" << endl;
   cout << "      Weight of triangle repulsion force." << endl;
   cout << endl;
@@ -277,11 +284,11 @@ void PrintHelp(const char *name)
   cout << "      energy function value (see :option:`-epsilon` and :option:`-min-energy`). (default: off)" << endl;
   cout << "  -epsilon <value>" << endl;
   cout << "      Minimum change of deformable surface energy convergence criterion." << endl;
-  cout << "  -delta <value>" << endl;
-  cout << "      Minimum maximum node displacement or :option:`-dof` parameter value." << endl;
+  cout << "  -delta <value>..." << endl;
+  cout << "      Minimum maximum node displacement or :option:`-dof` parameter value. (default: 1e-6)" << endl;
   cout << "  -min-energy <value>" << endl;
   cout << "      Target deformable surface energy value. (default: 0)" << endl;
-  cout << "  -min-active <ratio>" << endl;
+  cout << "  -min-active <ratio>..." << endl;
   cout << "      Minimum ratio of active nodes in [0, 1]. (default: 0)" << endl;
   cout << "  -inflation-error <threshold>" << endl;
   cout << "      Threshold of surface inflation RMS measure. (default: off)" << endl;
@@ -588,6 +595,7 @@ int main(int argc, char *argv[])
   CurvatureConstraint           curvature ("Curvature",      .0);
   GaussCurvatureConstraint      gcurvature("Gauss curv.",    .0);
   MeanCurvatureConstraint       mcurvature("Mean curv.",     .0);
+  MaximumCurvatureConstraint    pcurvature("Max. curv.",     .0);
   QuadraticCurvatureConstraint  qcurvature("Quad. curv.",    .0);
   MetricDistortion              distortion("Distortion",     .0);
   StretchingForce               stretching("Stretching",     .0);
@@ -595,28 +603,32 @@ int main(int argc, char *argv[])
   NonSelfIntersectionConstraint collision ("Collision",      .0);
   SmoothnessConstraint          dofbending("Bending energy", .0);
 
-  // Internal forces proportional to implicit surface distance
-  QuadraticCurvatureConstraint dqcurvature("Dist. quad. curv.", .0);
-  MeanCurvatureConstraint      dmcurvature("Dist. mean curv.",  .0);
-  GaussCurvatureConstraint     dgcurvature("Dist. Gauss curv.", .0);
+  // Default force settings, also set after option parsing if unchanged
+  gcurvature.WeightInside (0.);
+  gcurvature.WeightOutside(0.);
 
-  const string dmagnitude = distance.Name() + " magnitude";
-  dqcurvature.ExternalMagnitudeArrayName(dmagnitude);
-  dmcurvature.ExternalMagnitudeArrayName(dmagnitude);
-  dgcurvature.ExternalMagnitudeArrayName(dmagnitude);
+  mcurvature.WeightInside (0.);
+  mcurvature.WeightOutside(0.);
 
-  // Default force settings
-  spring.NormalWeight(.0);
-  spring.TangentialWeight(.0);
+  pcurvature.WeightInside (0.);
+  pcurvature.WeightOutside(0.);
 
-  repulsion.Radius(.0);
+  qcurvature.WeightInside (0.);
+  qcurvature.WeightOutside(0.);
+
+  spring.InwardNormalWeight (0.);
+  spring.OutwardNormalWeight(0.);
+  spring.TangentialWeight   (0.);
+
+  repulsion.FrontfaceRadius(0.);
+  repulsion.BackfaceRadius (0.);
 
   // Stopping criteria (disabled by default)
   EnergyThreshold            min_energy(&model);
   MinActiveStoppingCriterion min_active(&model);
   InflationStoppingCriterion inflation_error(&model);
 
-  min_active.Threshold(.0);
+  min_active.Threshold(0.);
   inflation_error.Threshold(NaN);
 
   // Optional arguments
@@ -624,7 +636,6 @@ int main(int argc, char *argv[])
   const char *balloon_mask_name = nullptr;
   const char *dmap_name         = nullptr;
   const char *dmag_name         = nullptr;
-  double      dmap_offset       = .0;
   const char *mask_name         = nullptr;
   const char *track_name        = nullptr; // track normal movement of nodes
   bool        track_zero_mean   = false;   // subtract mean from tracked normal movements
@@ -648,12 +659,17 @@ int main(int argc, char *argv[])
   Array<int>    distance_navgs;  // no. of distance gradient averaging steps
   Array<int>    balloon_navgs;   // no. of balloon force gradient averaging steps
   Array<int>    nsteps;          // maximum no. of integration steps
+  Array<double> delta;           // max node change convergence criterion
   Array<double> max_dt;          // maximum integration step length
   Array<double> max_dx;          // maximum node displacement at each integration step
   Array<double> min_edge_length; // minimum average edge length
   Array<double> max_edge_length; // maximum average edge length
   Array<double> min_edge_angle;  // minimum angle between edge end points to allow melting
   Array<double> max_edge_angle;  // maximum angle between edge end points before enforcing subdivision
+  Array<double> min_distance;    // minimum front facing distance
+  Array<double> min_width;       // minimum back facing distance
+  Array<double> dmap_offsets;    // implicit surface distance offset
+  Array<double> min_active_thres; // minimum active stopping criterion
 
   bool   barg;
   int    iarg;
@@ -668,7 +684,7 @@ int main(int argc, char *argv[])
       dmap_name = ARGUMENT;
     }
     else if (OPTION("-dmap-offset") || OPTION("-distance-offset") || OPTION("-implicit-surface-offset")) {
-      PARSE_ARGUMENT(dmap_offset);
+      PARSE_ARGUMENTS(double, dmap_offsets);
     }
     else if (OPTION("-dmag") || OPTION("-distance-magnitude")) {
       dmag_name = ARGUMENT;
@@ -768,6 +784,7 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENTS(int, navgs);
       average_magnitude = true;
     }
+    else HANDLE_BOOLEAN_OPTION("signed-averaging", signed_gradient);
     else if (OPTION("-max-steps")      || OPTION("-steps")      ||
              OPTION("-max-iterations") || OPTION("-iterations") ||
              OPTION("-max-iter")       || OPTION("-iter")) {
@@ -786,21 +803,26 @@ int main(int argc, char *argv[])
     else if (OPTION("-momentum"))  Insert(params, "Deformable surface momentum", ARGUMENT);
     else if (OPTION("-mass"))      Insert(params, "Deformable surface mass", ARGUMENT);
     else if (OPTION("-epsilon"))   Insert(params, "Epsilon", ARGUMENT);
-    else if (OPTION("-delta"))     Insert(params, "Delta", ARGUMENT);
+    else if (OPTION("-delta")) {
+      PARSE_ARGUMENTS(double, delta);
+    }
     else if (OPTION("-min-energy") || OPTION("-minenergy")) {
       PARSE_ARGUMENT(min_energy.Threshold());
     }
     else if (OPTION("-min-active") || OPTION("-minactive")) {
-      string value, units = ValueUnits(ARGUMENT, &value);
-      if (!FromString(value, farg)) {
-        FatalError("Invalid -min-active value: " << value);
-      }
-      if (units == "%") {
-        farg /= 100.;
-      } else if (!units.empty()) {
-        FatalError("Invalid -min-active units: " << units);
-      }
-      min_active.Threshold(farg);
+      do {
+        string value, units = ValueUnits(ARGUMENT, &value);
+        if (!FromString(value, farg)) {
+          FatalError("Invalid -min-active value: " << value);
+        }
+        if (units == "%") {
+          farg /= 100.;
+        } else if (!units.empty()) {
+          FatalError("Invalid -min-active units: " << units);
+        }
+        min_active_thres.push_back(farg);
+      } while (HAS_ARGUMENT);
+      nlevels = max(nlevels, static_cast<int>(min_active_thres.size()));
     }
     else if (OPTION("-extrinsic-energy")) {
       if (HAS_ARGUMENT) PARSE_ARGUMENT(barg);
@@ -819,16 +841,27 @@ int main(int argc, char *argv[])
       model.NeighborhoodRadius(atoi(ARGUMENT));
     }
     else if (OPTION("-distance")) {
-      PARSE_ARGUMENT(farg);
-      distance.Weight(farg);
-      signed_gradient = true;
+      PARSE_ARGUMENT(distance.Weight());
+    }
+    else if (OPTION("-distance-maximum") || OPTION("-distance-max")) {
+      PARSE_ARGUMENT(distance.MaxDistance());
+    }
+    else if (OPTION("-distance-maximum-threshold") || OPTION("-distance-max-threshold")) {
+      PARSE_ARGUMENT(distance.MaxThreshold());
+    }
+    else if (OPTION("-distance-minimum-threshold") || OPTION("-distance-min-threshold") || OPTION("-distance-threshold")) {
+      PARSE_ARGUMENT(distance.MinThreshold());
     }
     else if (OPTION("-distance-averaging")) {
       PARSE_ARGUMENTS(int, distance_navgs);
     }
+    else if (OPTION("-distance-smoothing")) {
+      PARSE_ARGUMENT(distance.DistanceSmoothing());
+    }
     else if (OPTION("-distance-measure")) {
       PARSE_ARGUMENT(distance.DistanceMeasure());
     }
+    else HANDLE_BOOLEAN_OPTION("distance-hole-filling", distance.FillInHoles());
     else if (OPTION("-balloon-inflation") || OPTION("-balloon")) {
       PARSE_ARGUMENT(farg);
       balloon.Weight(farg);
@@ -888,7 +921,13 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(dedges.EdgeType());
     }
     else if (OPTION("-edge-distance-threshold")) {
+      PARSE_ARGUMENT(dedges.Padding());
+    }
+    else if (OPTION("-edge-distance-min-intensity")) {
       PARSE_ARGUMENT(dedges.MinIntensity());
+    }
+    else if (OPTION("-edge-distance-max-intensity")) {
+      PARSE_ARGUMENT(dedges.MaxIntensity());
     }
     else if (OPTION("-edge-distance-maximum")) {
       PARSE_ARGUMENT(dedges.MaxDistance());
@@ -898,6 +937,9 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-edge-distance-smoothing")) {
       PARSE_ARGUMENT(dedges.DistanceSmoothing());
+    }
+    else if (OPTION("-edge-distance-magnitude-averaging")) {
+      PARSE_ARGUMENT(dedges.MagnitudeSmoothing());
     }
     else if (OPTION("-inflation")) {
       PARSE_ARGUMENT(farg);
@@ -914,7 +956,13 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-normal-spring") || OPTION("-nspring")) {
       PARSE_ARGUMENT(farg);
-      spring.NormalWeight(farg);
+      spring.InwardNormalWeight(farg);
+      if (HAS_ARGUMENT) {
+        PARSE_ARGUMENT(farg);
+        spring.OutwardNormalWeight(farg);
+      } else {
+        spring.OutwardNormalWeight(spring.InwardNormalWeight());
+      }
     }
     else if (OPTION("-tangential-spring") || OPTION("-tspring")) {
       PARSE_ARGUMENT(farg);
@@ -929,64 +977,59 @@ int main(int argc, char *argv[])
       curvature.Weight(farg);
     }
     else if (OPTION("-gauss-curvature") || OPTION("-gaussian-curvature") || OPTION("-gcurvature")) {
-      PARSE_ARGUMENT(farg);
-      gcurvature.Weight(farg);
+      PARSE_ARGUMENT(gcurvature.Weight());
     }
-    else if (OPTION("-distant-gauss-curvature") || OPTION("-distant-gaussian-curvature") || OPTION("-distant-gcurvature")) {
-      PARSE_ARGUMENT(farg);
-      dgcurvature.Weight(farg);
-      if (HAS_ARGUMENT) {
-        PARSE_ARGUMENT(farg);
-        const double winside = dgcurvature.Weight();
-        dgcurvature.Weight(max(winside, farg));
-        if (dgcurvature.Weight() != 0.) {
-          dgcurvature.WeightInside (winside / dgcurvature.Weight());
-          dgcurvature.WeightOutside(farg    / dgcurvature.Weight());
-        }
-      } else {
-        dgcurvature.WeightInside (1.);
-        dgcurvature.WeightOutside(1.);
-      }
+    else if (OPTION("-gauss-curvature-inside") || OPTION("-gaussian-curvature-inside") || OPTION("-gcurvature-inside")) {
+      PARSE_ARGUMENT(gcurvature.WeightInside());
+    }
+    else if (OPTION("-gauss-curvature-outside") || OPTION("-gaussian-curvature-outside") || OPTION("-gcurvature-outside")) {
+      PARSE_ARGUMENT(gcurvature.WeightOutside());
+    }
+    else if (OPTION("-gauss-curvature-action") || OPTION("-gaussian-curvature-action") || OPTION("-gcurvature-action")) {
+      PARSE_ARGUMENT(gcurvature.NegativeGaussCurvatureAction());
+      gcurvature.PositiveGaussCurvatureAction(gcurvature.NegativeGaussCurvatureAction());
+    }
+    else if (OPTION("-negative-gauss-curvature-action") || OPTION("-negative-gaussian-curvature-action") || OPTION("-negative-gcurvature-action")) {
+      PARSE_ARGUMENT(gcurvature.NegativeGaussCurvatureAction());
+    }
+    else if (OPTION("-positive-gauss-curvature-action") || OPTION("-positive-gaussian-curvature-action") || OPTION("-positive-gcurvature-action")) {
+      PARSE_ARGUMENT(gcurvature.PositiveGaussCurvatureAction());
+    }
+    else if (OPTION("-gauss-curvature-minimum") || OPTION("-gaussian-curvature-minimum") || OPTION("-gcurvature-minimum")) {
+      PARSE_ARGUMENT(gcurvature.MinGaussCurvature());
+    }
+    else if (OPTION("-gauss-curvature-maximum") || OPTION("-gaussian-curvature-maximum") || OPTION("-gcurvature-maximum")) {
+      PARSE_ARGUMENT(gcurvature.MaxGaussCurvature());
     }
     else if (OPTION("-mean-curvature") || OPTION("-mcurvature")) {
-      PARSE_ARGUMENT(farg);
-      mcurvature.Weight(farg);
+      PARSE_ARGUMENT(mcurvature.Weight());
     }
-    else if (OPTION("-distant-mean-curvature") || OPTION("-distant-mcurvature")) {
-      PARSE_ARGUMENT(farg);
-      dmcurvature.Weight(farg);
-      if (HAS_ARGUMENT) {
-        PARSE_ARGUMENT(farg);
-        const double winside = dmcurvature.Weight();
-        dmcurvature.Weight(max(winside, farg));
-        if (dmcurvature.Weight() != 0.) {
-          dmcurvature.WeightInside (winside / dmcurvature.Weight());
-          dmcurvature.WeightOutside(farg    / dmcurvature.Weight());
-        }
-      } else {
-        dmcurvature.WeightInside (1.);
-        dmcurvature.WeightOutside(1.);
-      }
+    else if (OPTION("-mean-curvature-inside") || OPTION("-mcurvature-inside")) {
+      PARSE_ARGUMENT(mcurvature.WeightInside());
+    }
+    else if (OPTION("-mean-curvature-outside") || OPTION("-mcurvature-outside")) {
+      PARSE_ARGUMENT(mcurvature.WeightOutside());
+    }
+    else if (OPTION("-max-curvature") || OPTION("-maximum-curvature")) {
+      PARSE_ARGUMENT(pcurvature.Weight());
+    }
+    else if (OPTION("-max-curvature-inside") || OPTION("-maximum-curvature-inside")) {
+      PARSE_ARGUMENT(pcurvature.WeightInside());
+    }
+    else if (OPTION("-max-curvature-outside") || OPTION("-maximum-curvature-outside")) {
+      PARSE_ARGUMENT(pcurvature.WeightOutside());
+    }
+    else if (OPTION("-max-curvature-threshold") || OPTION("-maximum-curvature-threshold")) {
+      PARSE_ARGUMENT(pcurvature.Threshold());
     }
     else if (OPTION("-quadratic-curvature") || OPTION("-qcurvature")) {
-      PARSE_ARGUMENT(farg);
-      qcurvature.Weight(farg);
+      PARSE_ARGUMENT(qcurvature.Weight());
     }
-    else if (OPTION("-distant-quadratic-curvature") || OPTION("-distant-qcurvature")) {
-      PARSE_ARGUMENT(farg);
-      dqcurvature.Weight(farg);
-      if (HAS_ARGUMENT) {
-        PARSE_ARGUMENT(farg);
-        const double winside = dqcurvature.Weight();
-        dqcurvature.Weight(max(winside, farg));
-        if (dqcurvature.Weight() != 0.) {
-          dqcurvature.WeightInside (winside / dqcurvature.Weight());
-          dqcurvature.WeightOutside(farg    / dqcurvature.Weight());
-        }
-      } else {
-        dqcurvature.WeightInside (1.);
-        dqcurvature.WeightOutside(1.);
-      }
+    else if (OPTION("-quadratic-curvature-inside") || OPTION("-qcurvature-inside")) {
+      PARSE_ARGUMENT(qcurvature.WeightInside());
+    }
+    else if (OPTION("-quadratic-curvature-outside") || OPTION("-qcurvature-outside")) {
+      PARSE_ARGUMENT(qcurvature.WeightOutside());
     }
     else if (OPTION("-distortion")) {
       PARSE_ARGUMENT(farg);
@@ -1012,23 +1055,24 @@ int main(int argc, char *argv[])
       }
     }
     else if (OPTION("-repulsion")) {
-      PARSE_ARGUMENT(farg);
-      repulsion.Weight(farg);
-      if (HAS_ARGUMENT) {
-        PARSE_ARGUMENT(farg);
-        repulsion.Radius(farg);
-        if (HAS_ARGUMENT) {
-          PARSE_ARGUMENT(farg);
-          repulsion.Magnitude(farg);
-        } else {
-          repulsion.Magnitude(10.);
-        }
-      }
-      else repulsion.Radius(-1.);
+      PARSE_ARGUMENT(repulsion.Weight());
+    }
+    else if (OPTION("-repulsion-radius")) {
+      PARSE_ARGUMENT(repulsion.FrontfaceRadius());
+      repulsion.BackfaceRadius(repulsion.FrontfaceRadius());
+    }
+    else if (OPTION("-repulsion-distance")) {
+      PARSE_ARGUMENT(repulsion.FrontfaceRadius());
+    }
+    else if (OPTION("-repulsion-width")) {
+      PARSE_ARGUMENT(repulsion.BackfaceRadius());
     }
     else if (OPTION("-collision")) {
       PARSE_ARGUMENT(farg);
       collision.Weight(farg);
+    }
+    else if (OPTION("-collision-radius")) {
+      PARSE_ARGUMENT(collision.MinDistance());
     }
     // Stopping criteria
     else if (OPTION("-inflation-error")) {
@@ -1056,7 +1100,8 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENTS(double, max_edge_angle);
     }
     else if (OPTION("-triangle-inversion")) {
-      model.AllowTriangleInversion(true);
+      if (HAS_ARGUMENT) PARSE_ARGUMENT(model.AllowTriangleInversion());
+      else model.AllowTriangleInversion(true);
     }
     else if (OPTION("-notriangle-inversion")) {
       model.AllowTriangleInversion(false);
@@ -1084,16 +1129,15 @@ int main(int argc, char *argv[])
       model.HardNonSelfIntersection(true);
     }
     else if (OPTION("-min-distance") || OPTION("-mindistance") || OPTION("-mind")) {
-      PARSE_ARGUMENT(farg);
-      model.MinFrontfaceDistance(farg);
+      PARSE_ARGUMENTS(double, min_distance);
     }
     else if (OPTION("-min-width") || OPTION("-minwidth") || OPTION("-minw")) {
-      PARSE_ARGUMENT(farg);
-      model.MinBackfaceDistance(farg);
+      PARSE_ARGUMENTS(double, min_width);
     }
     else if (OPTION("-max-collision-angle")) {
       PARSE_ARGUMENT(farg);
       model.MaxCollisionAngle(farg);
+      collision.MaxAngle(farg);
     }
     else if (OPTION("-fast-collision-test")) {
       if (HAS_ARGUMENT) PARSE_ARGUMENT(barg);
@@ -1176,24 +1220,54 @@ int main(int argc, char *argv[])
     else HANDLE_COMMON_OR_UNKNOWN_OPTION();
   }
 
+  double nspring = .5 * (spring.InwardNormalWeight() + spring.OutwardNormalWeight());
   if (spring.Weight() == .0) { // no -spring, but -nspring and/or -tspring
-    spring.Weight(spring.NormalWeight() + spring.TangentialWeight());
-  } else if (spring.NormalWeight() + spring.TangentialWeight() == .0) {
+    spring.Weight(nspring + spring.TangentialWeight());
+  } else if (nspring + spring.TangentialWeight() == .0) {
       // no -nspring and -tspring, but -spring
-      spring.NormalWeight(.5);
+      spring.InwardNormalWeight(.5);
+      spring.OutwardNormalWeight(.5);
       spring.TangentialWeight(.5);
   }
-  if (spring.NormalWeight() + spring.TangentialWeight() <= .0) {
+  if (nspring + spring.TangentialWeight() <= .0) {
     spring.Weight(.0);
   }
   if ((balloon.Weight() || edges.Weight()) && !image_name) {
     FatalError("Input -image required by external forces!");
   }
-  if ((distance.Weight() || dmcurvature.Weight() || dgcurvature.Weight() || dqcurvature.Weight()) && !dmap_name) {
-    FatalError("Input -distance-map required by distance weighted internal forces!");
+  if (distance.Weight() && !dmap_name) {
+    FatalError("Input -distance-map required by external -distance forces!");
+  }
+
+  string dmagnitude;
+  if      (distance.Weight() > 0.) dmagnitude = distance.Name() + " magnitude";
+  else if (dedges  .Weight() > 0.) dmagnitude = dedges  .Name() + " magnitude";
+  if (!dmagnitude.empty()) {
+    if (qcurvature.WeightInside() > 0. || qcurvature.WeightOutside() > 0.) {
+      qcurvature.ExternalMagnitudeArrayName(dmagnitude);
+      qcurvature.WeightMinimum(qcurvature.Weight());
+      qcurvature.Weight(1.);
+    }
+    if (mcurvature.WeightInside() > 0. || mcurvature.WeightOutside() > 0.) {
+      mcurvature.ExternalMagnitudeArrayName(dmagnitude);
+      mcurvature.WeightMinimum(mcurvature.Weight());
+      mcurvature.Weight(1.);
+    }
+    if (gcurvature.WeightInside() > 0. || gcurvature.WeightOutside() > 0.) {
+      gcurvature.ExternalMagnitudeArrayName(dmagnitude);
+      gcurvature.WeightMinimum(gcurvature.Weight());
+      gcurvature.Weight(1.);
+    }
+    if (pcurvature.WeightInside() > 0. || pcurvature.WeightOutside() > 0.) {
+      pcurvature.ExternalMagnitudeArrayName(dmagnitude);
+      pcurvature.WeightMinimum(pcurvature.Weight());
+      pcurvature.Weight(1.);
+    }
   }
 
   // Read input image
+  const bool force_update = true; // named variable for better readability
+
   RealImage input_image;
   RegisteredImage image;
   if (image_name) {
@@ -1202,7 +1276,7 @@ int main(int argc, char *argv[])
     if (mask_name) input_image.PutMask(new BinaryImage(mask_name), true);
     image.InputImage(&input_image);
     image.Initialize(input_image.Attributes());
-    image.Update(true, false, false, true);
+    image.Update(true, false, false, force_update);
     image.SelfUpdate(false);
     model.Image(&image);
   }
@@ -1212,10 +1286,9 @@ int main(int argc, char *argv[])
   RegisteredImage dmap;
   if (dmap_name) {
     input_dmap.Read(dmap_name);
-    if (dmap_offset) input_dmap -= dmap_offset;
     dmap.InputImage(&input_dmap);
     dmap.Initialize(input_dmap.Attributes());
-    dmap.Update(true, false, false, true);
+    dmap.Update(true, false, false, force_update);
     dmap.SelfUpdate(false);
     model.ImplicitSurface(&dmap);
   }
@@ -1227,7 +1300,7 @@ int main(int argc, char *argv[])
     input_dmag.Read(dmag_name);
     dmag.InputImage(&input_dmag);
     dmag.Initialize(input_dmag.Attributes());
-    dmag.Update(true, false, false, true);
+    dmag.Update(true, false, false, force_update);
     dmag.SelfUpdate(false);
     distance.MagnitudeImage(&dmag);
     distance.InvertMagnitude(false);
@@ -1251,11 +1324,9 @@ int main(int argc, char *argv[])
   model.Add(&inflation,   false);
   model.Add(&curvature,   false);
   model.Add(&gcurvature,  false);
-  model.Add(&dgcurvature, false);
   model.Add(&mcurvature,  false);
-  model.Add(&dmcurvature, false);
+  model.Add(&pcurvature,  false);
   model.Add(&qcurvature,  false);
-  model.Add(&dqcurvature, false);
   model.Add(&distortion,  false);
   model.Add(&stretching,  false);
   model.Add(&repulsion,   false);
@@ -1288,7 +1359,7 @@ int main(int argc, char *argv[])
 
   // Rename spring terms (after setting of parameters!)
   if (spring.Weight()) {
-    if (spring.NormalWeight() == .0) {
+    if (nspring == .0) {
       spring.Name("Tang. spring");
     }
     if (spring.TangentialWeight() == .0) {
@@ -1297,8 +1368,9 @@ int main(int argc, char *argv[])
   }
 
   // Initialize deformable surface model
-  const double repulsion_radius = repulsion.Radius();
-  if (repulsion_radius == 0.) repulsion.Radius(1.);
+  const double front_repulsion_radius = repulsion.FrontfaceRadius();
+  const double back_repulsion_radius  = repulsion.BackfaceRadius();
+  if (front_repulsion_radius == 0.) repulsion.FrontfaceRadius(1.);
 
   model.GradientAveraging(0);
   model.AverageSignedGradients(signed_gradient);
@@ -1402,10 +1474,19 @@ int main(int argc, char *argv[])
 
   for (int level = 0; level < nlevels; ++level) {
 
+    // Apply current distance-offset
+    if (dmap_name && !dmap_offsets.empty()) {
+      input_dmap.Read(dmap_name);
+      input_dmap -= ParameterValue(level, nlevels, dmap_offsets, 0.);
+      dmap.Update(true, false, false, force_update);
+    }
+
     // Set number of integration steps and length of each step
     const auto dt = ParameterValue(level, nlevels, max_dt, 1.);
     optimizer->Set("Maximum length of steps", ToString(dt).c_str());
     optimizer->NumberOfSteps(ParameterValue(level, nlevels, nsteps, 100));
+
+    optimizer->Delta(ParameterValue(level, nlevels, delta, 1e-6));
 
     // Set maximum node displacement at each step
     if (!max_dx.empty()) {
@@ -1413,6 +1494,8 @@ int main(int argc, char *argv[])
       optimizer->Set("Normalize length of steps", "No");
       optimizer->Set("Maximum node displacement", ToString(dx).c_str());
     }
+    model.MinBackfaceDistance (ParameterValue(level, nlevels, min_width,    0.));
+    model.MinFrontfaceDistance(ParameterValue(level, nlevels, min_distance, 0.));
 
     // Set parameters of iterative remeshing step
     model.MinEdgeLength  (ParameterValue(level, nlevels, min_edge_length, 0.));
@@ -1421,9 +1504,10 @@ int main(int argc, char *argv[])
     model.MaxFeatureAngle(ParameterValue(level, nlevels, max_edge_angle,  180.));
 
     // Set radius of repulsion force based on average edge length range
-    if (repulsion_radius == 0.) {
+    if (front_repulsion_radius == 0. || back_repulsion_radius == 0.) {
       const auto r = model.MinEdgeLength() + .5 * (model.MaxEdgeLength() - model.MinEdgeLength());
-      repulsion.Radius(r);
+      if (front_repulsion_radius == 0.) repulsion.FrontfaceRadius(r);
+      if (back_repulsion_radius  == 0.) repulsion.BackfaceRadius (r);
     }
 
     // Set number of gradient averaging iterations and adjust metric distortion
@@ -1438,11 +1522,12 @@ int main(int argc, char *argv[])
       balloon .GradientAveraging(ParameterValue(level, nlevels, balloon_navgs,  0));
     }
 
-    // Reset node status
+    // Stopping criteria
     if (reset_status) {
       vtkDataArray *status = model.Output()->GetPointData()->GetArray("Status");
       if (status) status->FillComponent(0, 1.0);
     }
+    min_active.Threshold(ParameterValue(level, nlevels, min_active_thres, 0.));
 
     // Initialize optimizer
     optimizer->Initialize();
@@ -1466,7 +1551,8 @@ int main(int argc, char *argv[])
         PrintParameter(cout, "Distortion weight", distortion.Weight());
       }
       if (repulsion.Weight()) {
-        PrintParameter(cout, "Repulsion radius", repulsion.Radius());
+        PrintParameter(cout, "Repulsion frontface radius", repulsion.FrontfaceRadius());
+        PrintParameter(cout, "Repulsion backface radius",  repulsion.BackfaceRadius());
       }
     }
     cout << endl;

@@ -76,6 +76,18 @@ private:
   /// Tolerance for implicit surface distance evaluation
   mirtkPublicAttributeMacro(double, Tolerance);
 
+  /// Number of (normal) distance smoothing iterations
+  ///
+  /// \note Used only when DistanceMeasure is DM_Normal.
+  mirtkPublicAttributeMacro(int, DistanceSmoothing);
+
+  /// Whether to use heuristic to detect "holes" in implicit surface based on
+  /// the normal distances and to fill in these distances by average distances
+  /// of "hole" boundary points.
+  ///
+  /// \note Used only when DistanceMeasure is DM_Normal.
+  mirtkPublicAttributeMacro(bool, FillInHoles);
+
   /// Continuous implicit surface distance function
   ImageFunction _Distance;
 

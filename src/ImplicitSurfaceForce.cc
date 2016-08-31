@@ -21,8 +21,13 @@
 
 #include "mirtk/Math.h"
 #include "mirtk/Parallel.h"
+#include "mirtk/List.h"
+#include "mirtk/Stack.h"
+#include "mirtk/UnorderedSet.h"
 #include "mirtk/ImplicitSurfaceUtils.h"
 #include "mirtk/MeshSmoothing.h"
+#include "mirtk/MedianMeshFilter.h"
+#include "mirtk/DataStatistics.h"
 
 #include "vtkType.h"
 #include "vtkPoints.h"
@@ -77,6 +82,258 @@ struct ComputeNormalDistances
   }
 };
 
+// -----------------------------------------------------------------------------
+/// Find holes in implicit surface
+int FindHoles(vtkPoints *points, const EdgeTable *edges, vtkDataArray *normals,
+              vtkDataArray *distances, vtkDataArray *labels,
+              double d_min, double d_threshold, double max_radius, int max_size)
+{
+  const int    npoints     = points->GetNumberOfPoints();
+  const double max_radius2 = max_radius * max_radius;
+
+  Stack<int>        active;
+  UnorderedSet<int> cluster, boundary;
+
+  Point      p, c;
+  Vector3    n1, n2, n;
+  const int *adjIds;
+  int        adjPts, ptId, nholes = 0;
+  double     d0, distance, d_boundary;
+  double     radius2, min_hole_radius2, max_hole_radius2, dp;
+  bool       discard;
+
+  labels->FillComponent(0, -1.);
+
+  Array<double> dists(npoints);
+  for (ptId = 0; ptId < npoints; ++ptId) {
+    dists[ptId] = abs(distances->GetComponent(ptId, 0));
+  }
+  Array<int> order = DecreasingOrder(dists);
+  for (auto seedId : order) {
+    if (labels->GetComponent(seedId, 0) >= 0.) continue;
+    d0 = abs(distances->GetComponent(seedId, 0));
+    if (d0 < d_min) break;
+    d_boundary = max(d_threshold, d0 / 3.);
+    cluster.clear();
+    boundary.clear();
+    active.push(seedId);
+    while (!active.empty()) {
+      ptId = active.top(), active.pop();
+      if (labels->GetComponent(ptId, 0) < 0.) {
+        cluster.insert(ptId);
+        normals->GetTuple(ptId, n1);
+        labels->SetComponent(ptId, 0, 2.);
+        edges->GetAdjacentPoints(ptId, adjPts, adjIds);
+        for (int i = 0; i < adjPts; ++i) {
+          auto &adjId = adjIds[i];
+          if (labels->GetComponent(adjId, 0) < 0.) {
+            distance = abs(distances->GetComponent(adjId, 0));
+            if (distance < d_boundary) {
+              boundary.insert(adjId);
+            } else {
+              normals->GetTuple(adjId, n2);
+              if (n1.Dot(n2) < .2) {
+                boundary.insert(adjId);
+              } else {
+                active.push(adjId);
+              }
+            }
+          }
+        }
+      }
+    }
+    // Discard large clusters of distant points
+    discard = (cluster.size() > static_cast<size_t>(max_size) || boundary.empty());
+    if (!discard) {
+      c = 0.;
+      for (auto ptId : boundary) {
+        points->GetPoint(ptId, p);
+        c += p;
+      }
+      c /= boundary.size();
+      min_hole_radius2 = inf;
+      max_hole_radius2 = 0.;
+      for (auto ptId : boundary) {
+        points->GetPoint(ptId, p);
+        radius2 = p.SquaredDistance(c);
+        if (radius2 < min_hole_radius2) {
+          min_hole_radius2 = radius2;
+        }
+        if (radius2 > max_hole_radius2) {
+          max_hole_radius2 = radius2;
+          if (radius2 > max_radius2) break;
+        }
+      }
+      discard = (max_hole_radius2 > max_radius2 || 9. * min_hole_radius2 < max_hole_radius2);
+    }
+    // Discard clusters which are caused for example by bridges in a sulcus which
+    // are yet to be deflated by the convex hull/sphere to white surface mesh deformation.
+    if (!discard) {
+      bool check_edges = false;
+      normals->GetTuple(seedId, n1);
+      for (auto ptId : cluster) {
+        normals->GetTuple(ptId, n2);
+        if (n1.Dot(n2) < -.5) {
+          check_edges = true;
+          break;
+        }
+      }
+      if (check_edges) {
+        size_t num_edge_points = 0;
+        for (auto ptId : boundary) {
+          n1 = 0., n2 = 0.;
+          edges->GetAdjacentPoints(ptId, adjPts, adjIds);
+          for (int i = 0; i < adjPts; ++i) {
+            auto &adjId = adjIds[i];
+            normals->GetTuple(adjId, n);
+            if (labels->GetComponent(adjId, 0) == 2.) {
+              n1 += n;
+            } else if (boundary.find(adjId) == boundary.end()) {
+              n2 += n;
+            }
+          }
+          n1.Normalize();
+          n2.Normalize();
+          dp = n1.Dot(n2);
+          if (abs(dp) < .5) ++num_edge_points;
+        }
+        discard = (num_edge_points > max(.1 * boundary.size(), 4.));
+      }
+    }
+    // When clusters should be discarded, change label to zero and one otherwise
+    if (discard) {
+      for (auto ptId : cluster) {
+        labels->SetComponent(ptId, 0, 0.);
+      }
+    } else {
+      for (auto ptId : cluster) {
+        labels->SetComponent(ptId, 0, 1.);
+      }
+      ++nholes;
+    }
+  }
+  // Ensure all points have a non-negative label
+  for (ptId = 0; ptId < npoints; ++ptId) {
+    if (labels->GetComponent(ptId, 0) < 0.) {
+      labels->SetComponent(ptId, 0, 0.);
+    }
+  }
+
+  return nholes;
+}
+
+// -----------------------------------------------------------------------------
+/// Dilate holes found in implicit surface
+void DilateHoles(const EdgeTable *edges, vtkDataArray *distances, vtkDataArray *labels, int niter)
+{
+  if (niter < 1) return;
+  const int npoints = labels->GetNumberOfTuples();
+
+  int        adjPts;
+  const int *adjIds;
+  double     distance;
+
+  UnorderedSet<int> boundary;
+  for (int iter = 0; iter < niter; ++iter) {
+    for (int ptId = 0; ptId < npoints; ++ptId) {
+      if (labels->GetComponent(ptId, 0) != 0.) {
+        distance = distances->GetComponent(ptId, 0);
+        edges->GetAdjacentPoints(ptId, adjPts, adjIds);
+        for (int i = 0; i < adjPts; ++i) {
+          if (labels->GetComponent(adjIds[i], 0) == 0. &&
+              distances->GetComponent(adjIds[i], 0) < distance) {
+            boundary.insert(adjIds[i]);
+            break;
+          }
+        }
+      }
+    }
+    for (auto ptId : boundary) {
+      labels->SetComponent(ptId, 0, 1.);
+    }
+    boundary.clear();
+  }
+}
+
+// -----------------------------------------------------------------------------
+/// Replace surface distance measurement of holes by average distances of hole boundary points
+void FixHoles(vtkPoints *points, const EdgeTable *edges, vtkDataArray *normals,
+              vtkDataArray *distances, vtkDataArray *labels, vtkDataArray *output, int niter)
+{
+  const int npoints = points->GetNumberOfPoints();
+
+  int        adjPts;
+  const int *adjIds;
+  double     w, wsum, sum;
+  Vector3    n1, n2;
+
+  UnorderedSet<int> ptIds, active, boundary;
+  for (int ptId = 0; ptId < npoints; ++ptId) {
+    if (labels->GetComponent(ptId, 0) != 0.) {
+      ptIds.insert(ptId);
+      edges->GetAdjacentPoints(ptId, adjPts, adjIds);
+      for (int i = 0; i < adjPts; ++i) {
+        if (labels->GetComponent(adjIds[i], 0) == 0.) {
+          boundary.insert(ptId);
+          break;
+        }
+      }
+    }
+  }
+
+  if (output != distances) {
+    for (int ptId = 0; ptId < npoints; ++ptId) {
+      output->SetComponent(ptId, 0, distances->GetComponent(ptId, 0));
+    }
+  }
+
+  if (ptIds.empty()) return;
+
+  while (!boundary.empty()) {
+    active.swap(boundary);
+    boundary.clear();
+    for (auto ptId : active) {
+      sum = wsum = 0.;
+      normals->GetTuple(ptId, n1);
+      edges->GetAdjacentPoints(ptId, adjPts, adjIds);
+      for (int i = 0; i < adjPts; ++i) {
+        if (ptIds.find(adjIds[i]) == ptIds.end()) {
+          normals->GetTuple(adjIds[i], n2);
+          w = clamp(n1.Dot(n2), 0., 1.);
+          sum  += w * distances->GetComponent(adjIds[i], 0);
+          wsum += w;
+        } else {
+          boundary.insert(adjIds[i]);
+        }
+      }
+      if (wsum > 0.) sum /= wsum;
+      output->SetComponent(ptId, 0, sum);
+      ptIds.erase(ptId);
+    }
+  }
+
+  vtkSmartPointer<vtkDataArray> input;
+  input.TakeReference(output->NewInstance());
+  for (int iter = 0; iter < niter; ++iter) {
+    input->DeepCopy(output);
+    for (int ptId = 0; ptId < npoints; ++ptId) {
+      if (labels->GetComponent(ptId, 0) != 0.) {
+        sum = wsum = 0.;
+        normals->GetTuple(ptId, n1);
+        edges->GetAdjacentPoints(ptId, adjPts, adjIds);
+        for (int i = 0; i < adjPts; ++i) {
+          normals->GetTuple(adjIds[i], n2);
+          w = clamp(n1.Dot(n2), 0., 1.);
+          sum  += w * input->GetComponent(adjIds[i], 0);
+          wsum += w;
+        }
+        if (wsum > 0.) sum /= wsum;
+        output->SetComponent(ptId, 0, sum);
+      }
+    }
+  }
+}
+
 
 } // namespace ImplicitSurfaceForceUtils
 using namespace ImplicitSurfaceForceUtils;
@@ -93,18 +350,22 @@ ImplicitSurfaceForce::ImplicitSurfaceForce(const char *name, double weight)
   _Offset(0.),
   _MinStepLength(.1),
   _MaxDistance(0.),
-  _Tolerance(1e-3)
+  _Tolerance(1e-3),
+  _DistanceSmoothing(1),
+  _FillInHoles(false)
 {
 }
 
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceForce::CopyAttributes(const ImplicitSurfaceForce &other)
 {
-  _DistanceMeasure = other._DistanceMeasure;
-  _Offset          = other._Offset;
-  _MinStepLength   = other._MinStepLength;
-  _MaxDistance     = other._MaxDistance;
-  _Tolerance       = other._Tolerance;
+  _DistanceMeasure   = other._DistanceMeasure;
+  _Offset            = other._Offset;
+  _MinStepLength     = other._MinStepLength;
+  _MaxDistance       = other._MaxDistance;
+  _Tolerance         = other._Tolerance;
+  _DistanceSmoothing = other._DistanceSmoothing;
+  _FillInHoles       = other._FillInHoles;
 }
 
 // -----------------------------------------------------------------------------
@@ -152,6 +413,12 @@ bool ImplicitSurfaceForce::SetWithPrefix(const char *param, const char *value)
   if (strcmp(param, "Implicit surface distance tolerance") == 0) {
     return FromString(value, _Tolerance);
   }
+  if (strcmp(param, "Implicit surface distance smoothing") == 0) {
+    return FromString(value, _DistanceSmoothing);
+  }
+  if (strcmp(param, "Implicit surface distance hole filling") == 0) {
+    return FromString(value, _FillInHoles);
+  }
   return SurfaceForce::SetWithPrefix(param, value);
 }
 
@@ -173,6 +440,12 @@ bool ImplicitSurfaceForce::SetWithoutPrefix(const char *param, const char *value
   if (strcmp(param, "Tolerance") == 0) {
     return FromString(value, _Tolerance);
   }
+  if (strcmp(param, "Smoothing") == 0) {
+    return FromString(value, _DistanceSmoothing);
+  }
+  if (strcmp(param, "Hole filling") == 0) {
+    return FromString(value, _FillInHoles);
+  }
   return SurfaceForce::SetWithoutPrefix(param, value);
 }
 
@@ -180,11 +453,13 @@ bool ImplicitSurfaceForce::SetWithoutPrefix(const char *param, const char *value
 ParameterList ImplicitSurfaceForce::Parameter() const
 {
   ParameterList params = SurfaceForce::Parameter();
-  InsertWithPrefix(params, "Measure",     _DistanceMeasure);
-  InsertWithPrefix(params, "Offset",      _Offset);
-  InsertWithPrefix(params, "Step length", _MinStepLength);
-  InsertWithPrefix(params, "Threshold",   _MaxDistance);
-  InsertWithPrefix(params, "Tolerance",   _Tolerance);
+  InsertWithPrefix(params, "Measure",      _DistanceMeasure);
+  InsertWithPrefix(params, "Offset",       _Offset);
+  InsertWithPrefix(params, "Step length",  _MinStepLength);
+  InsertWithPrefix(params, "Threshold",    _MaxDistance);
+  InsertWithPrefix(params, "Tolerance",    _Tolerance);
+  InsertWithPrefix(params, "Smoothing",    _DistanceSmoothing);
+  InsertWithPrefix(params, "Hole filling", _FillInHoles);
   return params;
 }
 
@@ -277,6 +552,7 @@ vtkDataArray *ImplicitSurfaceForce::NormalDistances() const
 void ImplicitSurfaceForce::InitializeNormalDistances()
 {
   vtkDataArray *d = AddPointData("NormalImplicitSurfaceDistance", 1, VTK_FLOAT, true);
+  if (_FillInHoles) AddPointData("ImplicitSurfaceHoleMask", 1, VTK_CHAR, true);
   d->FillComponent(0, _MaxDistance);
 }
 
@@ -294,15 +570,47 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
     eval._Distances = distances;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
-    MeshSmoothing smoother;
-    smoother.Input(surface);
-    smoother.SmoothPointsOff();
-    smoother.SmoothArray(distances->GetName());
-    smoother.Weighting(MeshSmoothing::Gaussian);
-    smoother.Run();
+    if (_DistanceSmoothing > 0) {
+      MeshSmoothing smoother;
+      smoother.Input(surface);
+      smoother.SmoothPointsOff();
+      smoother.SmoothArray(distances->GetName());
+      smoother.Weighting(MeshSmoothing::NormalDeviation);
+      smoother.NumberOfIterations(_DistanceSmoothing);
+      smoother.Run();
+      vtkPointData *outputPD = smoother.Output()->GetPointData();
+      distances->DeepCopy(outputPD->GetArray(distances->GetName()));
+    }
+    if (_FillInHoles) {
+      int    num = 0;
+      double mean = 0., sigma = 0., d;
+      for (int ptId = 0; ptId < _NumberOfPoints; ++ptId) {
+        d = abs(distances->GetComponent(ptId, 0));
+        if (d < _MaxDistance) {
+          mean  += d;
+          sigma += d * d;
+          ++num;
+        }
+      }
+      if (num > 0) {
+        mean /= num;
+        sigma = sqrt(sigma / num - mean * mean);
+        const double d_min = max(mean + 3. * sigma, .25 * _MaxDistance);
+        const double d_threshold = mean + sigma;
+        if (d_threshold + sigma < d_min) {
+          //const double edge_length = AverageEdgeLength(Points(), *Edges());
+          const double edge_length = _PointSet->AverageInputSurfaceEdgeLength();
+          const double max_radius  = 5. * edge_length;
+          const size_t max_size    = 100;
+          vtkDataArray * const holes = PointData("ImplicitSurfaceHoleMask");
+          if (FindHoles(Points(), Edges(), Normals(), distances, holes, d_min, d_threshold, max_radius, max_size) > 0) {
+            DilateHoles(Edges(), distances, holes, 2);
+            FixHoles(Points(), Edges(), Normals(), distances, holes, distances, 3);
+          }
+        }
+      }
+    }
 
-    vtkPointData *outputPD = smoother.Output()->GetPointData();
-    distances->DeepCopy(outputPD->GetArray(distances->GetName()));
     distances->Modified();
   }
 }

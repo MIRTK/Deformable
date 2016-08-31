@@ -44,6 +44,7 @@ set(HEADERS
   InflationStoppingCriterion.h
   InternalForce.h
   InternalForceTerm.h
+  MaximumCurvatureConstraint.h
   MeanCurvatureConstraint.h
   MetricDistortion.h
   MinActiveStoppingCriterion.h
@@ -76,6 +77,7 @@ set(SOURCES
   InflationForce.cc
   InflationStoppingCriterion.cc
   InternalForce.cc
+  MaximumCurvatureConstraint.cc
   MeanCurvatureConstraint.cc
   MetricDistortion.cc
   MinActiveStoppingCriterion.cc

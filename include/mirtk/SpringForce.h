@@ -61,7 +61,10 @@ class SpringForce : public SurfaceConstraint
   // Attributes
 
   /// Weight of normal component
-  mirtkPublicAttributeMacro(double, NormalWeight);
+  mirtkPublicAttributeMacro(double, InwardNormalWeight);
+
+  /// Weight of normal component
+  mirtkPublicAttributeMacro(double, OutwardNormalWeight);
 
   /// Weight of tangential component
   mirtkPublicAttributeMacro(double, TangentialWeight);

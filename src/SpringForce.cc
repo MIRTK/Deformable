@@ -93,7 +93,8 @@ struct EvaluateWithWeightedComponents
   vtkPoints       *_Points;
   vtkDataArray    *_Normals;
   const EdgeTable *_EdgeTable;
-  double           _NormalWeight;
+  double           _InwardNormalWeight;
+  double           _OutwardNormalWeight;
   double           _TangentialWeight;
   double           _SSE;
 
@@ -104,7 +105,8 @@ struct EvaluateWithWeightedComponents
     _Points(other._Points),
     _Normals(other._Normals),
     _EdgeTable(other._EdgeTable),
-    _NormalWeight(other._NormalWeight),
+    _InwardNormalWeight(other._InwardNormalWeight),
+    _OutwardNormalWeight(other._OutwardNormalWeight),
     _TangentialWeight(other._TangentialWeight),
     _SSE(.0)
   {}
@@ -118,7 +120,7 @@ struct EvaluateWithWeightedComponents
   {
     int        numAdjPts;
     const int *adjPtIds;
-    double     c[3], p[3], n[3], nc, sum;
+    double     c[3], p[3], n[3], nc, sum, penalty, wsum;
 
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       _Points ->GetPoint(ptId, c);
@@ -133,7 +135,25 @@ struct EvaluateWithWeightedComponents
           p[0] -= nc * n[0];
           p[1] -= nc * n[1];
           p[2] -= nc * n[2];
-          sum += _TangentialWeight * vtkMath::Dot(p, p) + _NormalWeight * nc * nc;
+          penalty = _TangentialWeight * vtkMath::Dot(p, p);
+          if (nc < 0.) {
+            wsum = _TangentialWeight + _OutwardNormalWeight;
+            if (wsum > 0.) {
+              penalty += _OutwardNormalWeight * nc * nc;
+              penalty /= wsum;
+            } else {
+              penalty = 0.;
+            }
+          } else {
+            wsum = _TangentialWeight + _InwardNormalWeight;
+            if (wsum > 0.) {
+              penalty += _InwardNormalWeight * nc * nc;
+              penalty /= wsum;
+            } else {
+              penalty = 0.;
+            }
+          }
+          sum += penalty;
         }
         _SSE += sum / numAdjPts;
       }
@@ -184,21 +204,40 @@ struct WeightComponents
 
   vtkDataArray *_Normals;
   GradientType *_Gradient;
-  double        _NormalWeight;
+  double        _InwardNormalWeight;
+  double        _OutwardNormalWeight;
   double        _TangentialWeight;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double n[3], nc;
+    double n[3], nc, wsum;
     GradientType *g = _Gradient + ptIds.begin();
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, ++g) {
       if (g->_x || g->_y || g->_z) {
         _Normals->GetTuple(ptId, n);
         nc = g->_x * n[0] + g->_y * n[1] + g->_z * n[2];
         vtkMath::MultiplyScalar(n, nc);
-        g->_x = _TangentialWeight * (g->_x - n[0]) + _NormalWeight * n[0];
-        g->_y = _TangentialWeight * (g->_y - n[1]) + _NormalWeight * n[1];
-        g->_z = _TangentialWeight * (g->_z - n[2]) + _NormalWeight * n[2];
+        if (nc < 0.) {
+          wsum = _TangentialWeight + _OutwardNormalWeight;
+          if (wsum > 0.) {
+            g->_x = _TangentialWeight * (g->_x - n[0]) + _OutwardNormalWeight * n[0];
+            g->_y = _TangentialWeight * (g->_y - n[1]) + _OutwardNormalWeight * n[1];
+            g->_z = _TangentialWeight * (g->_z - n[2]) + _OutwardNormalWeight * n[2];
+            (*g) /= wsum;
+          } else {
+            g->_x = g->_y = g->_z = 0.;
+          }
+        } else {
+          wsum = _TangentialWeight + _InwardNormalWeight;
+          if (wsum > 0.) {
+            g->_x = _TangentialWeight * (g->_x - n[0]) + _InwardNormalWeight * n[0];
+            g->_y = _TangentialWeight * (g->_y - n[1]) + _InwardNormalWeight * n[1];
+            g->_z = _TangentialWeight * (g->_z - n[2]) + _InwardNormalWeight * n[2];
+            (*g) /= wsum;
+          } else {
+            g->_x = g->_y = g->_z = 0.;
+          }
+        }
       }
     }
   }
@@ -215,7 +254,8 @@ struct WeightComponents
 SpringForce::SpringForce(const char *name, double weight)
 :
   SurfaceConstraint(name, weight),
-  _NormalWeight(.5),
+  _InwardNormalWeight(.5),
+  _OutwardNormalWeight(.5),
   _TangentialWeight(.5)
 {
   _ParameterPrefix.push_back("Spring force ");
@@ -230,8 +270,9 @@ SpringForce::SpringForce(const char *name, double weight)
 // -----------------------------------------------------------------------------
 void SpringForce::CopyAttributes(const SpringForce &other)
 {
-  _NormalWeight     = other._NormalWeight;
-  _TangentialWeight = other._TangentialWeight;
+  _InwardNormalWeight  = other._InwardNormalWeight;
+  _OutwardNormalWeight = other._OutwardNormalWeight;
+  _TangentialWeight    = other._TangentialWeight;
 }
 
 // -----------------------------------------------------------------------------
@@ -264,23 +305,26 @@ SpringForce::~SpringForce()
 // -----------------------------------------------------------------------------
 double SpringForce::Evaluate()
 {
-  const double wnorm = _NormalWeight + _TangentialWeight;
-  if (_NumberOfPoints == 0 || fequal(wnorm, .0)) return .0;
+  if (_NumberOfPoints == 0 || (fequal(_InwardNormalWeight,  0.) &&
+                               fequal(_OutwardNormalWeight, 0.) &&
+                               fequal(_TangentialWeight,    0.))) return .0;
 
   double sse;
-  if (fequal(_NormalWeight, _TangentialWeight)) {
+  if (fequal(_InwardNormalWeight,  _TangentialWeight) &&
+      fequal(_OutwardNormalWeight, _TangentialWeight)) {
     SpringForceUtils::Evaluate eval;
-    eval._Points    = _PointSet->SurfacePoints();
-    eval._EdgeTable = _PointSet->SurfaceEdges();
+    eval._Points    = Points();
+    eval._EdgeTable = Edges();
     parallel_reduce(blocked_range<int>(0, _NumberOfPoints), eval);
     sse = eval._SSE;
   } else {
     SpringForceUtils::EvaluateWithWeightedComponents eval;
-    eval._Points           = _PointSet->SurfacePoints();
-    eval._Normals          = _PointSet->SurfaceNormals();
-    eval._EdgeTable        = _PointSet->SurfaceEdges();
-    eval._NormalWeight     = _NormalWeight     / wnorm;
-    eval._TangentialWeight = _TangentialWeight / wnorm;
+    eval._Points              = Points();
+    eval._Normals             = Normals();
+    eval._EdgeTable           = Edges();
+    eval._InwardNormalWeight  = _InwardNormalWeight;
+    eval._OutwardNormalWeight = _OutwardNormalWeight;
+    eval._TangentialWeight    = _TangentialWeight;
     parallel_reduce(blocked_range<int>(0, _NumberOfPoints), eval);
     sse = eval._SSE;
   }
@@ -294,24 +338,27 @@ double SpringForce::Evaluate()
 // -----------------------------------------------------------------------------
 void SpringForce::EvaluateGradient(double *gradient, double step, double weight)
 {
-  const double wnorm = _NormalWeight + _TangentialWeight;
-  if (_NumberOfPoints == 0 || fequal(wnorm, .0)) return;
+  if (_NumberOfPoints == 0 || (fequal(_InwardNormalWeight,  0.) &&
+                               fequal(_OutwardNormalWeight, 0.) &&
+                               fequal(_TangentialWeight,    0.))) return;
 
   memset(_Gradient, 0, _NumberOfPoints * sizeof(GradientType));
 
   SpringForceUtils::EvaluateGradient eval;
-  eval._Points    = _PointSet->SurfacePoints();
-  eval._Status    = _PointSet->SurfaceStatus();
-  eval._EdgeTable = _PointSet->SurfaceEdges();
+  eval._Points    = Points();
+  eval._Status    = Status();
+  eval._EdgeTable = Edges();
   eval._Gradient  = _Gradient;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
-  if (!fequal(_NormalWeight, _TangentialWeight)) {
+  if (fequal(_InwardNormalWeight,  _TangentialWeight) &&
+      fequal(_OutwardNormalWeight, _TangentialWeight)) {
     SpringForceUtils::WeightComponents mul;
-    mul._Normals          = _PointSet->SurfaceNormals();
-    mul._NormalWeight     = _NormalWeight     / wnorm;
-    mul._TangentialWeight = _TangentialWeight / wnorm;
-    mul._Gradient         = _Gradient;
+    mul._Normals             = Normals();
+    mul._InwardNormalWeight  = _InwardNormalWeight;
+    mul._OutwardNormalWeight = _OutwardNormalWeight;
+    mul._TangentialWeight    = _TangentialWeight;
+    mul._Gradient            = _Gradient;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), mul);
   }
 

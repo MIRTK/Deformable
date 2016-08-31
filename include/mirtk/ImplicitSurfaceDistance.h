@@ -65,8 +65,11 @@ class ImplicitSurfaceDistance : public ImplicitSurfaceForce
   /// faster then points with positive magnitude value
   mirtkPublicAttributeMacro(bool, InvertMagnitude);
 
-  /// Distance scaling factor used by magnitude function
-  mirtkAttributeMacro(double, DistanceScale);
+  /// Minimum distance threshold used by distance to force magnitude map
+  mirtkPublicAttributeMacro(double, MinThreshold);
+
+  /// Distance threshold used by distance to force magnitude map
+  mirtkPublicAttributeMacro(double, MaxThreshold);
 
   /// Copy attributes of this class from another instance
   void CopyAttributes(const ImplicitSurfaceDistance &);
@@ -106,9 +109,6 @@ protected:
 
   // ---------------------------------------------------------------------------
   // Force magnitude
-
-  /// Update implicit surface distance measures
-  void UpdateDistances();
 
   /// Update force magnitude at surface points
   void UpdateMagnitude();

@@ -23,7 +23,6 @@
 #include "mirtk/Memory.h"
 #include "mirtk/Parallel.h"
 #include "mirtk/DataStatistics.h"
-#include "mirtk/ObjectFactory.h"
 
 #include "vtkPoints.h"
 #include "vtkDataArray.h"
@@ -51,12 +50,12 @@ struct ComputeMagnitude
 {
   vtkDataArray *_Status;
   vtkDataArray *_Distances;
-  double        _DistanceScale;
   vtkDataArray *_Magnitude;
+  double        _Threshold;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double d, d2, m;
+    double d, m;
 
     const vtkIdType begin = static_cast<vtkIdType>(ptIds.begin());
     const vtkIdType end   = static_cast<vtkIdType>(ptIds.end  ());
@@ -66,13 +65,7 @@ struct ComputeMagnitude
         _Magnitude->SetComponent(ptId, 0, 0.);
       } else {
         d = _Distances->GetComponent(ptId, 0);
-        if (_DistanceScale > 0.) {
-          d2 = _DistanceScale * d;
-          d2 *= d2;
-          m = d2 / (1. + d2);
-        } else {
-          m = clamp(abs(d), 0., 1.);
-        }
+        m = SShapedMembershipFunction(abs(d), 0., _Threshold);
         _Magnitude->SetComponent(ptId, 0, -copysign(m, d));
       }
     }
@@ -151,7 +144,8 @@ void ImplicitSurfaceDistance::CopyAttributes(const ImplicitSurfaceDistance &othe
   _MagnitudeImage     = other._MagnitudeImage;
   _NormalizeMagnitude = other._NormalizeMagnitude;
   _InvertMagnitude    = other._InvertMagnitude;
-  _DistanceScale      = other._DistanceScale;
+  _MinThreshold       = other._MinThreshold;
+  _MaxThreshold       = other._MaxThreshold;
 }
 
 // -----------------------------------------------------------------------------
@@ -161,7 +155,8 @@ ImplicitSurfaceDistance::ImplicitSurfaceDistance(const char *name, double weight
   _MagnitudeImage(nullptr),
   _NormalizeMagnitude(false),
   _InvertMagnitude(false),
-  _DistanceScale(1.)
+  _MinThreshold(1.),
+  _MaxThreshold(0.)
 {
   _MaxDistance = 5.;
 }
@@ -220,21 +215,10 @@ void ImplicitSurfaceDistance::Update(bool gradient)
 }
 
 // -----------------------------------------------------------------------------
-void ImplicitSurfaceDistance::UpdateDistances()
-{
-  ImplicitSurfaceForce::UpdateDistances();
-  if (_DistanceMeasure != DM_Minimum) {
-    _DistanceScale = 1. / AbsPercentile::Calculate(95, this->Distances());
-  } else {
-    _DistanceScale = 1.;
-  }
-}
-
-// -----------------------------------------------------------------------------
 void ImplicitSurfaceDistance::UpdateMagnitude()
 {
-  vtkDataArray *distances = this->Distances();
-  vtkDataArray *magnitude = PointData("Magnitude");
+  vtkDataArray * const distances = this->Distances();
+  vtkDataArray * const magnitude = PointData("Magnitude");
 
   // Evaluate/compute magnitude function at active surface points
   if (_MagnitudeImage) {
@@ -252,11 +236,20 @@ void ImplicitSurfaceDistance::UpdateMagnitude()
 
   } else {
 
+    double threshold = _MaxThreshold;
+    if (threshold <= 0.) {
+      if (_DistanceMeasure == DM_Minimum) {
+        threshold = _MinThreshold;
+      } else {
+        threshold = AbsPercentile::Calculate(95, distances);
+      }
+    }
+
     ComputeMagnitude calc;
-    calc._Status        = Status();
-    calc._Distances     = distances;
-    calc._DistanceScale = (_DistanceMeasure == DM_Minimum ? 0. : _DistanceScale);
-    calc._Magnitude     = magnitude;
+    calc._Status    = Status();
+    calc._Distances = distances;
+    calc._Threshold = max(_MinThreshold, threshold);
+    calc._Magnitude = magnitude;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), calc);
 
   }

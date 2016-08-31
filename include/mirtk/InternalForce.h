@@ -69,6 +69,11 @@ class InternalForce : public PointSetForce
   /// The force _Weight is multiplied by this positive weight.
   mirtkPublicAttributeMacro(double, WeightOutside);
 
+  /// Minimum weight of this internal force when external force magnitude
+  /// is applied to scale the force. It can be used to preserve some internal
+  /// force even when the external force vanishes.
+  mirtkPublicAttributeMacro(double, WeightMinimum);
+
   /// Copy attributes of this class from another instance
   void CopyAttributes(const InternalForce &);
 

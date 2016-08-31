@@ -53,14 +53,16 @@ void InternalForce::CopyAttributes(const InternalForce &other)
   _ExternalMagnitudeArrayName = other._ExternalMagnitudeArrayName;
   _WeightInside               = other._WeightInside;
   _WeightOutside              = other._WeightOutside;
+  _WeightMinimum              = other._WeightMinimum;
 }
 
 // -----------------------------------------------------------------------------
 InternalForce::InternalForce(const char *name, double weight)
 :
   PointSetForce(name, weight),
-  _WeightInside(1.),
-  _WeightOutside(1.)
+  _WeightInside (1.),
+  _WeightOutside(1.),
+  _WeightMinimum(0.)
 {
 }
 
@@ -94,18 +96,27 @@ InternalForce::~InternalForce()
 // -----------------------------------------------------------------------------
 bool InternalForce::SetWithoutPrefix(const char *param, const char *value)
 {
-  if (strcmp(param, "weight inside") == 0 ||
-      strcmp(param, "weight factor inside") == 0) {
+  if (strcmp(param, "Weight inside") == 0 ||
+      strcmp(param, "Weight factor inside") == 0) {
     double weight;
     if (!FromString(value, weight) || weight < 0.) return false;
     _WeightInside = weight;
     return true;
   }
-  if (strcmp(param, "weight outside") == 0 ||
-      strcmp(param, "weight factor outside") == 0) {
+  if (strcmp(param, "Weight outside") == 0 ||
+      strcmp(param, "Weight factor outside") == 0) {
     double weight;
     if (!FromString(value, weight) || weight < 0.) return false;
     _WeightOutside = weight;
+    return true;
+  }
+  if (strcmp(param, "Minimum weight") == 0 ||
+      strcmp(param, "Weight minimum") == 0 ||
+      strcmp(param, "Minimum weight factor") == 0 ||
+      strcmp(param, "Weight factor minimum") == 0) {
+    double weight;
+    if (!FromString(value, weight) || weight < 0.) return false;
+    _WeightMinimum = weight;
     return true;
   }
   return PointSetForce::SetWithoutPrefix(param, value);
@@ -115,8 +126,9 @@ bool InternalForce::SetWithoutPrefix(const char *param, const char *value)
 ParameterList InternalForce::Parameter() const
 {
   ParameterList params = PointSetForce::Parameter();
-  InsertWithPrefix(params, "weight factor inside",  _WeightInside);
-  InsertWithPrefix(params, "weight factor outside", _WeightOutside);
+  InsertWithPrefix(params, "Weight factor inside",  _WeightInside);
+  InsertWithPrefix(params, "Weight factor outside", _WeightOutside);
+  InsertWithPrefix(params, "Minimum weight factor", _WeightMinimum);
   return params;
 }
 
@@ -146,24 +158,16 @@ vtkDataArray *InternalForce::ExternalMagnitude() const
 // -----------------------------------------------------------------------------
 void InternalForce::EvaluateGradient(double *gradient, double step, double weight)
 {
+  // Scale by external force magnitude
   vtkDataArray * const scale = ExternalMagnitude();
 
-  // Scale by external force magnitude
   if (scale != nullptr) {
     double s;
     GradientType *grad = _Gradient;
-    if (fequal(_WeightInside, _WeightOutside)) {
-      for (int i = 0; i < _NumberOfPoints; ++i, ++grad) {
-        s = scale->GetComponent(i, 0);
-        (*grad) *= abs(s);
-      }
-      weight *= _WeightInside;
-    } else {
-      for (int i = 0; i < _NumberOfPoints; ++i, ++grad) {
-        s  = scale->GetComponent(i, 0);
-        s *= (s < 0. ? _WeightOutside : _WeightInside);
-        (*grad) *= abs(s);
-      }
+    for (int i = 0; i < _NumberOfPoints; ++i, ++grad) {
+      s  = scale->GetComponent(i, 0);
+      s *= (s < 0. ? _WeightOutside : _WeightInside);
+      (*grad) *= _WeightMinimum + abs(s);
     }
   }
 

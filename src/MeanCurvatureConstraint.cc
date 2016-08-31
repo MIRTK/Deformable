@@ -19,6 +19,7 @@
 
 #include "mirtk/MeanCurvatureConstraint.h"
 
+#include "mirtk/Math.h"
 #include "mirtk/Matrix3x3.h"
 #include "mirtk/Triangle.h"
 
@@ -714,24 +715,6 @@ struct EvaluateGradient
 
 
 #if USE_CURVATURE_WEIGHTED_SPRING_FORCE
-// -----------------------------------------------------------------------------
-/// S-shaped monotone increasing membership function whose value is in [0, 1]
-/// for x in [a, b]. It is equivalent to MATLAB's smf function.
-inline double SShapedMembershipFunction(double x, double a, double b)
-{
-  if (x <= a) {
-    return 0.;
-  } else if (x >= b) {
-    return 1.;
-  } else if (x <= .5 * (a + b)) {
-    const double t = (x - a) / (b - a);
-    return 2. * t * t;
-  } else {
-    const double t = (x - b) / (b - a);
-    return 1. - 2. * t * t;
-  }
-}
-
 // -----------------------------------------------------------------------------
 /// Evaluate negative constraint force (i.e., gradient of constraint term)
 ///

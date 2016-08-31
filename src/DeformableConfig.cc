@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,14 +28,17 @@
   // External forces
   #include "mirtk/BalloonForce.h"
   #include "mirtk/ImageEdgeForce.h"
+  #include "mirtk/ImageEdgeDistance.h"
   #include "mirtk/ImplicitSurfaceDistance.h"
-  #include "mirtk/ImplicitSurfaceSpringForce.h"
   // Internal forces
   #include "mirtk/CurvatureConstraint.h"
   #include "mirtk/InflationForce.h"
   #include "mirtk/MetricDistortion.h"
   #include "mirtk/NonSelfIntersectionConstraint.h"
   #include "mirtk/QuadraticCurvatureConstraint.h"
+  #include "mirtk/GaussCurvatureConstraint.h"
+  #include "mirtk/MeanCurvatureConstraint.h"
+  #include "mirtk/MaximumCurvatureConstraint.h"
   #include "mirtk/RepulsiveForce.h"
   #include "mirtk/SpringForce.h"
   #include "mirtk/StretchingForce.h"
@@ -61,8 +64,8 @@ static void RegisterExternalForces()
   #ifndef MIRTK_AUTO_REGISTER
     mirtkRegisterEnergyTermMacro(BalloonForce);
     mirtkRegisterEnergyTermMacro(ImageEdgeForce);
+    mirtkRegisterEnergyTermMacro(ImageEdgeDistance);
     mirtkRegisterEnergyTermMacro(ImplicitSurfaceDistance);
-    mirtkRegisterEnergyTermMacro(ImplicitSurfaceSpringForce);
   #endif
 }
 
@@ -75,6 +78,9 @@ static void RegisterInternalForces()
     mirtkRegisterEnergyTermMacro(MetricDistortion);
     mirtkRegisterEnergyTermMacro(NonSelfIntersectionConstraint);
     mirtkRegisterEnergyTermMacro(QuadraticCurvatureConstraint);
+    mirtkRegisterEnergyTermMacro(GaussCurvatureConstraint);
+    mirtkRegisterEnergyTermMacro(MeanCurvatureConstraint);
+    mirtkRegisterEnergyTermMacro(MaximumCurvatureConstraint);
     mirtkRegisterEnergyTermMacro(RepulsiveForce);
     mirtkRegisterEnergyTermMacro(SpringForce);
     mirtkRegisterEnergyTermMacro(StretchingForce);

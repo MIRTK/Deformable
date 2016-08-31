@@ -66,7 +66,9 @@ struct ComputeDistances
   vtkDataArray    *_ImageGradient;
   vtkDataArray    *_Distances;
   vtkDataArray    *_Magnitude;
+  double           _Padding;
   double           _MinIntensity;
+  double           _MaxIntensity;
   double           _MaxDistance;
   double           _StepLength;
 
@@ -204,14 +206,16 @@ struct ComputeDistances
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
         } break;
       }
-      // When minimum intensity threshold set, use it to discard
-      // foreground/background edges when close to the boundary
-      if (j != r && !IsInf(_MinIntensity)) {
+      // When intensity thresholds set, use it to ignore irrelevant edges
+      if (j != r && (!IsNaN(_Padding) || !IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
         SampleIntensity(f, p, n);
+        if (f[j] < _MinIntensity || f[j] > _MaxIntensity) {
+          j = r;
+        }
         if (j < r) {
           i = r;
           for (i = r; i > 0; --i) {
-            if (f[i] < _MinIntensity) {
+            if (f[i] < _Padding) {
               i = 0;
               break;
             }
@@ -221,7 +225,7 @@ struct ComputeDistances
         } else if (j > r) {
           i = r;
           for (i = r; i < k; ++i) {
-            if (f[i] < _MinIntensity) {
+            if (f[i] < _Padding) {
               i = k;
               break;
             }
@@ -388,7 +392,9 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
 :
   SurfaceForce(name, weight),
   _EdgeType(Extremum),
+  _Padding(NaN),
   _MinIntensity(-inf),
+  _MaxIntensity(inf),
   _MaxDistance(0.),
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
@@ -435,8 +441,14 @@ bool ImageEdgeDistance::SetWithoutPrefix(const char *param, const char *value)
   if (strcmp(param, "Maximum") == 0 || strcmp(param, "Maximum distance") == 0) {
     return FromString(value, _MaxDistance);
   }
-  if (strcmp(param, "Intensity threshold") == 0 || strcmp(param, "Minimum intensity") == 0) {
+  if (strcmp(param, "Intensity threshold") == 0 || strcmp(param, "Padding") == 0) {
+    return FromString(value, _Padding);
+  }
+  if (strcmp(param, "Lower intensity threshold") == 0  || strcmp(param, "Lower threshold") == 0 || strcmp(param, "Minimum intensity") == 0 || strcmp(param, "Intensity threshold") == 0) {
     return FromString(value, _MinIntensity);
+  }
+  if (strcmp(param, "Upper intensity threshold") == 0 || strcmp(param, "Upper intensity") == 0 || strcmp(param, "Maximum intensity") == 0) {
+    return FromString(value, _MaxIntensity);
   }
   if (strcmp(param, "Median filtering") == 0 || strcmp(param, "Median filter radius") == 0) {
     return FromString(value, _MedianFilterRadius);
@@ -459,7 +471,9 @@ ParameterList ImageEdgeDistance::Parameter() const
   ParameterList params = SurfaceForce::Parameter();
   InsertWithPrefix(params, "Type",                 _EdgeType);
   InsertWithPrefix(params, "Maximum",              _MaxDistance);
-  InsertWithPrefix(params, "Intensity threshold",  _MinIntensity);
+  InsertWithPrefix(params, "Intensity threshold",  _Padding);
+  InsertWithPrefix(params, "Lower intensity",      _MinIntensity);
+  InsertWithPrefix(params, "Upper intensity",      _MaxIntensity);
   InsertWithPrefix(params, "Median filter radius", _MedianFilterRadius);
   InsertWithPrefix(params, "Smoothing iterations", _DistanceSmoothing);
   InsertWithPrefix(params, "Magnitude smoothing",  _MagnitudeSmoothing);
@@ -520,7 +534,9 @@ void ImageEdgeDistance::Update(bool gradient)
   eval._Image        = &image;
   eval._Distances    = distances;
   eval._Magnitude    = magnitude;
+  eval._Padding      = _Padding;
   eval._MinIntensity = _MinIntensity;
+  eval._MaxIntensity = _MaxIntensity;
   eval._MaxDistance  = _MaxDistance;
   eval._StepLength   = _StepLength;
   eval._EdgeType     = _EdgeType;
@@ -532,7 +548,7 @@ void ImageEdgeDistance::Update(bool gradient)
     MIRTK_RESET_TIMING();
     MedianMeshFilter median;
     median.Input(surface);
-    median.Connectivity(1);
+    median.Connectivity(_MedianFilterRadius);
     median.DataArray(distances);
     median.Run();
     distances->DeepCopy(median.Output()->GetPointData()->GetArray(distances->GetName()));

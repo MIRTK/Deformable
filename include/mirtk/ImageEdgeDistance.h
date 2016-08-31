@@ -59,7 +59,13 @@ private:
   mirtkPublicAttributeMacro(enum EdgeType, EdgeType);
 
   /// Minimum foreground intensity value
+  mirtkPublicAttributeMacro(double, Padding);
+
+  /// Minimum object intensity value
   mirtkPublicAttributeMacro(double, MinIntensity);
+
+  /// Maximum object intensity value
+  mirtkPublicAttributeMacro(double, MaxIntensity);
 
   /// Maximum edge point distance
   mirtkPublicAttributeMacro(double, MaxDistance);

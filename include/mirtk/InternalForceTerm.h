@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,9 @@ enum InternalForceTerm
   IFT_Stretching          = EM_Stretching,
   IFT_Curvature           = EM_Curvature,
   IFT_QuadraticCurvature  = EM_QuadraticCurvature,
+  IFT_GaussCurvature      = EM_GaussCurvature,
+  IFT_MeanCurvature       = EM_MeanCurvature,
+  IFT_MaximumCurvature    = EM_MaximumCurvature,
   IFT_NonSelfIntersection = EM_NonSelfIntersection,
   IFT_Repulsion           = EM_RepulsiveForce,
   IFT_Inflation           = EM_InflationForce,

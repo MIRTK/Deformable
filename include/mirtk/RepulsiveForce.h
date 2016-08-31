@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 #ifndef MIRTK_RepulsiveForce_H
 #define MIRTK_RepulsiveForce_H
 
-#include "mirtk/InternalForce.h"
+#include "mirtk/SurfaceConstraint.h"
 
 #include "vtkSmartPointer.h"
 #include "vtkAbstractPointLocator.h"
@@ -35,7 +35,7 @@ namespace mirtk {
  * This force term is based on the respective mrisComputeRepulsiveTerm
  * found in mrisurf.c of the FreeSurfer open source implementation.
  */
-class RepulsiveForce : public InternalForce
+class RepulsiveForce : public SurfaceConstraint
 {
   mirtkEnergyTermMacro(RepulsiveForce, EM_RepulsiveForce);
 
@@ -43,17 +43,18 @@ class RepulsiveForce : public InternalForce
   // Attributes
 
   /// Radius within which repelling force is active
-  mirtkPublicAttributeMacro(double, Radius);
+  ///
+  /// Marks the intersection point of the quadratic distance weighting function
+  /// with the x axis. The intersection point with the y axis is equal to the
+  /// weight of this force term.
+  mirtkPublicAttributeMacro(double, FrontfaceRadius);
 
-  /// Power of inverse node distance used as scale of repulsive force
-  mirtkPublicAttributeMacro(int, Power);
-
-  /// Maximum (unweighted) magnitude of repulsive force
-  mirtkPublicAttributeMacro(double, Magnitude);
-
-  /// Value added to node distance such that force magnitude is equal the
-  /// maximum allowed magnitude for nodes with equal position (i.e., distance = 0)
-  mirtkAttributeMacro(double, Epsilon);
+  /// Radius within which repelling force is active
+  ///
+  /// Marks the intersection point of the quadratic distance weighting function
+  /// with the x axis. The intersection point with the y axis is equal to the
+  /// weight of this force term.
+  mirtkPublicAttributeMacro(double, BackfaceRadius);
 
   /// Point locator
   mirtkAttributeMacro(vtkSmartPointer<vtkAbstractPointLocator>, Locator);
@@ -98,7 +99,7 @@ protected:
 public:
 
   // Import other overloads
-  using InternalForce::Parameter;
+  using SurfaceConstraint::Parameter;
 
   /// Get parameter name/value pairs
   virtual ParameterList Parameter() const;

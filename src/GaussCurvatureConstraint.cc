@@ -81,6 +81,7 @@ struct Evaluate
 /// Evaluate negative constraint force (i.e., gradient of constraint term)
 struct EvaluateGradient
 {
+  typedef GaussCurvatureConstraint::Action       Action;
   typedef GaussCurvatureConstraint::GradientType GradientType;
 
   vtkPoints       *_Points;
@@ -91,11 +92,14 @@ struct EvaluateGradient
   vtkDataArray    *_MeanCurvature;
   vtkDataArray    *_ExternalMagnitude;
   GradientType    *_Gradient;
+  double           _MinGaussCurvature;
   double           _MaxGaussCurvature;
+  Action           _NegativeGaussCurvatureAction;
+  Action           _PositiveGaussCurvatureAction;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double     c[3], p[3], d[3], f[3], n[3], m, K, H, sgn;
+    double     c[3], p[3], d[3], f[3], f1[3], f2[3], n[3], m, K, H, dp, dp1, dp2, sign;
     int        numAdjPts;
     const int *adjPtIds;
 
@@ -105,7 +109,7 @@ struct EvaluateGradient
       if (numAdjPts > 0) {
         // Magnitude of spring force based on Gauss curvature
         K = _GaussCurvature->GetComponent(ptId, 0);
-        m = SShapedMembershipFunction(abs(K), 0., _MaxGaussCurvature);
+        m = SShapedMembershipFunction(abs(K), _MinGaussCurvature, _MaxGaussCurvature);
         // When mean curvature given, smooth proportional to it
         if (_MeanCurvature) {
           H = _MeanCurvature->GetComponent(ptId, 0);
@@ -117,24 +121,64 @@ struct EvaluateGradient
         // Compute curvature weighted spring force
         _Points->GetPoint(ptId, c);
         f[0] = f[1] = f[2] = 0.;
-        if (K < 0. && _ExternalMagnitude) {
+        if (K < 0.) {
+          switch (_NegativeGaussCurvatureAction)
+          {
+            case GaussCurvatureConstraint::NoAction: {
+              continue;
+            } break;
+            case GaussCurvatureConstraint::DefaultAction: {
+              if (_ExternalMagnitude) {
+                sign = sgn(_ExternalMagnitude->GetComponent(ptId, 0));
+              } else {
+                sign = 0.;
+              }
+            } break;
+            case GaussCurvatureConstraint::Deflate: {
+              sign = -1.;
+            } break;
+            case GaussCurvatureConstraint::Inflate: {
+              sign = +1.;
+            } break;
+          }
           _Normals->GetTuple(ptId, n);
-          sgn = copysign(1., _ExternalMagnitude->GetComponent(ptId, 0));
-          for (int i = 0; i < numAdjPts; ++i) {
-            _Points->GetPoint(adjPtIds[i], p);
-            vtkMath::Subtract(p, c, d);
-            if (vtkMath::Dot(d, n) * sgn > 0.) {
-              vtkMath::Add(f, d, f);
+          if (sign == 0.) {
+            f1[0] = f1[1] = f1[2] = dp1 = 0.;
+            f2[0] = f2[1] = f2[2] = dp2 = 0.;
+            for (int i = 0; i < numAdjPts; ++i) {
+              _Points->GetPoint(adjPtIds[i], p);
+              vtkMath::Subtract(p, c, d);
+              dp = vtkMath::Dot(d, n);
+              if (dp > 0.) {
+                dp1 += dp;
+                vtkMath::Add(f1, d, f1);
+              } else if (dp < 0.) {
+                dp2 += -dp;
+                vtkMath::Add(f2, d, f2);
+              }
+            }
+            if (dp1 >= dp2) {
+              f[0] = f2[0], f[1] = f2[1], f[2] = f2[2];
+            } else {
+              f[0] = f1[0], f[1] = f1[1], f[2] = f1[2];
+            }
+          } else {
+            for (int i = 0; i < numAdjPts; ++i) {
+              _Points->GetPoint(adjPtIds[i], p);
+              vtkMath::Subtract(p, c, d);
+              if (vtkMath::Dot(d, n) * sign > 0.) {
+                vtkMath::Add(f, d, f);
+              }
             }
           }
-        } else {
+        } else if (K > 0.) {
+          if (_PositiveGaussCurvatureAction == GaussCurvatureConstraint::NoAction) continue;
           for (int i = 0; i < numAdjPts; ++i) {
             _Points->GetPoint(adjPtIds[i], p);
             vtkMath::Subtract(p, c, d);
             vtkMath::Add(f, d, f);
           }
         }
-        vtkMath::MultiplyScalar(f, 1. / numAdjPts);
         vtkMath::Normalize(f);
         _Gradient[ptId] = -m * GradientType(f);
       }
@@ -146,19 +190,73 @@ struct EvaluateGradient
 } // namespace GaussCurvatureConstraintUtils
 
 // =============================================================================
+// Enum <-> string conversion
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+template <>
+bool FromString(const char *str, enum GaussCurvatureConstraint::Action &value)
+{
+  const string lstr = ToLower(str);
+  if (lstr == "default") {
+    value = GaussCurvatureConstraint::DefaultAction;
+  } else if (lstr == "none") {
+    value = GaussCurvatureConstraint::NoAction;
+  } else if (lstr == "inflate") {
+    value = GaussCurvatureConstraint::Inflate;
+  } else if (lstr == "deflate") {
+    value = GaussCurvatureConstraint::Deflate;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// -----------------------------------------------------------------------------
+template <>
+string ToString(const enum GaussCurvatureConstraint::Action &value, int w, char c, bool left)
+{
+  const char *str;
+  switch (value) {
+    case GaussCurvatureConstraint::DefaultAction: {
+      str = "Default";
+    } break;
+    case GaussCurvatureConstraint::NoAction: {
+      str = "None";
+    } break;
+    case GaussCurvatureConstraint::Inflate: {
+      str = "Inflate";
+    } break;
+    case GaussCurvatureConstraint::Deflate: {
+      str = "Deflate";
+    } break;
+  }
+  return ToString(str, w, c, left);
+}
+
+// =============================================================================
 // Construction/Destruction
 // =============================================================================
 
 // -----------------------------------------------------------------------------
 void GaussCurvatureConstraint::CopyAttributes(const GaussCurvatureConstraint &other)
 {
-  _UseMeanCurvature = other._UseMeanCurvature;
+  _MinGaussCurvature            = other._MinGaussCurvature;
+  _MaxGaussCurvature            = other._MinGaussCurvature;
+  _NegativeGaussCurvatureAction = other._NegativeGaussCurvatureAction;
+  _PositiveGaussCurvatureAction = other._PositiveGaussCurvatureAction;
+  _UseMeanCurvature             = other._UseMeanCurvature;
 }
 
 // -----------------------------------------------------------------------------
 GaussCurvatureConstraint::GaussCurvatureConstraint(const char *name, double weight)
 :
-  SurfaceConstraint(name, weight)
+  SurfaceConstraint(name, weight),
+  _MinGaussCurvature(0.),
+  _MaxGaussCurvature(1.),
+  _NegativeGaussCurvatureAction(DefaultAction),
+  _PositiveGaussCurvatureAction(DefaultAction),
+  _UseMeanCurvature(false)
 {
   _ParameterPrefix.push_back("Gauss curvature ");
   _ParameterPrefix.push_back("Gaussian curvature ");
@@ -168,8 +266,7 @@ GaussCurvatureConstraint::GaussCurvatureConstraint(const char *name, double weig
 GaussCurvatureConstraint
 ::GaussCurvatureConstraint(const GaussCurvatureConstraint &other)
 :
-  SurfaceConstraint(other),
-  _UseMeanCurvature(false)
+  SurfaceConstraint(other)
 {
   CopyAttributes(other);
 }
@@ -219,13 +316,13 @@ void GaussCurvatureConstraint::Update(bool gradient)
   // Update Gauss and/or mean curvature
   vtkPolyData  * const surface         = DeformedSurface();
   vtkDataArray * const gauss_curvature = PointData(SurfaceCurvature::GAUSS);
-  vtkDataArray * const mean_curvature  = PointData(SurfaceCurvature::MEAN);
+  vtkDataArray * const mean_curvature  = (_UseMeanCurvature ? PointData(SurfaceCurvature::MEAN) : nullptr);
 
   int curv_types = 0;
   if (gauss_curvature->GetMTime() < surface->GetMTime()) {
     curv_types |= SurfaceCurvature::Gauss;
   }
-  if (_UseMeanCurvature && mean_curvature->GetMTime() < surface->GetMTime()) {
+  if (mean_curvature && mean_curvature->GetMTime() < surface->GetMTime()) {
     curv_types |= SurfaceCurvature::Mean;
   }
   if (curv_types != 0) {
@@ -285,7 +382,10 @@ void GaussCurvatureConstraint
   eval._MeanCurvature     = (_UseMeanCurvature ? PointData(SurfaceCurvature::MEAN) : nullptr);
   eval._ExternalMagnitude = ExternalMagnitude();
   eval._Gradient          = _Gradient;
-  eval._MaxGaussCurvature = .2;
+  eval._MinGaussCurvature = _MinGaussCurvature;
+  eval._MaxGaussCurvature = _MaxGaussCurvature;
+  eval._NegativeGaussCurvatureAction = _NegativeGaussCurvatureAction;
+  eval._PositiveGaussCurvatureAction = _PositiveGaussCurvatureAction;
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
   SurfaceConstraint::EvaluateGradient(gradient, step, weight / _NumberOfPoints);

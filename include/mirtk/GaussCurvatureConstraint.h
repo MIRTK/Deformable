@@ -37,7 +37,35 @@ class GaussCurvatureConstraint : public SurfaceConstraint
   mirtkEnergyTermMacro(GaussGaussCurvatureConstraint, EM_GaussCurvature);
 
   // ---------------------------------------------------------------------------
+  // Types
+
+public:
+
+  /// Enumeration of possible actions for reducing negative Gauss curvature
+  enum Action
+  {
+    DefaultAction,
+    NoAction,
+    Deflate,
+    Inflate
+  };
+
+  // ---------------------------------------------------------------------------
   // Attributes
+
+private:
+
+  /// Minimum Gauss curvature threshold
+  mirtkPublicAttributeMacro(double, MinGaussCurvature);
+
+  /// Maximum Gauss curvature threshold
+  mirtkPublicAttributeMacro(double, MaxGaussCurvature);
+
+  /// Action to take for negative Gauss curvature points
+  mirtkPublicAttributeMacro(Action, NegativeGaussCurvatureAction);
+
+  /// Action to take for positive Gauss curvature points
+  mirtkPublicAttributeMacro(Action, PositiveGaussCurvatureAction);
 
   /// Whether to scale force proportional to mean curvature
   mirtkPublicAttributeMacro(bool, UseMeanCurvature);
@@ -80,6 +108,13 @@ protected:
   virtual void EvaluateGradient(double *, double, double);
 
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Enum <-> string conversion
+////////////////////////////////////////////////////////////////////////////////
+
+template <> bool FromString(const char *, enum GaussCurvatureConstraint::Action &);
+template <> string ToString(const enum GaussCurvatureConstraint::Action &, int, char, bool);
 
 
 } // namespace mirtk

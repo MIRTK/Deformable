@@ -222,7 +222,9 @@ NonSelfIntersectionConstraint
 ::NonSelfIntersectionConstraint(const char *name, double weight)
 :
   SurfaceConstraint(name, weight),
-  _MinDistance(-1.0)
+  _FastCollisionTest(false),
+  _MinDistance(-1.0),
+  _MaxAngle(60.)
 {
   _ParameterPrefix.push_back("Non-self-intersection ");
   _ParameterPrefix.push_back("Non-self-intersection force ");
@@ -232,8 +234,10 @@ NonSelfIntersectionConstraint
 void NonSelfIntersectionConstraint
 ::CopyAttributes(const NonSelfIntersectionConstraint &other)
 {
-  _MinDistance = other._MinDistance;
-  _Collisions  = other._Collisions;
+  _FastCollisionTest = other._FastCollisionTest;
+  _MinDistance       = other._MinDistance;
+  _MaxAngle          = other._MaxAngle;
+  _Collisions        = other._Collisions;
 }
 
 // -----------------------------------------------------------------------------
@@ -340,6 +344,7 @@ void NonSelfIntersectionConstraint::Update(bool gradient)
 
   SurfaceCollisions check;
   check.Input(surface);
+  check.FastCollisionTest(_FastCollisionTest);
   check.AdjacentIntersectionTestOff();
   check.NonAdjacentIntersectionTestOff();
   check.FrontfaceCollisionTestOn();
@@ -348,7 +353,7 @@ void NonSelfIntersectionConstraint::Update(bool gradient)
   check.MinFrontfaceDistance(_MinDistance);
   check.MinBackfaceDistance(_MinDistance);
   check.MaxSearchRadius(10.0 * _MinDistance);
-  check.MaxAngle(60.0);
+  check.MaxAngle(_MaxAngle);
 
   if (!gradient) {
     // For efficiency reasons, perform check only for previously collided cells
@@ -369,7 +374,7 @@ void NonSelfIntersectionConstraint::Update(bool gradient)
 
   if (check.FoundCollisions()) {
 
-    const double maxNormalAngleCos = cos(60.0);
+    const double maxNormalAngleCos = cos(_MaxAngle);
 
     bool iscoll;
     double n1[3], n2[3];

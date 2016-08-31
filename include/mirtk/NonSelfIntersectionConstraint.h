@@ -49,9 +49,16 @@ class NonSelfIntersectionConstraint : public SurfaceConstraint
 
 protected:
 
+  /// Use fast approximate surface triangle collision test
+  mirtkPublicAttributeMacro(bool, FastCollisionTest);
+
   /// Minimum distance
   /// Set to non-positive value to use average edge length.
   mirtkPublicAttributeMacro(double, MinDistance);
+
+  /// Maximum angle between face normal and center to closest point vector
+  /// required for collision to be detected
+  mirtkPublicAttributeMacro(double, MaxAngle);
 
   /// Detected surface collisions
   mirtkAttributeMacro(SurfaceCollisions::CollisionsArray, Collisions);

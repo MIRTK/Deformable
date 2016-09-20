@@ -1220,6 +1220,9 @@ int main(int argc, char *argv[])
     else HANDLE_COMMON_OR_UNKNOWN_OPTION();
   }
 
+  if (debug   < 0) debug   = 0;
+  if (verbose < 0) verbose = 0;
+
   double nspring = .5 * (spring.InwardNormalWeight() + spring.OutwardNormalWeight());
   if (spring.Weight() == .0) { // no -spring, but -nspring and/or -tspring
     spring.Weight(nspring + spring.TangentialWeight());
@@ -1462,12 +1465,12 @@ int main(int argc, char *argv[])
   // or the internal and external forces of the model are in equilibrium
   const double distortion_weight = distortion.Weight();
 
-  if (verbose) {
+  if (verbose > 0) {
     cout << endl;
     logger.Verbosity(verbose - 1);
     optimizer->AddObserver(logger);
   }
-  if (debug) {
+  if (debug > 0) {
     debugger.Prefix(debug_prefix);
     optimizer->AddObserver(debugger);
   }
@@ -1533,7 +1536,7 @@ int main(int argc, char *argv[])
     optimizer->Initialize();
 
     // Debug/log output
-    if (verbose) {
+    if (verbose > 0) {
       cout << "Level " << (level + 1) << " out of " << nlevels << "\n";
     }
     if (verbose > 1) {
@@ -1565,7 +1568,7 @@ int main(int argc, char *argv[])
 
     // Perform optimization at current level
     optimizer->Run();
-    if (verbose) cout << endl;
+    if (verbose > 0) cout << endl;
   }
 
   optimizer->ClearObservers();

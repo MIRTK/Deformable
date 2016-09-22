@@ -167,12 +167,14 @@ struct ComputeLocalIntensityThresholds
       if (_Status == nullptr || _Status->GetComponent(ptId, 0) != 0.) {
         _Points->GetPoint(ptId, p);
         _Image->WorldToImage(p[0], p[1], p[2]);
-        i1 = ifloor(p[0] - _RadiusX);
-        i2 = iceil (p[0] + _RadiusX);
-        j1 = ifloor(p[1] - _RadiusY);
-        j2 = iceil (p[1] + _RadiusY);
-        k1 = ifloor(p[2] - _RadiusZ);
-        k2 = iceil (p[2] + _RadiusZ);
+
+        i1 = max(ifloor(p[0] - _RadiusX), 0);
+        i2 = min(iceil (p[0] + _RadiusX), _Image->X()-1);
+        j1 = max(ifloor(p[1] - _RadiusY), 0);
+        j2 = min(iceil (p[1] + _RadiusY), _Image->Y()-1);
+        k1 = max(ifloor(p[2] - _RadiusZ), 0);
+        k2 = min(iceil (p[2] + _RadiusZ), _Image->Z()-1);
+
         num = 0;
         for (k = k1; k <= k2; ++k)
         for (j = j1; j <= j2; ++j)
@@ -214,50 +216,50 @@ struct ComputeLocalIntensityStatistics
   double             _RadiusY;
   double             _RadiusZ;
 
-  enum Component { BG, FG };
+  enum Label { Outside = -1, BG = 0, FG = 1 };
 
   void operator ()(const blocked_range<vtkIdType> &re) const
   {
-    int       num[2], i, j, k, i1, i2, j1, j2, k1, k2;
-    double    p[3], value, delta, mean[2], var[2];
-    bool      is_bg, is_fg;
-    Component c;
+    int    num[2], i, j, k, i1, i2, j1, j2, k1, k2;
+    double p[3], value, delta, mean[2], var[2];
+    Label  c;
 
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
-      mean[0] = mean[1] = var[0] = var[1] = .0;
+      mean[BG] = mean[FG] = var[BG] = var[FG] = .0;
       if (_Status == nullptr || _Status->GetComponent(ptId, 0) != 0.) {
         _Points->GetPoint(ptId, p);
         _Image->WorldToImage(p[0], p[1], p[2]);
 
-        i1 = ifloor(p[0] - _RadiusX);
-        i2 = iceil (p[0] + _RadiusX);
-        j1 = ifloor(p[1] - _RadiusY);
-        j2 = iceil (p[1] + _RadiusY);
-        k1 = ifloor(p[2] - _RadiusZ);
-        k2 = iceil (p[2] + _RadiusZ);
+        i1 = max(ifloor(p[0] - _RadiusX), 0);
+        i2 = min(iceil (p[0] + _RadiusX), _Image->X()-1);
+        j1 = max(ifloor(p[1] - _RadiusY), 0);
+        j2 = min(iceil (p[1] + _RadiusY), _Image->Y()-1);
+        k1 = max(ifloor(p[2] - _RadiusZ), 0);
+        k2 = min(iceil (p[2] + _RadiusZ), _Image->Z()-1);
 
-        num[0] = num[1] = 0;
+        num[BG] = num[FG] = 0;
         for (k = k1; k <= k2; ++k)
         for (j = j1; j <= j2; ++j)
         for (i = i1; i <= i2; ++i) {
-          if (_ForegroundMask->IsInside(i, j, k)) {
-            is_bg = (_BackgroundMask ? _BackgroundMask->Get(i, j, k) != 0
-                                     : _Image->IsForeground(i, j, k));
-            is_fg = (_ForegroundMask->Get(i, j, k) != 0);
-            if (is_fg || is_bg) {
-              c = static_cast<Component>(is_fg);
-              value = _Image->GetAsDouble(i, j, k);
-              delta = value - mean[c];
-              num [c] += 1;
-              mean[c] += delta / num[c];
-              var [c] += delta * (value - mean[c]);
-            }
+          if (_ForegroundMask->Get(i, j, k) != 0) {
+            c = FG;
+          } else if (_BackgroundMask) {
+            c = (_BackgroundMask->Get(i, j, k) != 0 ? BG : Outside);
+          } else {
+            c = (_Image->IsForeground(i, j, k) ? BG : Outside);
+          }
+          if (c != Outside) {
+            value = _Image->GetAsDouble(i, j, k);
+            delta = value - mean[c];
+            num [c] += 1;
+            mean[c] += delta / num[c];
+            var [c] += delta * (value - mean[c]);
           }
         }
-        if (num[0] > 2) var[0] /= num[0] - 1;
-        else            var[0]  = 0.;
-        if (num[1] > 2) var[1] /= num[1] - 1;
-        else            var[1]  = 0.;
+        if (num[BG] > 2) var[BG] /= num[BG] - 1;
+        else             var[BG]  = 0.;
+        if (num[BG] > 2) var[FG] /= num[FG] - 1;
+        else             var[FG]  = 0.;
       }
       _BackgroundStatistics->SetComponent(ptId, 0, mean[BG]);
       _BackgroundStatistics->SetComponent(ptId, 1, sqrt(var[BG]));

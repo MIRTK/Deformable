@@ -221,7 +221,7 @@ void PrintHelp(const char *name)
   cout << "  -balloon-min <intensity>" << endl;
   cout << "      Global lower intensity threshold for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: -inf)" << endl;
   cout << "  -balloon-max <intensity>" << endl;
-  cout << "      Global lower intensity threshold for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: +inf)" << endl;
+  cout << "      Global upper intensity threshold for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: +inf)" << endl;
   cout << "  -balloon-range <min> <max>" << endl;
   cout << "      Global intensity thresholds for :option:`-balloon-inflation` or :option:`-balloon-deflation`. (default: [-inf +inf])" << endl;
   cout << "  -balloon-radius <r>" << endl;

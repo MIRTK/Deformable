@@ -129,10 +129,10 @@ struct ComputeDistances
     const int i0 = (k - 1) / 2;
 
     int i = i0;
-    for (int j = i0 + 1; i < k; ++i) {
+    for (int j = i0 + 1; j < k; ++j) {
       if (g[j] < g[i]) i = j;
     }
-    for (int j = i0 - 1; i >= 0; --i) {
+    for (int j = i0 - 1; j >= 0; --j) {
       if (g[j] < g[i]) i = j;
     }
 
@@ -146,10 +146,10 @@ struct ComputeDistances
     const int i0 = (k - 1) / 2;
 
     int i = i0;
-    for (int j = i0 + 1; i < k; ++i) {
+    for (int j = i0 + 1; j < k; ++j) {
       if (g[j] > g[i]) i = j;
     }
-    for (int j = i0 - 1; i >= 0; --i) {
+    for (int j = i0 - 1; j >= 0; --j) {
       if (g[j] > g[i]) i = j;
     }
 

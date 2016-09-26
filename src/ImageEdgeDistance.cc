@@ -236,7 +236,7 @@ struct ComputeDistances
       }
       // Set point distance to found edge and edge strength
       _Distances->SetComponent(ptId, 0, static_cast<double>(j - r) * _StepLength);
-      _Magnitude->SetComponent(ptId, 0, abs(g[j]));
+      _Magnitude->SetComponent(ptId, 0, IsNaN(g[j]) ? 0. : abs(g[j]));
     }
   }
 };

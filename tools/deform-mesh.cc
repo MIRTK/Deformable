@@ -657,6 +657,7 @@ int main(int argc, char *argv[])
 
   Array<int>    navgs;           // no. of total gradient averaging steps
   Array<int>    distance_navgs;  // no. of distance gradient averaging steps
+  Array<int>    dedges_navgs;    // no. of edge distance gradient averaging steps
   Array<int>    balloon_navgs;   // no. of balloon force gradient averaging steps
   Array<int>    nsteps;          // maximum no. of integration steps
   Array<double> delta;           // max node change convergence criterion
@@ -940,6 +941,9 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-edge-distance-magnitude-averaging")) {
       PARSE_ARGUMENT(dedges.MagnitudeSmoothing());
+    }
+    else if (OPTION("-edge-distance-averaging")) {
+      PARSE_ARGUMENTS(int, dedges_navgs);
     }
     else if (OPTION("-inflation")) {
       PARSE_ARGUMENT(farg);
@@ -1522,6 +1526,7 @@ int main(int argc, char *argv[])
     } else {
       model.GradientAveraging(navg);
       distance.GradientAveraging(ParameterValue(level, nlevels, distance_navgs, 0));
+      dedges  .GradientAveraging(ParameterValue(level, nlevels, dedges_navgs,   0));
       balloon .GradientAveraging(ParameterValue(level, nlevels, balloon_navgs,  0));
     }
 

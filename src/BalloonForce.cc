@@ -586,7 +586,7 @@ void BalloonForce::ComputeLocalIntensityAttributes(bool thresholds, bool bg_fg_s
   BinaryImage fg_mask;
   if (_ForegroundMask == nullptr) {
     vtkSmartPointer<vtkImageData>        imagedata = ConvertImage(_Image);
-    vtkSmartPointer<vtkPointSet>         surface   = WorldToImage(_PointSet->InputSurface(), _Image);
+    vtkSmartPointer<vtkPointSet>         surface   = WorldToImage(_PointSet->Surface(), _Image);
     vtkSmartPointer<vtkImageStencilData> stencil   = ImageStencil(imagedata, surface);
     fg_mask = ImageStencilToMask(_Image->Attributes(), imagedata, stencil);
   }

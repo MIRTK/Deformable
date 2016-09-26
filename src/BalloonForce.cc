@@ -163,7 +163,7 @@ struct ComputeLocalIntensityThresholds
     vtkImageStencilIterator<float> it;
 
     for (vtkIdType ptId = re.begin(); ptId != re.end(); ++ptId) {
-      mu = var = .0;
+      mu = var = 0., num = 0;
       if (_Status == nullptr || _Status->GetComponent(ptId, 0) != 0.) {
         _Points->GetPoint(ptId, p);
         _Image->WorldToImage(p[0], p[1], p[2]);
@@ -175,7 +175,6 @@ struct ComputeLocalIntensityThresholds
         k1 = max(ifloor(p[2] - _RadiusZ), 0);
         k2 = min(iceil (p[2] + _RadiusZ), _Image->Z()-1);
 
-        num = 0;
         for (k = k1; k <= k2; ++k)
         for (j = j1; j <= j2; ++j)
         for (i = i1; i <= i2; ++i) {
@@ -192,10 +191,18 @@ struct ComputeLocalIntensityThresholds
         sigma = sqrt(var);
       }
       if (_LowerIntensity) {
-        _LowerIntensity->SetComponent(ptId, 0, mu - _LowerSigma * sigma);
+        if (num == 0) {
+          _LowerIntensity->SetComponent(ptId, 0, -inf);
+        } else {
+          _LowerIntensity->SetComponent(ptId, 0, mu - _LowerSigma * sigma);
+        }
       }
       if (_UpperIntensity) {
-        _UpperIntensity->SetComponent(ptId, 0, mu + _UpperSigma * sigma);
+        if (num == 0) {
+          _LowerIntensity->SetComponent(ptId, 0, +inf);
+        } else {
+          _UpperIntensity->SetComponent(ptId, 0, mu + _UpperSigma * sigma);
+        }
       }
     }
   }

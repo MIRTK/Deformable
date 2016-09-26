@@ -248,22 +248,24 @@ struct ComputeMagnitude
   vtkDataArray *_Status;
   vtkDataArray *_Distances;
   double        _DistanceScale;
-  double        _MagnitudeScale;
+  double        _MaxMagnitude;
   vtkDataArray *_Magnitude;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double d, d2, m1, m2;
+    double d, d2, m1 = 1., m2;
     for (auto ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
         _Magnitude->SetComponent(ptId, 0, 0.);
       } else {
-        m1  = _MagnitudeScale * _Magnitude->GetComponent(ptId, 0);
-        m1 *= m1;
-        m1  = m1 / (1. + m1);
+        // Edge magnitude factor
+        m1 = _Magnitude->GetComponent(ptId, 0);
+        m1 = SShapedMembershipFunction(m1, 0., _MaxMagnitude);
+        // Edge distance factor
         d  = _Distances->GetComponent(ptId, 0);
         d2 = _DistanceScale * d, d2 *= d2;
         m2 = d2 / (1. + d2);
+        // Force magnitude
         _Magnitude->SetComponent(ptId, 0, m1 * copysign(m2, d));
       }
     }
@@ -596,11 +598,11 @@ void ImageEdgeDistance::Update(bool gradient)
   if (dmax > 0. && mavg > 0.) {
     MIRTK_RESET_TIMING();
     ComputeMagnitude eval;
-    eval._Status         = status;
-    eval._Distances      = distances;
-    eval._DistanceScale  = 1. / dmax;
-    eval._MagnitudeScale = 1. / mavg;
-    eval._Magnitude      = magnitude;
+    eval._Status        = status;
+    eval._Distances     = distances;
+    eval._DistanceScale = 1. / max(.1, dmax);
+    eval._MaxMagnitude  = mavg;
+    eval._Magnitude     = magnitude;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
     MIRTK_DEBUG_TIMING(5, "computing edge force magnitude");
   } else {

@@ -84,15 +84,30 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
+  inline double SampleIntensity(Point p, const Vector3 &dp, int i, int k) const
+  {
+    p += static_cast<double>(i - (k - 1) / 2) * dp;
+    return _Image->Evaluate(p.x, p.y, p.z);
+  }
+
+  // ---------------------------------------------------------------------------
   inline void SampleGradient(Array<double> &g, Point p, const Vector3 &dp) const
   {
     Matrix jac(1, 3);
     Vector3 n = dp;
     n.Normalize();
+    int vi, vj, vk;
     p -= static_cast<double>((g.size() - 1) / 2) * dp;
     for (size_t i = 0; i < g.size(); ++i, p += dp) {
-      _Image->Jacobian3D(jac, p.x, p.y, p.z);
-      g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+      vi = iround(p.x);
+      vj = iround(p.y);
+      vk = iround(p.z);
+      if (_Image->Input()->IsInside(vi, vj, vk) && _Image->Input()->IsForeground(vi, vj, vk)) {
+        _Image->Jacobian3D(jac, p.x, p.y, p.z);
+        g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+      } else {
+        g[i] = NaN;
+      }
     }
   }
 
@@ -103,6 +118,15 @@ struct ComputeDistances
     const int i0 = (k - 1) / 2;
 
     int i1 = i0, i2 = i0;
+    if (IsNaN(g[i0])) {
+      while (i1 < k - 2 && IsNaN(g[i1])) ++i1;
+      while (i2 > 1     && IsNaN(g[i2])) --i2;
+      if (abs(i0 - i1) <= abs(i0 - i2)) {
+        i2 = i1;
+      } else {
+        i1 = i2;
+      }
+    }
     while (i1 < k - 2 && g[i1] > g[i1+1]) ++i1;
     while (i2 > 1     && g[i2] > g[i2-1]) --i2;
 
@@ -116,6 +140,16 @@ struct ComputeDistances
     const int i0 = (k - 1) / 2;
 
     int i1 = i0, i2 = i0;
+    if (IsNaN(g[i0])) {
+      while (i1 < k - 2 && IsNaN(g[i1])) ++i1;
+      while (i2 > 1     && IsNaN(g[i2])) --i2;
+      if (abs(i0 - i1) <= abs(i0 - i2)) {
+        i2 = i1;
+      } else {
+        i1 = i2;
+      }
+    }
+
     while (i1 < k - 2 && g[i1] < g[i1+1]) ++i1;
     while (i2 > 1     && g[i2] < g[i2-1]) --i2;
 
@@ -162,10 +196,13 @@ struct ComputeDistances
     const int r = ifloor(_MaxDistance / _StepLength);
     const int k = 2 * r + 1;
 
-    Array<double> f(k), g(k);
+    double  value;
     int     i, j, j1, j2;
     Point   p;
     Vector3 n;
+
+    Array<double> g(k), f;
+    if (!IsNaN(_Padding)) f.resize(k);
 
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       // Get point position and scaled normal
@@ -207,11 +244,14 @@ struct ComputeDistances
         } break;
       }
       // When intensity thresholds set, use it to ignore irrelevant edges
-      if (j != r && (!IsNaN(_Padding) || !IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
-        SampleIntensity(f, p, n);
-        if (f[j] < _MinIntensity || f[j] > _MaxIntensity) {
+      if (j != r && (!IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
+        value = SampleIntensity(p, n, j, k);
+        if (value < _MinIntensity || value > _MaxIntensity) {
           j = r;
         }
+      }
+      if (j != r && !IsNaN(_Padding)) {
+        SampleIntensity(f, p, n);
         if (j < r) {
           i = r;
           for (i = r; i > 0; --i) {

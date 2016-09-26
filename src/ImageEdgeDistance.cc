@@ -191,6 +191,41 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
+  inline int WhiteMatterBoundaryT2(const Array<double> &g) const
+  {
+    const int k  = static_cast<int>(g.size());
+    const int i0 = (k - 1) / 2;
+
+    int i, j, i1, i2;
+    const double min_threshold = -5.;
+    const double max_threshold =  5.;
+
+    i = i0;
+    while (i < k - 2 && IsNaN(g[i])) ++i;
+    while (i < k - 2 && ((min_threshold <= g[i] && g[i] <= max_threshold) || g[i] >= g[i+1])) ++i;
+    j = i + 1;
+    while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
+    i1 = (g[i] < min_threshold && g[j] > 0. ? i : -1);
+
+    i = i0;
+    while (i > 1 && IsNaN(g[i])) --i;
+    while (i > 1 && ((min_threshold <= g[i] && g[i] <= max_threshold) || g[i] >= g[i-1])) --i;
+    j = i + 1;
+    while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
+    i2 = (g[i] < min_threshold && g[j] > 0. ? i : -1);
+
+    if (i1 != -1 && i2 != -1) {
+      return (g[i2] < g[i1] ? i2 : i1);
+    } else if (i1 != -1) {
+      return i1;
+    } else if (i2 != -1) {
+      return i2;
+    } else {
+      return i0;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   void operator ()(const blocked_range<int> &ptIds) const
   {
     const int r = ifloor(_MaxDistance / _StepLength);
@@ -241,6 +276,9 @@ struct ComputeDistances
           j1 = StrongestMinimum(g);
           j2 = StrongestMaximum(g);
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
+        } break;
+        case ImageEdgeDistance::T2_WM_cGM_Boundary: {
+          j = WhiteMatterBoundaryT2(g);
         } break;
       }
       // When intensity thresholds set, use it to ignore irrelevant edges
@@ -391,6 +429,8 @@ bool FromString(const char *str, enum ImageEdgeDistance::EdgeType &value)
     value = ImageEdgeDistance::StrongestMaximum;
   } else if (lstr == "strongestextremum" || lstr == "strongest extremum") {
     value = ImageEdgeDistance::StrongestExtremum;
+  } else if (lstr == "t2 wm/cgm boundary") {
+    value = ImageEdgeDistance::T2_WM_cGM_Boundary;
   } else {
     return false;
   }
@@ -410,6 +450,7 @@ string ToString(const enum ImageEdgeDistance::EdgeType &value, int w, char c, bo
     case ImageEdgeDistance::StrongestMinimum:  { str = "StrongestMinimum"; } break;
     case ImageEdgeDistance::StrongestMaximum:  { str = "StrongestMaximum"; } break;
     case ImageEdgeDistance::StrongestExtremum: { str = "StrongestExtremum"; } break;
+    case ImageEdgeDistance::T2_WM_cGM_Boundary: { str = "T2 WM/cGM boundary"; } break;
   }
   return ToString(str, w, c, left);
 }

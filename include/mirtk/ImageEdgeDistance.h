@@ -41,13 +41,14 @@ public:
   /// Enumeration of edge force modes based on directional derivative of image intensities
   enum EdgeType
   {
-    Extremum,         ///< Attract points to closest extrema of same sign
-    ClosestMinimum,   ///< Attract points to closest minima
-    ClosestMaximum,   ///< Attract points to closest maxima
-    ClosestExtremum,  ///< Attract points to closest extrema
-    StrongestMinimum, ///< Attract points to strongest minima
-    StrongestMaximum, ///< Attract points to strongest maxima
-    StrongestExtremum ///< Attract points to strongest extrema
+    Extremum,           ///< Attract points to closest extrema of same sign
+    ClosestMinimum,     ///< Attract points to closest minima
+    ClosestMaximum,     ///< Attract points to closest maxima
+    ClosestExtremum,    ///< Attract points to closest extrema
+    StrongestMinimum,   ///< Attract points to strongest minima
+    StrongestMaximum,   ///< Attract points to strongest maxima
+    StrongestExtremum,  ///< Attract points to strongest extrema
+    T2_WM_cGM_Boundary  ///< T2-weighted MRI WM/cGM boundary edges (neonatal age)
   };
 
   // ---------------------------------------------------------------------------

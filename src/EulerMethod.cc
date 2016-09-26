@@ -28,7 +28,7 @@
 
 #include "vtkPointData.h"
 #include "vtkDataArray.h"
-#include "vtkFloatArray.h"
+#include "vtkDoubleArray.h"
 #include "vtkUnsignedCharArray.h"
 
 
@@ -51,24 +51,25 @@ namespace EulerMethodUtils {
 class ComputeDisplacements
 {
   const double *_Gradient;
-  double       *_Displacement;
+  vtkDataArray *_Displacement;
   double        _StepLength;
 
 public:
 
-  ComputeDisplacements(double *dx, const double *gradient, double dt, double norm)
+  ComputeDisplacements(vtkDataArray *dx, const double *gradient, double dt, double norm)
   :
     _Gradient(gradient), _Displacement(dx), _StepLength(-dt / norm)
   {}
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    const double *g = _Gradient     + 3 * ptIds.begin();
-    double       *d = _Displacement + 3 * ptIds.begin();
-    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, g += 3, d += 3) {
+    double d[3];
+    const double *g = _Gradient + 3 * ptIds.begin();
+    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, g += 3) {
       d[0] = _StepLength * g[0];
       d[1] = _StepLength * g[1];
       d[2] = _StepLength * g[2];
+      _Displacement->SetTuple(ptId, d);
     }
   }
 };
@@ -77,24 +78,26 @@ public:
 /// Clamp magnitudes of node displacements to [0, max]
 class ClampDisplacements
 {
-  double *_Displacement;
-  double  _Maximum;
+  vtkDataArray *_Displacement;
+  double        _Maximum;
 
 public:
 
-  ClampDisplacements(double *dx, double max_dx)
+  ClampDisplacements(vtkDataArray *dx, double max_dx)
   :
     _Displacement(dx), _Maximum(max_dx * max_dx)
   {}
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double norm, *d = _Displacement + 3 * ptIds.begin();
-    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, d += 3) {
+    double norm, d[3];
+    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
+      _Displacement->GetTuple(ptId, d);
       norm = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
       if (norm > _Maximum) {
         norm = sqrt(_Maximum / norm);
         d[0] *= norm, d[1] *= norm, d[2] *= norm;
+        _Displacement->SetTuple(ptId, d);
       }
     }
   }
@@ -115,8 +118,7 @@ EulerMethod::EulerMethod(ObjectiveFunction *f)
   _StepLength(1.0),
   _NormalizeStepLength(true),
   _MaximumDisplacement(.0),
-  _Gradient(NULL),
-  _Displacement(NULL),
+  _Gradient(nullptr),
   _NumberOfDOFs(0)
 {
   _Epsilon = 1e-9;
@@ -128,20 +130,18 @@ void EulerMethod::CopyAttributes(const EulerMethod &other)
   _StepLength          = other._StepLength;
   _NormalizeStepLength = other._NormalizeStepLength;
   _MaximumDisplacement = other._MaximumDisplacement;
+  _Displacement        = other._Displacement;
   _NormalDisplacement  = other._NormalDisplacement;
   _NumberOfDOFs        = other._NumberOfDOFs;
 
   if (_NumberOfDOFs != other._NumberOfDOFs || other._NumberOfDOFs == 0) {
     Deallocate(_Gradient);
-    Deallocate(_Displacement);
     if (_NumberOfDOFs > 0) {
-      _Gradient     = Allocate<double>(_NumberOfDOFs);
-      _Displacement = Allocate<double>(_NumberOfDOFs);
+      _Gradient = Allocate<double>(_NumberOfDOFs);
     }
   }
   if (_NumberOfDOFs > 0) {
-    memcpy(_Gradient,     other._Gradient,     _NumberOfDOFs * sizeof(double));
-    memcpy(_Displacement, other._Displacement, _NumberOfDOFs * sizeof(double));
+    memcpy(_Gradient, other._Gradient, _NumberOfDOFs * sizeof(double));
   }
 }
 
@@ -149,8 +149,7 @@ void EulerMethod::CopyAttributes(const EulerMethod &other)
 EulerMethod::EulerMethod(const EulerMethod &other)
 :
   LocalOptimizer(other),
-  _Gradient(NULL),
-  _Displacement(NULL)
+  _Gradient(nullptr)
 {
   CopyAttributes(other);
 }
@@ -169,7 +168,6 @@ EulerMethod &EulerMethod::operator =(const EulerMethod &other)
 EulerMethod::~EulerMethod()
 {
   Deallocate(_Gradient);
-  Deallocate(_Displacement);
 }
 
 // =============================================================================
@@ -221,7 +219,7 @@ void EulerMethod::Initialize()
 
   // Cast objective function to deformable surface model
   _Model = dynamic_cast<DeformableSurfaceModel *>(_Function);
-  if (_Model == NULL) {
+  if (_Model == nullptr) {
     cerr << "EulerMethod::Initialize: Objective function must be a deformable surface model" << endl;
     exit(1);
   }
@@ -233,14 +231,12 @@ void EulerMethod::Initialize()
   // Allocate memory for node vectors if not done before
   if (_Model->NumberOfDOFs() > _NumberOfDOFs) {
     Deallocate(_Gradient);
-    Deallocate(_Displacement);
     _NumberOfDOFs = _Model->NumberOfDOFs();
-    Allocate(_Gradient,     _NumberOfDOFs);
-    Allocate(_Displacement, _NumberOfDOFs);
+    Allocate(_Gradient, _NumberOfDOFs);
   }
 
   // Get model point data
-  vtkPointData *modelPD = _Model->Output()->GetPointData();
+  vtkPointData * const modelPD = _Model->Output()->GetPointData();
 
   // Add point data array used to keep track of active/passive nodes
   //
@@ -262,14 +258,48 @@ void EulerMethod::Initialize()
     modelPD->AddArray(status);
   }
 
+  // Add point data array for node update such that remesher can modify it
+  // when necessary before it is passed on to the convergence test functions
+  //
+  // Moreover, this displacement array is needed by the EulerMethodWithMomentum.
+  // An initial node "Displacement" can also be provided as input for this method
+  // (e.g., from a previous Euler integration with different parameters).
+  _Displacement = modelPD->GetArray("Displacement");
+  if (!_Displacement || _Displacement->GetNumberOfComponents() != 3) {
+    _Displacement = vtkSmartPointer<vtkDoubleArray>::New();
+    _Displacement->SetName("Displacement");
+    _Displacement->SetNumberOfComponents(3);
+    _Displacement->SetNumberOfTuples(_Model->NumberOfPoints());
+    _Displacement->FillComponent(0, 0.);
+    _Displacement->FillComponent(1, 0.);
+    _Displacement->FillComponent(2, 0.);
+    modelPD->RemoveArray(_Displacement->GetName());
+    modelPD->AddArray(_Displacement);
+  } else if (_Displacement->GetDataType() != VTK_DOUBLE) {
+    vtkSmartPointer<vtkDataArray> displacement = _Displacement;
+    _Displacement = vtkSmartPointer<vtkDoubleArray>::New();
+    _Displacement->SetName("Displacement");
+    _Displacement->SetNumberOfComponents(3);
+    _Displacement->SetNumberOfTuples(_Model->NumberOfPoints());
+    _Displacement->CopyComponent(0, displacement, 0);
+    _Displacement->CopyComponent(1, displacement, 1);
+    _Displacement->CopyComponent(2, displacement, 2);
+    modelPD->RemoveArray(displacement->GetName());
+    modelPD->AddArray(_Displacement);
+  }
+
   // Add point data array used to keep track of node displacement in
   // normal direction such that the remesher can modify it when necessary
   if (_NormalDisplacement) {
+    if (_NormalDisplacement->GetName() == nullptr) {
+      _NormalDisplacement->SetName("NormalDisplacement");
+    }
     int i;
     for (i = 0; i < modelPD->GetNumberOfArrays(); ++i) {
       if (modelPD->GetArray(i) == _NormalDisplacement) break;
     }
     if (i == modelPD->GetNumberOfArrays()) {
+      modelPD->RemoveArray(_NormalDisplacement->GetName());
       modelPD->AddArray(_NormalDisplacement);
     }
   }
@@ -280,9 +310,6 @@ double EulerMethod::Run()
 {
   // Initialize
   this->Initialize();
-
-  // Initial remeshing of input point set
-  this->RemeshModel();
 
   // Initial update of deformable surface model before start event because
   // the update can trigger some lazy initialization which in turn may
@@ -302,9 +329,6 @@ double EulerMethod::Run()
     // Notify observers about start of iteration
     Broadcast(IterationStartEvent, &step);
 
-    // Perform local adaptive remeshing
-    if (step.Iter() > 1) this->RemeshModel();
-
     // Compute (negative) node forces
     _Model->Gradient(_Gradient);
 
@@ -312,13 +336,18 @@ double EulerMethod::Run()
     this->UpdateDisplacement();
 
     // Perform time step
-    _LastDelta = _Model->Step(_Displacement);
+    _LastDelta = _Model->Step(static_cast<double *>(_Displacement->GetVoidPointer(0)));
     if (_LastDelta <= _Delta) break;
-    _Model->Update(true);
 
     // Track node displacement in normal direction
     // (e.g., sulcal depth measure during cortical surface inflation)
     this->UpdateNormalDisplacement();
+
+    // Perform local adaptive remeshing
+    this->RemeshModel();
+
+    // Update model terms
+    _Model->Update(true);
 
     // Test stopping criteria
     //
@@ -328,7 +357,12 @@ double EulerMethod::Run()
     // external forces are infinite and hence the total energy value.
     const double prev = value;
     if (!IsInf(prev)) value = _Model->Value();
-    if (Converged(step.Iter(), prev, value, _Displacement)) break;
+    if (Converged(step.Iter(), prev, value,
+                  // Attention: Different _Displacement array as right after
+                  //            UpdateDisplacement when model was remeshed!
+                  static_cast<double *>(_Displacement->GetVoidPointer(0)))) {
+      break;
+    }
 
     // Notify observers about end of iteration
     Broadcast(IterationEndEvent, &step);
@@ -347,13 +381,16 @@ double EulerMethod::Run()
 void EulerMethod::RemeshModel()
 {
   if (_Model->Remesh()) {
-    _Model->Update(true);
+    //_Model->Update(true);
     if (_Model->NumberOfDOFs() > _NumberOfDOFs) {
       Deallocate(_Gradient);
-      Deallocate(_Displacement);
       _NumberOfDOFs = _Model->NumberOfDOFs();
-      Allocate(_Gradient,     _NumberOfDOFs);
-      Allocate(_Displacement, _NumberOfDOFs);
+      Allocate(_Gradient, _NumberOfDOFs);
+    }
+    vtkPointData * const modelPD = _Model->Output()->GetPointData();
+    _Displacement = modelPD->GetArray(_Displacement->GetName());
+    if (_NormalDisplacement) {
+      _NormalDisplacement = modelPD->GetArray(_NormalDisplacement->GetName());
     }
   }
 }
@@ -397,10 +434,11 @@ void EulerMethod::TruncateDisplacement(bool force)
 void EulerMethod::UpdateNormalDisplacement()
 {
   if (_NormalDisplacement && IsSurfaceMesh(_Model->Output())) {
-    double m, n[3], *dx = _Displacement;
-    vtkDataArray *normals = _Model->PointSet().SurfaceNormals();
-    for (int ptId = 0; ptId < _Model->NumberOfPoints(); ++ptId, dx += 3) {
+    double m, n[3], dx[3];
+    vtkDataArray * const normals = _Model->PointSet().SurfaceNormals();
+    for (int ptId = 0; ptId < _Model->NumberOfPoints(); ++ptId) {
       normals->GetTuple(ptId, n);
+      _Displacement->GetTuple(ptId, dx);
       m  = _NormalDisplacement->GetComponent(ptId, 0);
       m += dx[0]*n[0] + dx[1]*n[1] + dx[2]*n[2];
       _NormalDisplacement->SetComponent(ptId, 0, m);

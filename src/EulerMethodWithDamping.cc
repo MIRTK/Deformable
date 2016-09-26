@@ -47,7 +47,7 @@ class ComputeDisplacements
 {
   const double *_Gradient;
   vtkDataArray *_Velocity;
-  double       *_Displacement;
+  vtkDataArray *_Displacement;
   double        _DampingFactor;
   double        _BodyMass;
   double        _StepLength;
@@ -55,7 +55,7 @@ class ComputeDisplacements
 
 public:
 
-  ComputeDisplacements(double *dx, vtkDataArray *v, const double *gradient,
+  ComputeDisplacements(vtkDataArray *dx, vtkDataArray *v, const double *gradient,
                        double damping, double mass, double dt, double norm)
   :
     _Gradient(gradient),
@@ -69,12 +69,11 @@ public:
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double v[3];
+    double v[3], d[3];
     const double s1 = -_StepLength / (_BodyMass * _GradientNorm);
     const double s2 =  _StepLength * _DampingFactor / _BodyMass;
     const double *g = _Gradient     + 3 * ptIds.begin();
-    double       *d = _Displacement + 3 * ptIds.begin();
-    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, g += 3, d += 3) {
+    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, g += 3) {
       _Velocity->GetTuple(ptId, v);
       v[0] += s1 * g[0] - s2 * v[0];
       v[1] += s1 * g[1] - s2 * v[1];
@@ -83,6 +82,7 @@ public:
       d[0] = v[0] * _StepLength;
       d[1] = v[1] * _StepLength;
       d[2] = v[2] * _StepLength;
+      _Displacement->SetTuple(ptId, d);
     }
   }
 };

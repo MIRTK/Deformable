@@ -48,19 +48,17 @@ namespace EulerMethodWithMomentumUtils {
 class ComputeDisplacements
 {
   const double *_Gradient;
-  vtkDataArray *_PreviousDisplacement;
-  double       *_Displacement;
+  vtkDataArray *_Displacement;
   double        _Momentum;
   double        _Maximum;
   double        _StepLength;
 
 public:
 
-  ComputeDisplacements(double *dx, vtkDataArray *odx, const double *gradient,
+  ComputeDisplacements(vtkDataArray *dx, const double *gradient,
                        double momentum, double max_dx, double dt, double norm)
   :
     _Gradient(gradient),
-    _PreviousDisplacement(odx),
     _Displacement(dx),
     _Momentum(momentum),
     _Maximum(max_dx * max_dx),
@@ -69,11 +67,10 @@ public:
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double norm;
-    const double *g = _Gradient     + 3 * ptIds.begin();
-    double       *d = _Displacement + 3 * ptIds.begin();
-    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, g += 3, d += 3) {
-      _PreviousDisplacement->GetTuple(ptId, d);
+    double norm, d[3];
+    const double *g = _Gradient + 3 * ptIds.begin();
+    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId, g += 3) {
+      _Displacement->GetTuple(ptId, d);
       d[0] = _StepLength * g[0] + _Momentum * d[0];
       d[1] = _StepLength * g[1] + _Momentum * d[1];
       d[2] = _StepLength * g[2] + _Momentum * d[2];
@@ -82,7 +79,7 @@ public:
         norm = sqrt(_Maximum / norm);
         d[0] *= norm, d[1] *= norm, d[2] *= norm;
       }
-      _PreviousDisplacement->SetTuple(ptId, d);
+      _Displacement->SetTuple(ptId, d);
     }
   }
 };
@@ -175,29 +172,8 @@ void EulerMethodWithMomentum::Initialize()
   // Initialize base class
   EulerMethod::Initialize();
 
-  // Get model point data
-  vtkPointData *modelPD = _Model->Output()->GetPointData();
-
-  // Add point data array with initial node displacements such that these
-  // are interpolated at new node positions during the remeshing
-  //
-  // An initial node "Displacement" can also be provided as input
-  // (e.g., from a previous Euler integration with different parameters).
-  vtkSmartPointer<vtkDataArray> displacement;
-  displacement = modelPD->GetArray("Displacement");
-  if (!displacement) {
-    displacement = vtkSmartPointer<vtkFloatArray>::New();
-    displacement->SetName("Displacement");
-    displacement->SetNumberOfComponents(3);
-    displacement->SetNumberOfTuples(_Model->NumberOfPoints());
-    displacement->FillComponent(0, .0);
-    displacement->FillComponent(1, .0);
-    displacement->FillComponent(2, .0);
-    modelPD->AddArray(displacement);
-  }
-
   // Limit momentum factor to the interval [0, 1]
-  _Momentum = max(.0, min(_Momentum, 1.0));
+  _Momentum = max(0., min(_Momentum, 1.));
 }
 
 // -----------------------------------------------------------------------------
@@ -206,11 +182,7 @@ void EulerMethodWithMomentum::UpdateDisplacement()
   double norm   = this->GradientNorm();
   double max_dx = _MaximumDisplacement;
   if (max_dx <= .0) max_dx = _NormalizeStepLength ? _StepLength : 1.0;
-
-  vtkPointData *modelPD      = _Model->Output()->GetPointData();
-  vtkDataArray *displacement = modelPD->GetArray("Displacement");
-  ComputeDisplacements eval(_Displacement, displacement, _Gradient,
-                            _Momentum, max_dx, _StepLength, norm);
+  ComputeDisplacements eval(_Displacement, _Gradient, _Momentum, max_dx, _StepLength, norm);
   parallel_for(blocked_range<int>(0, _Model->NumberOfPoints()), eval);
 }
 

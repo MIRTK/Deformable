@@ -69,14 +69,14 @@ class EulerMethod : public LocalOptimizer
   /// when _NormalizeStepLength is \c false. The default value is 1 [mm].
   mirtkPublicAttributeMacro(double, MaximumDisplacement);
 
+  /// Point data array of current node displacement
+  mirtkPublicAttributeMacro(vtkSmartPointer<vtkDataArray>, Displacement);
+
   /// Point data array used to track node displacement in normal direction (optional)
   mirtkPublicAttributeMacro(vtkSmartPointer<vtkDataArray>, NormalDisplacement);
 
   /// Current negated force acting on each node
   mirtkReadOnlyComponentMacro(double, Gradient);
-
-  /// Current displacement of each node
-  mirtkReadOnlyComponentMacro(double, Displacement);
 
   /// Last maximum node displacement
   mirtkReadOnlyAttributeMacro(double, LastDelta);

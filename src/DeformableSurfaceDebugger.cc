@@ -27,8 +27,6 @@
 
 #include "vtkSmartPointer.h"
 #include "vtkPointSet.h"
-#include "vtkPointData.h"
-#include "vtkFloatArray.h"
 
 
 namespace mirtk {
@@ -84,29 +82,10 @@ void DeformableSurfaceDebugger::HandleEvent(Observable *obj, Event event, const 
         snprintf(suffix, sz, "_%03d", _Iteration);
         _Model->WriteGradient(_Prefix.c_str(), suffix);
         if (euler) {
-          vtkSmartPointer<vtkPointSet> model;
-          model.TakeReference(_Model->Output()->NewInstance());
-          model->ShallowCopy(_Model->Output());
-          vtkSmartPointer<vtkFloatArray> gradient;
-          gradient = vtkSmartPointer<vtkFloatArray>::New();
-          gradient->SetName("Displacement");
-          gradient->SetNumberOfComponents(3);
-          gradient->SetNumberOfTuples(model->GetNumberOfPoints());
-          model->GetPointData()->AddArray(gradient);
-          const double *dx = euler->Displacement();
-          for (vtkIdType ptId = 0; ptId < model->GetNumberOfPoints(); ++ptId, dx += 3) {
-            // Note: At this point the displacement is already added to the
-            //       model point positions. Hence, visualize the inverse
-            //       displacement which would change the geometry back to
-            //       the state at the end of the previous iteration.
-            gradient->SetComponent(ptId, 0, -dx[0]);
-            gradient->SetComponent(ptId, 1, -dx[1]);
-            gradient->SetComponent(ptId, 2, -dx[2]);
-          }
           const int sz = 1024;
           char fname[sz];
           snprintf(fname, sz, "%sgradient%s.vtp", _Prefix.c_str(), suffix);
-          WritePointSet(fname, model);
+          WritePointSet(fname, _Model->Output());
         }
       }
     } break;

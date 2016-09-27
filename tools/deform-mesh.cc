@@ -30,6 +30,8 @@
 #include "mirtk/Transformation.h"
 #include "mirtk/BSplineFreeFormTransformation3D.h"
 #include "mirtk/BSplineFreeFormTransformationSV.h"
+#include "mirtk/NearestNeighborInterpolateImageFunction.h"
+#include "mirtk/LinearInterpolateImageFunction.h"
 
 // Deformable surface model / parameterization
 #include "mirtk/DeformableSurfaceModel.h"
@@ -358,6 +360,46 @@ void PrintHelp(const char *name)
 // =============================================================================
 // Auxiliaries
 // =============================================================================
+
+// -----------------------------------------------------------------------------
+/// Resample mask
+void ResampleMask(BinaryImage &mask, const ImageAttributes &attr)
+{
+  const BinaryImage input(mask);
+  GenericNearestNeighborInterpolateImageFunction<BinaryImage> nn;
+  nn.Input(&input);
+  nn.Initialize();
+  mask.Initialize(attr, 1);
+  double x, y, z;
+  for (int k = 0; k < mask.Z(); ++k)
+  for (int j = 0; j < mask.Y(); ++j)
+  for (int i = 0; i < mask.X(); ++i) {
+    x = i, y = j, z = k;
+    mask.ImageToWorld(x, y, z);
+    nn  .WorldToImage(x, y, z);
+    mask(i, j, k) = nn.Evaluate(x, y, z);
+  }
+}
+
+// -----------------------------------------------------------------------------
+/// Resample image
+void ResampleImage(RealImage &image, const ImageAttributes &attr)
+{
+  const RealImage input(image);
+  GenericLinearInterpolateImageFunction<RealImage> func;
+  func.Input(&input);
+  func.Initialize();
+  image.Initialize(attr, 1);
+  double x, y, z;
+  for (int k = 0; k < image.Z(); ++k)
+  for (int j = 0; j < image.Y(); ++j)
+  for (int i = 0; i < image.X(); ++i) {
+    x = i, y = j, z = k;
+    image.ImageToWorld(x, y, z);
+    func.WorldToImage(x, y, z);
+    image(i, j, k) = func.Evaluate(x, y, z);
+  }
+}
 
 // -----------------------------------------------------------------------------
 /// Get parameter for current level
@@ -844,7 +886,7 @@ int main(int argc, char *argv[])
     else if (OPTION("-distance")) {
       PARSE_ARGUMENT(distance.Weight());
     }
-    else if (OPTION("-distance-maximum") || OPTION("-distance-max")) {
+    else if (OPTION("-distance-maximum") || OPTION("-distance-max") || OPTION("-distance-max-depth")) {
       PARSE_ARGUMENT(distance.MaxDistance());
     }
     else if (OPTION("-distance-maximum-threshold") || OPTION("-distance-max-threshold")) {
@@ -930,7 +972,10 @@ int main(int argc, char *argv[])
     else if (OPTION("-edge-distance-max-intensity")) {
       PARSE_ARGUMENT(dedges.MaxIntensity());
     }
-    else if (OPTION("-edge-distance-maximum")) {
+    else if (OPTION("-edge-distance-min-gradient")) {
+      PARSE_ARGUMENT(dedges.MinGradient());
+    }
+    else if (OPTION("-edge-distance-max-depth") || OPTION("-edge-distance-maximum")) {
       PARSE_ARGUMENT(dedges.MaxDistance());
     }
     else if (OPTION("-edge-distance-median")) {
@@ -1272,17 +1317,27 @@ int main(int argc, char *argv[])
     }
   }
 
-  // Read input image
+  // Common image attributes
   const bool force_update = true; // named variable for better readability
+  ImageAttributes attr;
 
+  // Read input image
   RealImage input_image;
+  BinaryImage image_mask;
   RegisteredImage image;
   if (image_name) {
     input_image.Read(image_name);
+    attr = input_image.Attributes();
     input_image.PutBackgroundValueAsDouble(padding, true);
-    if (mask_name) input_image.PutMask(new BinaryImage(mask_name), true);
+    if (mask_name) {
+      image_mask.Read(mask_name);
+      if (!image_mask.Attributes().EqualInSpace(attr)) {
+        ResampleMask(image_mask, attr);
+      }
+      input_image.PutMask(&image_mask);
+    }
     image.InputImage(&input_image);
-    image.Initialize(input_image.Attributes());
+    image.Initialize(attr);
     image.Update(true, false, false, force_update);
     image.SelfUpdate(false);
     model.Image(&image);
@@ -1293,8 +1348,15 @@ int main(int argc, char *argv[])
   RegisteredImage dmap;
   if (dmap_name) {
     input_dmap.Read(dmap_name);
+    if (attr) {
+      if (!input_dmap.Attributes().EqualInSpace(attr)) {
+        ResampleImage(input_dmap, attr);
+      }
+    } else {
+      attr = input_dmap.Attributes();
+    }
     dmap.InputImage(&input_dmap);
-    dmap.Initialize(input_dmap.Attributes());
+    dmap.Initialize(attr);
     dmap.Update(true, false, false, force_update);
     dmap.SelfUpdate(false);
     model.ImplicitSurface(&dmap);
@@ -1305,6 +1367,9 @@ int main(int argc, char *argv[])
   RegisteredImage dmag;
   if (dmag_name) {
     input_dmag.Read(dmag_name);
+    if (attr && !input_dmag.Attributes().EqualInSpace(attr)) {
+      ResampleImage(input_dmag, attr);
+    }
     dmag.InputImage(&input_dmag);
     dmag.Initialize(input_dmag.Attributes());
     dmag.Update(true, false, false, force_update);
@@ -1318,6 +1383,9 @@ int main(int argc, char *argv[])
   BinaryImage balloon_mask;
   if (balloon_mask_name) {
     balloon_mask.Read(balloon_mask_name);
+    if (attr && !balloon_mask.Attributes().EqualInSpace(attr)) {
+      ResampleMask(balloon_mask, attr);
+    }
     balloon.ForegroundMask(&balloon_mask);
   }
 

@@ -1445,6 +1445,17 @@ int main(int argc, char *argv[])
     }
   }
 
+  if (reset_status) {
+    vtkDataArray * const status = outputPD->GetArray("Status");
+    if (status) {
+      vtkSmartPointer<vtkDataArray> initial;
+      initial.TakeReference(status->NewInstance());
+      initial->DeepCopy(status);
+      initial->SetName("Initial Status");
+      outputPD->AddArray(initial);
+    }
+  }
+
   // Add point data array to keep track of node displacment in normal direction
   // (i.e., sulcal depth measure in case of surface -inflation)
   if (track_name) {
@@ -1532,8 +1543,16 @@ int main(int argc, char *argv[])
 
     // Stopping criteria
     if (reset_status) {
-      vtkDataArray *status = model.Output()->GetPointData()->GetArray("Status");
-      if (status) status->FillComponent(0, 1.0);
+      vtkPointSet  * const output = model.Output();
+      vtkDataArray * const status = output->GetPointData()->GetArray("Status");
+      if (status) {
+        vtkDataArray * const initial = output->GetPointData()->GetArray("Initial Status");
+        if (initial) {
+          status->CopyComponent(0, initial, 0);
+        } else {
+          status->FillComponent(0, 1.);
+        }
+      }
     }
     min_active.Threshold(ParameterValue(level, nlevels, min_active_thres, 0.));
 

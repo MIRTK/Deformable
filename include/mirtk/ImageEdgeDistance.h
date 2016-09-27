@@ -41,14 +41,15 @@ public:
   /// Enumeration of edge force modes based on directional derivative of image intensities
   enum EdgeType
   {
-    Extremum,           ///< Attract points to closest extrema of same sign
-    ClosestMinimum,     ///< Attract points to closest minima
-    ClosestMaximum,     ///< Attract points to closest maxima
-    ClosestExtremum,    ///< Attract points to closest extrema
-    StrongestMinimum,   ///< Attract points to strongest minima
-    StrongestMaximum,   ///< Attract points to strongest maxima
-    StrongestExtremum,  ///< Attract points to strongest extrema
-    T2_WM_cGM_Boundary  ///< T2-weighted MRI WM/cGM boundary edges (neonatal age)
+    Extremum,             ///< Attract points to closest extrema of same sign
+    ClosestMinimum,       ///< Attract points to closest minima
+    ClosestMaximum,       ///< Attract points to closest maxima
+    ClosestExtremum,      ///< Attract points to closest extrema
+    StrongestMinimum,     ///< Attract points to strongest minima
+    StrongestMaximum,     ///< Attract points to strongest maxima
+    StrongestExtremum,    ///< Attract points to strongest extrema
+    NeonatalWhiteSurface, ///< T2-weighted MRI  WM/cGM edge at neonatal age
+    NeonatalPialSurface   ///< T2-weighted MRI cGM/CSF edge at neonatal age
   };
 
   // ---------------------------------------------------------------------------
@@ -67,6 +68,9 @@ private:
 
   /// Maximum object intensity value
   mirtkPublicAttributeMacro(double, MaxIntensity);
+
+  /// Minimum image edge gradient magnitude
+  mirtkPublicAttributeMacro(double, MinGradient);
 
   /// Maximum edge point distance
   mirtkPublicAttributeMacro(double, MaxDistance);

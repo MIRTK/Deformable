@@ -69,6 +69,7 @@ struct ComputeDistances
   double           _Padding;
   double           _MinIntensity;
   double           _MaxIntensity;
+  double           _MinGradient;
   double           _MaxDistance;
   double           _StepLength;
 
@@ -117,20 +118,15 @@ struct ComputeDistances
     const int k  = static_cast<int>(g.size());
     const int i0 = (k - 1) / 2;
 
-    int i1 = i0, i2 = i0;
-    if (IsNaN(g[i0])) {
-      while (i1 < k - 2 && IsNaN(g[i1])) ++i1;
-      while (i2 > 1     && IsNaN(g[i2])) --i2;
-      if (abs(i0 - i1) <= abs(i0 - i2)) {
-        i2 = i1;
-      } else {
-        i1 = i2;
-      }
-    }
-    while (i1 < k - 2 && g[i1] > g[i1+1]) ++i1;
-    while (i2 > 1     && g[i2] > g[i2-1]) --i2;
+    auto i1 = i0;
+    while (i1 < k - 1 && IsNaN(g[i1]))    ++i1;
+    while (i1 < k - 1 && g[i1] > g[i1+1]) ++i1;
 
-    return (g[i2] < g[i1] ? i2 : i1);
+    auto i2 = i0;
+    while (i2 > 0 && IsNaN(g[i2]))    --i2;
+    while (i2 > 0 && g[i2] > g[i2-1]) --i2;
+
+    return (g[i2] > g[i1] ? i2 : i1);
   }
 
   // ---------------------------------------------------------------------------
@@ -139,19 +135,13 @@ struct ComputeDistances
     const int k  = static_cast<int>(g.size());
     const int i0 = (k - 1) / 2;
 
-    int i1 = i0, i2 = i0;
-    if (IsNaN(g[i0])) {
-      while (i1 < k - 2 && IsNaN(g[i1])) ++i1;
-      while (i2 > 1     && IsNaN(g[i2])) --i2;
-      if (abs(i0 - i1) <= abs(i0 - i2)) {
-        i2 = i1;
-      } else {
-        i1 = i2;
-      }
-    }
+    auto i1 = i0;
+    while (i1 < k - 1 && IsNaN(g[i1]))    ++i1;
+    while (i1 < k - 1 && g[i1] < g[i1+1]) ++i1;
 
-    while (i1 < k - 2 && g[i1] < g[i1+1]) ++i1;
-    while (i2 > 1     && g[i2] < g[i2-1]) --i2;
+    auto i2 = i0;
+    while (i2 > 0 && IsNaN(g[i2]))    --i2;
+    while (i2 > 0 && g[i2] < g[i2-1]) --i2;
 
     return (g[i2] > g[i1] ? i2 : i1);
   }
@@ -162,15 +152,19 @@ struct ComputeDistances
     const int k  = static_cast<int>(g.size());
     const int i0 = (k - 1) / 2;
 
-    int i = i0;
-    for (int j = i0 + 1; j < k; ++j) {
-      if (g[j] < g[i]) i = j;
-    }
-    for (int j = i0 - 1; j >= 0; --j) {
-      if (g[j] < g[i]) i = j;
+    auto i1 = i0;
+    while (i1 < k - 1 && IsNaN(g[i1])) ++i1;
+    for (auto i = i1 + 1; i < k; ++i) {
+      if (g[i] < g[i1]) i1 = i;
     }
 
-    return i;
+    auto i2 = i0;
+    while (i2 > 0 && IsNaN(g[i2])) --i2;
+    for (auto i = i2 - 1; i >= 0; --i) {
+      if (g[i] < g[i2]) i2 = i;
+    }
+
+    return (g[i2] < g[i1] ? i2 : i1);
   }
 
   // ---------------------------------------------------------------------------
@@ -179,43 +173,85 @@ struct ComputeDistances
     const int k  = static_cast<int>(g.size());
     const int i0 = (k - 1) / 2;
 
-    int i = i0;
-    for (int j = i0 + 1; j < k; ++j) {
-      if (g[j] > g[i]) i = j;
-    }
-    for (int j = i0 - 1; j >= 0; --j) {
-      if (g[j] > g[i]) i = j;
+    auto i1 = i0;
+    while (i1 < k - 1 && IsNaN(g[i1])) ++i1;
+    for (auto i = i1 + 1; i < k; ++i) {
+      if (g[i] > g[i1]) i1 = i;
     }
 
-    return i;
+    auto i2 = i0;
+    while (i2 > 0 && IsNaN(g[i2])) --i2;
+    for (auto i = i2 - 1; i >= 0; --i) {
+      if (g[i] < g[i2]) i2 = i;
+    }
+
+    return (g[i2] > g[i1] ? i2 : i1);
   }
 
   // ---------------------------------------------------------------------------
-  inline int WhiteMatterBoundaryT2(const Array<double> &g) const
+  /// Find image edge of WM/cGM boundary in T2-weighted MRI of neonatal brain
+  ///
+  /// The initial surface for the deformation process is the white surface
+  /// obtained by deforming a sphere/convex hull towards the white matter
+  /// tissue segmentation mask. The surface thus is close to the target boundary
+  /// and should only be refined using this force.
+  inline int NeonatalWhiteSurface(const Array<double> &g) const
   {
     const int k  = static_cast<int>(g.size());
     const int i0 = (k - 1) / 2;
 
     int i, j, i1, i2;
-    const double min_threshold = -5.;
-    const double max_threshold =  5.;
+    const double g1 = -_MinGradient;
+    const double g2 = +_MinGradient;
 
     i = i0;
     while (i < k - 2 && IsNaN(g[i])) ++i;
-    while (i < k - 2 && ((min_threshold <= g[i] && g[i] <= max_threshold) || g[i] >= g[i+1])) ++i;
+    while (i < k - 2 && ((g1 <= g[i] && g[i] <= g2) || g[i] >= g[i+1])) ++i;
     j = i + 1;
     while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
-    i1 = (g[i] < min_threshold && g[j] > 0. ? i : -1);
+    i1 = (g[i] < g1 && g[j] > 0. ? i : -1);
 
     i = i0;
     while (i > 1 && IsNaN(g[i])) --i;
-    while (i > 1 && ((min_threshold <= g[i] && g[i] <= max_threshold) || g[i] >= g[i-1])) --i;
+    while (i > 1 && ((g1 <= g[i] && g[i] <= g2) || g[i] >= g[i-1])) --i;
     j = i + 1;
     while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
-    i2 = (g[i] < min_threshold && g[j] > 0. ? i : -1);
+    i2 = (g[i] < g1 && g[j] > 0. ? i : -1);
 
     if (i1 != -1 && i2 != -1) {
       return (g[i2] < g[i1] ? i2 : i1);
+    } else if (i1 != -1) {
+      return i1;
+    } else if (i2 != -1) {
+      return i2;
+    } else {
+      return i0;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Find image edge of cGM/CSF boundary in T2-weighted MRI of neonatal brain
+  ///
+  /// The initial surface for the deformation process is the white surface
+  /// delineating the WM/cGM boundary. The image foreground (mask) should
+  /// exclude the interior of this initial surface such that the pial surface
+  /// may only deform outwards from this initial surface mesh.
+  inline int NeonatalPialSurface(const Array<double> &g) const
+  {
+    const int k  = static_cast<int>(g.size());
+    const int i0 = (k - 1) / 2;
+
+    auto i = i0;
+    while (i < k - 1 && IsNaN(g[i])) ++i;
+    while (i < k - 1 && (g[i] <= _MinGradient || g[i] < g[i+1])) ++i;
+    const auto i1 = (g[i] > 0. ? i : -1);
+
+    i = i0;
+    while (i > 0 && (g[i] <= _MinGradient || g[i] < g[i-1])) --i;
+    const auto i2 = (g[i] > 0. ? i : -1);
+
+    if (i1 != -1 && i2 != -1) {
+      return (abs(i0 - i1) <= abs(i0 - i2) ? i1 : i2);
     } else if (i1 != -1) {
       return i1;
     } else if (i2 != -1) {
@@ -277,11 +313,14 @@ struct ComputeDistances
           j2 = StrongestMaximum(g);
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
         } break;
-        case ImageEdgeDistance::T2_WM_cGM_Boundary: {
-          j = WhiteMatterBoundaryT2(g);
+        case ImageEdgeDistance::NeonatalWhiteSurface: {
+          j = NeonatalWhiteSurface(g);
+        } break;
+        case ImageEdgeDistance::NeonatalPialSurface: {
+          j = NeonatalPialSurface(g);
         } break;
       }
-      // When intensity thresholds set, use it to ignore irrelevant edges
+      // When intensity thresholds set, use them to ignore irrelevant edges
       if (j != r && (!IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
         value = SampleIntensity(p, n, j, k);
         if (value < _MinIntensity || value > _MaxIntensity) {
@@ -429,8 +468,12 @@ bool FromString(const char *str, enum ImageEdgeDistance::EdgeType &value)
     value = ImageEdgeDistance::StrongestMaximum;
   } else if (lstr == "strongestextremum" || lstr == "strongest extremum") {
     value = ImageEdgeDistance::StrongestExtremum;
-  } else if (lstr == "t2 wm/cgm boundary") {
-    value = ImageEdgeDistance::T2_WM_cGM_Boundary;
+  } else if (lstr == "neonatal white surface" || lstr == "neonatal white" ||
+             lstr == "neonatal t2-w wm/cgm"   || lstr == "neonatal t2-w cgm/wm") {
+    value = ImageEdgeDistance::NeonatalWhiteSurface;
+  } else if (lstr == "neonatal pial surface" || lstr == "neonatal pial" ||
+             lstr == "neonatal t2-w cgm/csf" || lstr == "neonatal t2-w csf/cgm") {
+    value = ImageEdgeDistance::NeonatalPialSurface;
   } else {
     return false;
   }
@@ -443,14 +486,15 @@ string ToString(const enum ImageEdgeDistance::EdgeType &value, int w, char c, bo
 {
   const char *str;
   switch (value) {
-    case ImageEdgeDistance::Extremum:          { str = "Extremum"; } break;
-    case ImageEdgeDistance::ClosestMinimum:    { str = "ClosestMinimum"; } break;
-    case ImageEdgeDistance::ClosestMaximum:    { str = "ClosestMaximum"; } break;
-    case ImageEdgeDistance::ClosestExtremum:   { str = "ClosestExtremum"; } break;
-    case ImageEdgeDistance::StrongestMinimum:  { str = "StrongestMinimum"; } break;
-    case ImageEdgeDistance::StrongestMaximum:  { str = "StrongestMaximum"; } break;
-    case ImageEdgeDistance::StrongestExtremum: { str = "StrongestExtremum"; } break;
-    case ImageEdgeDistance::T2_WM_cGM_Boundary: { str = "T2 WM/cGM boundary"; } break;
+    case ImageEdgeDistance::Extremum:             { str = "Extremum"; } break;
+    case ImageEdgeDistance::ClosestMinimum:       { str = "ClosestMinimum"; } break;
+    case ImageEdgeDistance::ClosestMaximum:       { str = "ClosestMaximum"; } break;
+    case ImageEdgeDistance::ClosestExtremum:      { str = "ClosestExtremum"; } break;
+    case ImageEdgeDistance::StrongestMinimum:     { str = "StrongestMinimum"; } break;
+    case ImageEdgeDistance::StrongestMaximum:     { str = "StrongestMaximum"; } break;
+    case ImageEdgeDistance::StrongestExtremum:    { str = "StrongestExtremum"; } break;
+    case ImageEdgeDistance::NeonatalWhiteSurface: { str = "Neonatal T2-w WM/cGM"; } break;
+    case ImageEdgeDistance::NeonatalPialSurface:  { str = "Neonatal T2-w cGM/CSF"; } break;
   }
   return ToString(str, w, c, left);
 }
@@ -463,11 +507,15 @@ string ToString(const enum ImageEdgeDistance::EdgeType &value, int w, char c, bo
 void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
 {
   _EdgeType           = other._EdgeType;
+  _Padding            = other._Padding;
   _MinIntensity       = other._MinIntensity;
+  _MaxIntensity       = other._MaxIntensity;
+  _MinGradient        = other._MinGradient;
   _MaxDistance        = other._MaxDistance;
   _MedianFilterRadius = other._MedianFilterRadius;
   _DistanceSmoothing  = other._DistanceSmoothing;
   _MagnitudeSmoothing = other._MagnitudeSmoothing;
+  _StepLength         = other._StepLength;
 }
 
 // -----------------------------------------------------------------------------
@@ -477,11 +525,13 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _EdgeType(Extremum),
   _Padding(NaN),
   _MinIntensity(-inf),
-  _MaxIntensity(inf),
+  _MaxIntensity(+inf),
+  _MinGradient(0.),
   _MaxDistance(0.),
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
-  _MagnitudeSmoothing(2)
+  _MagnitudeSmoothing(2),
+  _StepLength(1.)
 {
   _ParameterPrefix.push_back("Image edge distance ");
   _ParameterPrefix.push_back("Intensity edge distance ");
@@ -533,6 +583,9 @@ bool ImageEdgeDistance::SetWithoutPrefix(const char *param, const char *value)
   if (strcmp(param, "Upper intensity threshold") == 0 || strcmp(param, "Upper intensity") == 0 || strcmp(param, "Maximum intensity") == 0) {
     return FromString(value, _MaxIntensity);
   }
+  if (strcmp(param, "Minimum gradient") == 0 || strcmp(param, "Minimum gradient magnitude") == 0) {
+    return FromString(value, _MinGradient);
+  }
   if (strcmp(param, "Median filtering") == 0 || strcmp(param, "Median filter radius") == 0) {
     return FromString(value, _MedianFilterRadius);
   }
@@ -557,6 +610,7 @@ ParameterList ImageEdgeDistance::Parameter() const
   InsertWithPrefix(params, "Intensity threshold",  _Padding);
   InsertWithPrefix(params, "Lower intensity",      _MinIntensity);
   InsertWithPrefix(params, "Upper intensity",      _MaxIntensity);
+  InsertWithPrefix(params, "Minimum gradient magnitude", _MinGradient);
   InsertWithPrefix(params, "Median filter radius", _MedianFilterRadius);
   InsertWithPrefix(params, "Smoothing iterations", _DistanceSmoothing);
   InsertWithPrefix(params, "Magnitude smoothing",  _MagnitudeSmoothing);
@@ -620,6 +674,7 @@ void ImageEdgeDistance::Update(bool gradient)
   eval._Padding      = _Padding;
   eval._MinIntensity = _MinIntensity;
   eval._MaxIntensity = _MaxIntensity;
+  eval._MinGradient  = _MinGradient;
   eval._MaxDistance  = _MaxDistance;
   eval._StepLength   = _StepLength;
   eval._EdgeType     = _EdgeType;

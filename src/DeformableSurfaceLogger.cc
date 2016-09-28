@@ -198,7 +198,6 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
       // one of the stopping criteria must have been fullfilled
       _NumberOfIterations = 0;
       _NumberOfSteps      = 0;
-      _Converged          = true;
     } break;
 
     // Start of line search given current gradient direction
@@ -280,7 +279,6 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
       }
       _NumberOfIterations = 0;
       _NumberOfSteps      = 0;
-      _Converged          = false;
       break;
     }
 
@@ -289,10 +287,6 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
         if (debug_time) os << "\nStep " << left << setw(3) << iter->Count() << "\n";
         else            os <<   "     " << setw(3) << iter->Count() << "   ";
       }
-      // If this event is followed by LineSearchEndEvent without a
-      // LineSearchIterationEndEvent before, one of the convergence
-      // criteria must have been fullfilled
-      _Converged = true;
       break;
 
     case AcceptedStepEvent:
@@ -321,7 +315,6 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
         os << "\n              Maximum number of iterations exceeded\n";
         if (_Color) os << xreset;
       }
-      _Converged = false;
       break;
     }
 
@@ -395,7 +388,6 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
         }
       }
       if (_NumberOfSteps == 0) _NumberOfSteps = 1; // no line search (cf. EulerMethod)
-      _Converged = false;
     } break;
 
     // Energy function modified after convergence and optimization restarted
@@ -408,10 +400,9 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
 
     // End of optimization
     case EndEvent: {
-      // IterationStartEvent followed directly by EndEvent (i.e. no line search used)
-      if (_Converged && _NumberOfSteps == 0 && _NumberOfIterations == 0) {
-        if (_Color) os << xboldblue;
-        PrintNumber(os, model->Value());
+      os << "\n";
+      if (optimizer->Converged()) {
+        os << "          ";
         if (_Color) os << xboldblack;
         if (eulermethod && eulermethod->LastDelta() <= eulermethod->Delta()) {
           os << "Minimum delta stopping criterion fulfilled";
@@ -424,7 +415,6 @@ void DeformableSurfaceLogger::HandleEvent(Observable *obj, Event event, const vo
         os << "\n";
         if (_Color) os << xreset;
       }
-      os << "\n";
       break;
     }
 

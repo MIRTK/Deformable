@@ -48,10 +48,9 @@ class DeformableSurfaceLogger : public Observer
   /// Whether to flush stream buffer after each printed message
   mirtkPublicAttributeMacro(bool, FlushBuffer);
 
-  bool _Converged;             ///< Track whether line search converged
-  int  _NumberOfIterations;    ///< Number of actual line search iterations
-  int  _NumberOfSteps;         ///< Number of iterative line search steps
-  int  _NumberOfGradientSteps; ///< Number of gradient descent steps
+  int _NumberOfIterations;    ///< Number of actual line search iterations
+  int _NumberOfSteps;         ///< Number of iterative line search steps
+  int _NumberOfGradientSteps; ///< Number of gradient descent steps
 
   // ---------------------------------------------------------------------------
   // Construction/Destruction

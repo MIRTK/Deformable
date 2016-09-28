@@ -308,6 +308,8 @@ void EulerMethod::Initialize()
 // -----------------------------------------------------------------------------
 double EulerMethod::Run()
 {
+  double *dx;
+
   // Initialize
   this->Initialize();
 
@@ -323,8 +325,9 @@ double EulerMethod::Run()
   double value = _Model->Value();
 
   // Perform explicit integration steps
+  _Converged = false;
   Iteration step(0, _NumberOfSteps);
-  while (step.Next()) {
+  while (!_Converged && step.Next()) {
 
     // Notify observers about start of iteration
     Broadcast(IterationStartEvent, &step);
@@ -334,9 +337,10 @@ double EulerMethod::Run()
 
     // Update current node displacements
     this->UpdateDisplacement();
+    dx = static_cast<double *>(_Displacement->GetVoidPointer(0));
 
     // Perform time step
-    _LastDelta = _Model->Step(static_cast<double *>(_Displacement->GetVoidPointer(0)));
+    _LastDelta = _Model->Step(dx);
     if (_LastDelta <= _Delta) break;
 
     // Track node displacement in normal direction
@@ -344,7 +348,9 @@ double EulerMethod::Run()
     this->UpdateNormalDisplacement();
 
     // Perform local adaptive remeshing
-    this->RemeshModel();
+    if (this->RemeshModel()) {
+      dx = static_cast<double *>(_Displacement->GetVoidPointer(0));
+    }
 
     // Update model terms
     _Model->Update(true);
@@ -357,12 +363,7 @@ double EulerMethod::Run()
     // external forces are infinite and hence the total energy value.
     const double prev = value;
     if (!IsInf(prev)) value = _Model->Value();
-    if (Converged(step.Iter(), prev, value,
-                  // Attention: Different _Displacement array as right after
-                  //            UpdateDisplacement when model was remeshed!
-                  static_cast<double *>(_Displacement->GetVoidPointer(0)))) {
-      break;
-    }
+    _Converged = Converged(step.Iter(), prev, value, dx);
 
     // Notify observers about end of iteration
     Broadcast(IterationEndEvent, &step);
@@ -378,10 +379,9 @@ double EulerMethod::Run()
 }
 
 // -----------------------------------------------------------------------------
-void EulerMethod::RemeshModel()
+bool EulerMethod::RemeshModel()
 {
   if (_Model->Remesh()) {
-    //_Model->Update(true);
     if (_Model->NumberOfDOFs() > _NumberOfDOFs) {
       Deallocate(_Gradient);
       _NumberOfDOFs = _Model->NumberOfDOFs();
@@ -392,7 +392,9 @@ void EulerMethod::RemeshModel()
     if (_NormalDisplacement) {
       _NormalDisplacement = modelPD->GetArray(_NormalDisplacement->GetName());
     }
+    return true;
   }
+  return false;
 }
 
 // -----------------------------------------------------------------------------

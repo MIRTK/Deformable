@@ -129,7 +129,7 @@ public:
 protected:
 
   /// Perform local adaptive remeshing (optional)
-  virtual void RemeshModel();
+  virtual bool RemeshModel();
 
   /// Get node force normalization factor
   virtual double GradientNorm() const;

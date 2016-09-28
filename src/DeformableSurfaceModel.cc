@@ -25,6 +25,7 @@
 #include "mirtk/Memory.h"
 #include "mirtk/Parallel.h"
 #include "mirtk/Profiling.h"
+#include "mirtk/Triangle.h"
 
 #include "mirtk/Vtk.h"
 #include "mirtk/VtkMath.h"
@@ -1610,8 +1611,41 @@ void DeformableSurfaceModel
 {
   MIRTK_START_TIMING();
 
-  const int fix_attempt =  2; // No. of attempts displacement is halfed
-  const int max_attempt = 10; // Maximum no. of attempts to enforce constraints
+  const int    fix_attempt      =  2; // No. of attempts displacement is halfed
+  const int    max_attempt      = 10; // Maximum no. of attempts to fix collisions
+  const double col_check_radius = 1.1; // Collided triangle bounding sphere radius factor
+  const double min_check_radius = 1.1 * max(mind, minw); // Minimum collision re-check radius
+
+  vtkPolyData  * const current = _PointSet.Surface();
+  vtkDataArray * const status  = _PointSet.SurfaceStatus();
+
+  vtkNew<vtkIdList> cellIds;
+  vtkIdType         npts, *pts;
+  double            a[3], b[3], c[3], p[3], bounds[6], r, *d, alpha;
+
+  vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
+  points->SetNumberOfPoints(current->GetNumberOfPoints());
+
+  vtkSmartPointer<vtkDataArray> mask = vtkSmartPointer<vtkUnsignedCharArray>::New();
+  mask->SetName("CollisionsMask");
+  mask->SetNumberOfComponents(1);
+  mask->SetNumberOfTuples(current->GetNumberOfCells());
+  mask->FillComponent(0, 1.);
+
+  vtkSmartPointer<vtkDataArray> scale = vtkSmartPointer<vtkFloatArray>::New();
+  scale->SetName("DisplacementScale");
+  scale->SetNumberOfComponents(1);
+  scale->SetNumberOfTuples(current->GetNumberOfPoints());
+
+  vtkSmartPointer<vtkPolyData> surface = vtkSmartPointer<vtkPolyData>::New();
+  surface->ShallowCopy(current);
+  surface->SetPoints(points);
+  surface->GetPointData()->AddArray(scale);
+  surface->GetCellData ()->AddArray(mask);
+
+  vtkNew<vtkCellLocator> locator;
+  locator->SetDataSet(current);
+  locator->BuildLocator();
 
   SurfaceCollisions check;
   check.AdjacentIntersectionTest(nsi);
@@ -1625,129 +1659,86 @@ void DeformableSurfaceModel
   check.MaxSearchRadius(2. * _MaxEdgeLength);
   check.StoreIntersectionDetailsOff();
   check.StoreCollisionDetailsOff();
-
-  vtkDataArray * const status = _PointSet.SurfaceStatus();
-
-  vtkIdType      npts, *pts, *cells;
-  unsigned short ncells;
-  double         alpha;
-
-  vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
-  points->SetNumberOfPoints(_PointSet.Surface()->GetNumberOfPoints());
-
-  vtkSmartPointer<vtkDataArray> mask     = vtkSmartPointer<vtkUnsignedCharArray>::New();
-  vtkSmartPointer<vtkDataArray> prevmask = vtkSmartPointer<vtkUnsignedCharArray>::New();
-  mask->SetName("CollisionsMask");
-  mask->SetNumberOfComponents(1);
-  mask->SetNumberOfTuples(_PointSet.Surface()->GetNumberOfCells());
-
-  vtkSmartPointer<vtkDataArray> scale = vtkSmartPointer<vtkFloatArray>::New();
-  scale->SetName("DisplacementScale");
-  scale->SetNumberOfComponents(1);
-  scale->SetNumberOfTuples(_PointSet.Surface()->GetNumberOfPoints());
-
-  vtkSmartPointer<vtkPolyData> surface = vtkSmartPointer<vtkPolyData>::New();
-  surface->ShallowCopy(_PointSet.Surface());
-  surface->SetPoints(points);
-  surface->GetPointData()->AddArray(scale);
-  surface->GetCellData ()->AddArray(mask);
+  check.ResetCollisionTypeOn();
+  check.Input(surface);
+  check.Mask(mask);
 
   bool modified = true;
-  for (int attempt = 1; attempt <= max_attempt && modified; ++attempt) {
+  for (int attempt = 1; modified && attempt <= max_attempt; ++attempt) {
 
-    MovePoints::Run(_PointSet.Points(), dx, points);
-
-    if (attempt == 1) {
-      // Evaluate collisions for cells with active nodes only
-      if (status) {
-        vtkIdType npts, *pts;
-        for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
-          surface->GetCellPoints(cellId, npts, pts);
-          mask->SetComponent(cellId, 0, .0);
-          for (vtkIdType i = 0; i < npts; ++i) {
-            if (status->GetComponent(pts[i], 0) != .0) {
-              mask->SetComponent(cellId, 0, 1.0);
-              break;
-            }
-          }
-        }
-        // Enable use of mask to speed up re-evaluation of collisions
-        check.Mask(mask);
-      }
-    } else {
-      // Re-evaluate collisions only for collided cells...
-      mask->FillComponent(0, .0);
-      vtkDataArray *collisions = check.GetCollisionTypeArray();
+    // Re-evaluate collisions only for cells near previously detected collisions
+    if (attempt > 1) {
+      mask->FillComponent(0, 0.);
+      vtkDataArray * const collisions = check.GetCollisionTypeArray();
       for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
-        if (collisions->GetComponent(cellId, 0) != .0) {
-          mask->SetComponent(cellId, 0, 1.0);
-        }
-      }
-      // ...and neighoring cells
-      for (int n = 1; n <= 3; ++n) {
-        prevmask->DeepCopy(mask);
-        for (vtkIdType cellId = 0; cellId < mask->GetNumberOfTuples(); ++cellId) {
-          if (prevmask->GetComponent(cellId, 0) != .0) {
-            mask->SetComponent(cellId, 0, 1.0);
-          } else {
-            surface->GetCellPoints(cellId, npts, pts);
-            for (vtkIdType i = 0; i < npts; ++i) {
-              surface->GetPointCells(pts[i], ncells, cells);
-              for (unsigned short j = 0; j < ncells; ++j) {
-                if (prevmask->GetComponent(cells[j], 0) != .0) {
-                  mask->SetComponent(cellId, 0, 1.0);
-                  i = npts; // break outer loop
-                  break;
-                }
-              }
-            }
+        if (collisions->GetComponent(cellId, 0) != 0.) {
+          mask->SetComponent(cellId, 0, 1.);
+          current->GetCellPoints(cellId, npts, pts);
+          current->GetPoint(pts[0], a);
+          current->GetPoint(pts[1], b);
+          current->GetPoint(pts[2], c);
+          r = max(min_check_radius, col_check_radius * Triangle::BoundingSphereRadius(a, b, c, p));
+          bounds[0] = p[0] - r, bounds[1] = p[0] + r;
+          bounds[2] = p[1] - r, bounds[3] = p[1] + r;
+          bounds[4] = p[2] - r, bounds[5] = p[2] + r;
+          locator->FindCellsWithinBounds(bounds, cellIds.GetPointer());
+          for (vtkIdType i = 0; i < cellIds->GetNumberOfIds(); ++i) {
+            mask->SetComponent(cellIds->GetId(i), 0, 1.);
           }
         }
       }
-      // Enable use of mask to speed up re-evaluation of collisions
-      check.Mask(mask);
     }
 
-    check.Input(surface);
+    // Evaluate collisions only for cells with a non-zero vertex displacement
+    // as we cannot fix collisions for these cells by scaling the displacements
+    for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
+      if (mask->GetComponent(cellId, 0) != 0.) {
+        mask->SetComponent(cellId, 0, 0.);
+        current->GetCellPoints(cellId, npts, pts);
+        for (vtkIdType i = 0; i < npts; ++i) {
+          d = dx + 3 * pts[i];
+          if (d[0] != 0. || d[1] != 0. || d[2] != 0.) {
+            mask->SetComponent(cellId, 0, 1.);
+            break;
+          }
+        }
+      }
+    }
+
+    // Update surface points and (re-)check for collisions
+    MovePoints::Run(_PointSet.Points(), dx, points);
     check.Run();
 
-    // Add collisions array to deformable surface for debug output
+    // Add copy of collisions array to deformable surface for debug output
     // (before actually fixing the collisions as none should be left afterwards)
-    if (attempt == 1) {
-      vtkDataArray *collisions = check.GetCollisionTypeArray();
-      _PointSet.Surface()->GetCellData()->RemoveArray(collisions->GetName());
-      _PointSet.Surface()->GetCellData()->AddArray(collisions);
+    if (attempt == 1 && debug > 0) {
+      vtkSmartPointer<vtkDataArray> collisions;
+      collisions.TakeReference(check.GetCollisionTypeArray()->NewInstance());
+      collisions->DeepCopy(check.GetCollisionTypeArray());
+      current->GetCellData()->RemoveArray(collisions->GetName());
+      current->GetCellData()->AddArray(collisions);
     }
 
     // Set displacement scaling factor for points of collided cells
-    alpha = (attempt <= fix_attempt ? .5 : .0);
-    scale->FillComponent(0, 1.0);
+    alpha = (attempt <= fix_attempt ? .5 : 0.);
+    scale->FillComponent(0, 1.);
     for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
       if (check.GetCollisionType(cellId) != SurfaceCollisions::NoCollision) {
         surface->GetCellPoints(cellId, npts, pts);
         for (vtkIdType i = 0; i < npts; ++i) {
-          scale->SetComponent(pts[i], 0, alpha);
+          if (status == nullptr || status->GetComponent(pts[i], 0) != 0.) {
+            scale->SetComponent(pts[i], 0, alpha);
+          }
         }
       }
     }
-
-    // Smooth displacement scaling factors
-    #if 0 // Too expensive and possibly must be fixed to work properly
-      MeshSmoothing smoother;
-      smoother.Input(surface);
-      smoother.EdgeTable(_PointSet.Edges());
-      smoother.SmoothPointsOff();
-      smoother.SmoothArray(scale->GetName());
-      smoother.Weighting(MeshSmoothing::Combinatorial);
-      smoother.Run();
-    #endif
 
     // Adjust magnitude of displacement vectors
     double *d = dx;
     modified  = false;
     for (vtkIdType ptId = 0; ptId < surface->GetNumberOfPoints(); ++ptId, d += 3) {
-      alpha = max(scale->GetComponent(ptId, 0), .0);
-      if (alpha < 1.0 && (d[0] != .0 || d[1] != .0 || d[2] != .0)) {
+      alpha = max(scale->GetComponent(ptId, 0), 0.);
+      if (alpha < 1. && (d[0] != 0. || d[1] != 0. || d[2] != 0.)) {
         d[0] *= alpha, d[1] *= alpha, d[2] *= alpha;
         modified = true;
       }

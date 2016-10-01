@@ -84,6 +84,7 @@ static void RegisterInternalForces()
     mirtkRegisterEnergyTermMacro(RepulsiveForce);
     mirtkRegisterEnergyTermMacro(SpringForce);
     mirtkRegisterEnergyTermMacro(StretchingForce);
+    mirtkRegisterEnergyTermMacro(NormalForce);
   #endif
 }
 

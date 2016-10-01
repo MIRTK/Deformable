@@ -49,6 +49,7 @@ set(HEADERS
   MetricDistortion.h
   MinActiveStoppingCriterion.h
   NonSelfIntersectionConstraint.h
+  NormalForce.h
   PointSetForce.h
   QuadraticCurvatureConstraint.h
   RepulsiveForce.h
@@ -82,6 +83,7 @@ set(SOURCES
   MetricDistortion.cc
   MinActiveStoppingCriterion.cc
   NonSelfIntersectionConstraint.cc
+  NormalForce.cc
   PointSetForce.cc
   QuadraticCurvatureConstraint.cc
   RepulsiveForce.cc

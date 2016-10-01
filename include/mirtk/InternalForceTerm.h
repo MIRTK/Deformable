@@ -40,7 +40,8 @@ enum InternalForceTerm
   IFT_NonSelfIntersection = EM_NonSelfIntersection,
   IFT_Repulsion           = EM_RepulsiveForce,
   IFT_Inflation           = EM_InflationForce,
-  IFT_Spring              = EM_SpringForce
+  IFT_Spring              = EM_SpringForce,
+  IFT_Normal              = EM_NormalForce
 };
 
 // -----------------------------------------------------------------------------

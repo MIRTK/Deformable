@@ -27,6 +27,7 @@
 
 #include "mirtk/PointSetIO.h"
 #include "mirtk/PointSetUtils.h"
+#include "mirtk/SurfaceBoundary.h"
 #include "mirtk/Transformation.h"
 #include "mirtk/BSplineFreeFormTransformation3D.h"
 #include "mirtk/BSplineFreeFormTransformationSV.h"
@@ -69,6 +70,7 @@
 #include "mirtk/StretchingForce.h"
 #include "mirtk/RepulsiveForce.h"
 #include "mirtk/NonSelfIntersectionConstraint.h"
+#include "mirtk/NormalForce.h"
 
 // Transformation constraints
 #include "mirtk/SmoothnessConstraint.h"
@@ -167,6 +169,8 @@ void PrintHelp(const char *name)
   cout << "      Maximum displacement of a node at each iteration. By default, the node displacements" << endl;
   cout << "      are normalized by the maximum node displacement. When this option is used, the node" << endl;
   cout << "      displacements are clamped to the specified maximum length instead. (default: :option:`-step`)" << endl;
+  cout << "  -max-displacement <value>" << endl;
+  cout << "      Maximum distance from input surface. (default: +inf)" << endl;
   cout << "  -remesh <n>" << endl;
   cout << "      Remesh surface mesh every n-th iteration. (default: " << model.RemeshInterval() << ")" << endl;
   cout << "  -remesh-adaptively" << endl;
@@ -278,6 +282,9 @@ void PrintHelp(const char *name)
   cout << "      Backface radius of node repulsion force. (default: average edge length)" << endl;
   cout << "  -collision <w>" << endl;
   cout << "      Weight of triangle repulsion force." << endl;
+  cout << "  -normal <w>" << endl;
+  cout << "      Constant force along outwards normal direction (positive weight)" << endl;
+  cout << "      or inwards normal direction (negative weight)." << endl;
   cout << endl;
   cout << "Stopping criterion options:" << endl;
   cout << "  -extrinsic-energy" << endl;
@@ -644,6 +651,7 @@ int main(int argc, char *argv[])
   RepulsiveForce                repulsion ("Repulsion",      .0);
   NonSelfIntersectionConstraint collision ("Collision",      .0);
   SmoothnessConstraint          dofbending("Bending energy", .0);
+  NormalForce                   nforce    ("Normal",         .0);
 
   // Default force settings, also set after option parsing if unchanged
   gcurvature.WeightInside (0.);
@@ -688,6 +696,7 @@ int main(int argc, char *argv[])
   double      padding           = NaN;
   bool        level_prefix      = true;
   bool        reset_status      = false;
+  bool        fix_boundary      = false;
   bool        center_output     = false;
   bool        match_area        = false;
   bool        match_sampling    = false;
@@ -836,8 +845,11 @@ int main(int argc, char *argv[])
     else if (OPTION("-step") || OPTION("-dt") || OPTION("-h")) {
       PARSE_ARGUMENTS(double, max_dt);
     }
-    else if (OPTION("-max-dx") || OPTION("-maxdx") || OPTION("-maxd") || OPTION("-dx") || OPTION("-d")) {
+    else if (OPTION("-max-dx") || OPTION("-maxdx") || OPTION("-dx") || OPTION("-maxd") || OPTION("-d")) {
       PARSE_ARGUMENTS(double, max_dx);
+    }
+    else if (OPTION("-max-displacement") || OPTION("-maxdisplacement")) {
+      PARSE_ARGUMENT(model.MaxInputDistance());
     }
     else if (OPTION("-normalize-forces") || OPTION("-normalise-forces")) {
       Insert(params, "Normalize gradient vectors", true);
@@ -872,13 +884,8 @@ int main(int argc, char *argv[])
       else barg = true;
       model.MinimizeExtrinsicEnergy(barg);
     }
-    else if (OPTION("-reset-status")) {
-      if (HAS_ARGUMENT) PARSE_ARGUMENT(reset_status);
-      else reset_status = true;
-    }
-    else if (OPTION("-noreset-status")) {
-      reset_status = false;
-    }
+    else HANDLE_BOOLEAN_OPTION("reset-status", reset_status);
+    else HANDLE_BOOLEAN_OPTION("fix-boundary", fix_boundary);
     // Force terms
     else if (OPTION("-neighborhood") || OPTION("-neighbourhood")) {
       model.NeighborhoodRadius(atoi(ARGUMENT));
@@ -1123,6 +1130,9 @@ int main(int argc, char *argv[])
     else if (OPTION("-collision-radius")) {
       PARSE_ARGUMENT(collision.MinDistance());
     }
+    else if (OPTION("-normal") || OPTION("-normal-force") || OPTION("-nforce")) {
+      PARSE_ARGUMENT(nforce.Weight());
+    }
     // Stopping criteria
     else if (OPTION("-inflation-error")) {
       PARSE_ARGUMENT(farg);
@@ -1244,7 +1254,7 @@ int main(int argc, char *argv[])
     else if (OPTION("-track-without-momentum")) {
       Insert(params, "Exclude momentum from tracked normal displacement", true);
     }
-    else if (OPTION("-save-status")) save_status = true;
+    else HANDLE_BOOLEAN_OPTION("save-status", save_status);
     else if (OPTION("-level-prefix") || OPTION("-levelprefix")) {
       if (HAS_ARGUMENT) PARSE_ARGUMENT(level_prefix);
       else level_prefix = true;
@@ -1390,6 +1400,7 @@ int main(int argc, char *argv[])
   }
 
   // Add energy terms
+  model.Add(&nforce,      false);
   model.Add(&distance,    false);
   model.Add(&balloon,     false);
   model.Add(&edges,       false);
@@ -1474,6 +1485,40 @@ int main(int argc, char *argv[])
     output->GetPoints()->DeepCopy(initial->GetPoints());
   }
 
+  // Remember input point status and initialize first level status
+  vtkSmartPointer<vtkDataArray> current_status = outputPD->GetArray("Status");
+  vtkSmartPointer<vtkDataArray> initial_status = outputPD->GetArray("InitialStatus");
+  if (current_status) {
+    if (!initial_status) {
+      initial_status.TakeReference(current_status->NewInstance());
+      initial_status->DeepCopy(current_status);
+      initial_status->SetName("InitialStatus");
+      outputPD->AddArray(initial_status);
+    }
+  } else {
+    if (!initial_status) {
+      initial_status = NewVtkDataArray(VTK_UNSIGNED_CHAR, output->GetNumberOfPoints(), 1, "InitialStatus");
+      initial_status->FillComponent(0, 1.);
+      outputPD->AddArray(initial_status);
+    }
+    current_status.TakeReference(initial_status->NewInstance());
+    current_status->DeepCopy(initial_status);
+    current_status->SetName("Status");
+    outputPD->AddArray(current_status);
+  }
+  if (fix_boundary) {
+    vtkPolyData  * const surface = vtkPolyData::SafeDownCast(output);
+    if (surface) {
+      SurfaceBoundary boundary(surface);
+      for (auto ptId : boundary.PointIds()) {
+        initial_status->SetComponent(ptId, 0, 0.);
+        current_status->SetComponent(ptId, 0, 0.);
+      }
+    } else {
+      FatalError("Option -fix-boundary currenly only supported for surface meshes!");
+    }
+  }
+
   // Initialize optimizer
   GradientDescent *gd    = dynamic_cast<GradientDescent *>(optimizer.get());
   EulerMethod     *euler = dynamic_cast<EulerMethod     *>(optimizer.get());
@@ -1510,17 +1555,6 @@ int main(int argc, char *argv[])
       if (!Contains(params, "Brent's line search tolerance")) {
         brentls->Tolerance(.1);
       }
-    }
-  }
-
-  if (reset_status) {
-    vtkDataArray * const status = outputPD->GetArray("Status");
-    if (status) {
-      vtkSmartPointer<vtkDataArray> initial;
-      initial.TakeReference(status->NewInstance());
-      initial->DeepCopy(status);
-      initial->SetName("Initial Status");
-      outputPD->AddArray(initial);
     }
   }
 
@@ -1610,11 +1644,11 @@ int main(int argc, char *argv[])
     }
 
     // Stopping criteria
-    if (reset_status) {
+    if (level > 0 && reset_status) {
       vtkPointSet  * const output = model.Output();
       vtkDataArray * const status = output->GetPointData()->GetArray("Status");
       if (status) {
-        vtkDataArray * const initial = output->GetPointData()->GetArray("Initial Status");
+        vtkDataArray * const initial = output->GetPointData()->GetArray("InitialStatus");
         if (initial) {
           status->CopyComponent(0, initial, 0);
         } else {

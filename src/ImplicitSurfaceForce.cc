@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,19 +45,24 @@ namespace mirtk {
 namespace ImplicitSurfaceForceUtils {
 
 // -----------------------------------------------------------------------------
-/// Compute distance to implicit surface along normal direction
+/// Evaluate implicit surface distance function at mesh points
 struct ComputeMinimumDistances
 {
   ImplicitSurfaceForce *_Force;
   vtkPoints            *_Points;
+  vtkDataArray         *_Status;
   vtkDataArray         *_Distances;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
     double p[3];
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
-      _Points->GetPoint(ptId, p);
-      _Distances->SetComponent(ptId, 0, _Force->Distance(p));
+      if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
+        _Distances->SetComponent(ptId, 0, 0.);
+      } else {
+        _Points->GetPoint(ptId, p);
+        _Distances->SetComponent(ptId, 0, _Force->Distance(p));
+      }
     }
   }
 };
@@ -68,6 +73,7 @@ struct ComputeNormalDistances
 {
   ImplicitSurfaceForce *_Force;
   vtkPoints            *_Points;
+  vtkDataArray         *_Status;
   vtkDataArray         *_Normals;
   vtkDataArray         *_Distances;
 
@@ -75,9 +81,13 @@ struct ComputeNormalDistances
   {
     double p[3], n[3];
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
-      _Points ->GetPoint(ptId, p);
-      _Normals->GetTuple(ptId, n);
-      _Distances->SetComponent(ptId, 0, _Force->Distance(p, n));
+      if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
+        _Distances->SetComponent(ptId, 0, 0.);
+      } else {
+        _Points ->GetPoint(ptId, p);
+        _Normals->GetTuple(ptId, n);
+        _Distances->SetComponent(ptId, 0, _Force->Distance(p, n));
+      }
     }
   }
 };
@@ -537,6 +547,7 @@ void ImplicitSurfaceForce::UpdateMinimumDistances()
     ComputeMinimumDistances eval;
     eval._Force     = this;
     eval._Points    = Points();
+    eval._Status    = InitialStatus();
     eval._Distances = distances;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
   }
@@ -563,9 +574,12 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
   vtkDataArray * const distances = NormalDistances();
   if (distances->GetMTime() < surface->GetMTime()) {
 
+    vtkDataArray * const status = InitialStatus();
+
     ComputeNormalDistances eval;
     eval._Force     = this;
     eval._Points    = Points();
+    eval._Status    = status;
     eval._Normals   = Normals();
     eval._Distances = distances;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
@@ -573,6 +587,7 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
     if (_DistanceSmoothing > 0) {
       MeshSmoothing smoother;
       smoother.Input(surface);
+      smoother.Mask(status);
       smoother.SmoothPointsOff();
       smoother.SmoothArray(distances->GetName());
       smoother.Weighting(MeshSmoothing::NormalDeviation);
@@ -585,11 +600,13 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
       int    num = 0;
       double mean = 0., sigma = 0., d;
       for (int ptId = 0; ptId < _NumberOfPoints; ++ptId) {
-        d = abs(distances->GetComponent(ptId, 0));
-        if (d < _MaxDistance) {
-          mean  += d;
-          sigma += d * d;
-          ++num;
+        if (!status || status->GetComponent(ptId, 0) != 0.) {
+          d = abs(distances->GetComponent(ptId, 0));
+          if (d < _MaxDistance) {
+            mean  += d;
+            sigma += d * d;
+            ++num;
+          }
         }
       }
       if (num > 0) {
@@ -598,7 +615,6 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
         const double d_min = max(mean + 3. * sigma, .25 * _MaxDistance);
         const double d_threshold = mean + sigma;
         if (d_threshold + sigma < d_min) {
-          //const double edge_length = AverageEdgeLength(Points(), *Edges());
           const double edge_length = _PointSet->AverageInputSurfaceEdgeLength();
           const double max_radius  = 5. * edge_length;
           const size_t max_size    = 100;

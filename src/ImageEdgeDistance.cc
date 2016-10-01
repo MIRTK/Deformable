@@ -61,6 +61,7 @@ typedef GenericFastCubicBSplineInterpolateImageFunction<DiscreteImage> Continuou
 struct ComputeDistances
 {
   vtkPoints       *_Points;
+  vtkDataArray    *_Status;
   vtkDataArray    *_Normals;
   ContinuousImage *_Image;
   vtkDataArray    *_ImageGradient;
@@ -276,6 +277,11 @@ struct ComputeDistances
     if (!IsNaN(_Padding)) f.resize(k);
 
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
+      if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
+        _Distances->SetComponent(ptId, 0, 0.);
+        _Magnitude->SetComponent(ptId, 0, 0.);
+        continue;
+      }
       // Get point position and scaled normal
       _Points ->GetPoint(ptId, p);
       _Normals->GetTuple(ptId, n), n *= _StepLength;
@@ -667,6 +673,7 @@ void ImageEdgeDistance::Update(bool gradient)
   MIRTK_START_TIMING();
   ComputeDistances eval;
   eval._Points       = Points();
+  eval._Status       = InitialStatus();
   eval._Normals      = Normals();
   eval._Image        = &image;
   eval._Distances    = distances;

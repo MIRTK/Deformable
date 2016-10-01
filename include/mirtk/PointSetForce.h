@@ -124,6 +124,9 @@ protected:
   /// Get points of point set on which this force is acting on
   vtkPoints *Points() const;
 
+  /// Get initial point status array
+  vtkDataArray *InitialStatus() const;
+
   /// Get point status array
   vtkDataArray *Status() const;
 
@@ -319,6 +322,12 @@ inline vtkPolyData *PointSetForce::DeformedSurface() const
 inline vtkPoints *PointSetForce::Points() const
 {
   return _SurfaceForce ? _PointSet->SurfacePoints() : _PointSet->Points();
+}
+
+// -----------------------------------------------------------------------------
+inline vtkDataArray *PointSetForce::InitialStatus() const
+{
+  return _SurfaceForce ? _PointSet->InitialSurfaceStatus() : _PointSet->InitialStatus();
 }
 
 // -----------------------------------------------------------------------------

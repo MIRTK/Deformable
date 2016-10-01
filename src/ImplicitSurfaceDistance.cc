@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -217,7 +217,8 @@ void ImplicitSurfaceDistance::Update(bool gradient)
 // -----------------------------------------------------------------------------
 void ImplicitSurfaceDistance::UpdateMagnitude()
 {
-  vtkDataArray * const distances = this->Distances();
+  vtkDataArray * const status    = Status();
+  vtkDataArray * const distances = Distances();
   vtkDataArray * const magnitude = PointData("Magnitude");
 
   // Evaluate/compute magnitude function at active surface points
@@ -228,7 +229,7 @@ void ImplicitSurfaceDistance::UpdateMagnitude()
     func.Initialize();
     EvaluateMagnitude eval;
     eval._Points    = Points();
-    eval._Status    = Status();
+    eval._Status    = status;
     eval._Function  = &func;
     eval._Distances = distances;
     eval._Magnitude = magnitude;
@@ -246,7 +247,7 @@ void ImplicitSurfaceDistance::UpdateMagnitude()
     }
 
     ComputeMagnitude calc;
-    calc._Status    = Status();
+    calc._Status    = status;
     calc._Distances = distances;
     calc._Threshold = max(_MinThreshold, threshold);
     calc._Magnitude = magnitude;

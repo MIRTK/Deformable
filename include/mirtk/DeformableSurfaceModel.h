@@ -36,6 +36,7 @@
 #include "vtkSmartPointer.h"
 #include "vtkPointSet.h"
 #include "vtkPolyData.h"
+#include "vtkAbstractCellLocator.h"
 
 
 namespace mirtk {
@@ -117,6 +118,10 @@ class DeformableSurfaceModel : public ObjectiveFunction
 
   /// Low-pass filter band
   mirtkPublicAttributeMacro(double, LowPassBand);
+
+  /// Maximum distance of deformed surface points from input surface
+  mirtkPublicAttributeMacro(double, MaxInputDistance);
+  vtkSmartPointer<vtkAbstractCellLocator> _InputCellLocator;
 
   /// Enforce non-self-intersection of deformed surface mesh
   mirtkPublicAttributeMacro(bool, HardNonSelfIntersection);

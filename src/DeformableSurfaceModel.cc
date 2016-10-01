@@ -713,6 +713,7 @@ DeformableSurfaceModel::DeformableSurfaceModel()
   _LowPassInterval(0),
   _LowPassIterations(100),
   _LowPassBand(.75),
+  _MaxInputDistance(inf),
   _HardNonSelfIntersection(false),
   _MinFrontfaceDistance(.0),
   _MinBackfaceDistance(.0),
@@ -755,6 +756,14 @@ void DeformableSurfaceModel::Initialize()
 
   // Whether deformable model is a surface mesh
   _IsSurfaceMesh = mirtk::IsSurfaceMesh(_Input);
+
+  // Initialize input locator if needed
+  if (_MaxInputDistance <= 0.) _MaxInputDistance = inf;
+  if (_IsSurfaceMesh && !IsInf(_MaxInputDistance)) {
+    _InputCellLocator = vtkSmartPointer<vtkCellLocator>::New();
+    _InputCellLocator->SetDataSet(_Input);
+    _InputCellLocator->BuildLocator();
+  }
 
   // Gradient smoothing
   if (_Transformation && (_GradientAveraging > 0 || _LowPassInterval > 0)) {
@@ -1036,6 +1045,9 @@ bool DeformableSurfaceModel::Set(const char *name, const char *value)
   if (strcmp(name, "Adatpive remeshing") == 0 || strcmp(name, "Remesh adaptively") == 0) {
     return FromString(value, _RemeshAdaptively);
   }
+  if (strcmp(name, "Maximum distance from input surface") == 0) {
+    return FromString(value, _MaxInputDistance);
+  }
   if (strcmp(name, "Hard non-self-intersection constraint") == 0) {
     return FromString(value, _HardNonSelfIntersection);
   }
@@ -1084,6 +1096,7 @@ ParameterList DeformableSurfaceModel::Parameter() const
   Insert(params, "Maximum feature angle", _MaxFeatureAngle);
   Insert(params, "Remesh interval", _RemeshInterval);
   Insert(params, "Adaptive remeshing", _RemeshAdaptively);
+  Insert(params, "Maximum distance from input surface", _MaxInputDistance);
   Insert(params, "Hard non-self-intersection constraint", _HardNonSelfIntersection);
   Insert(params, "Minimum frontface distance", _MinFrontfaceDistance);
   Insert(params, "Minimum backface distance", _MinBackfaceDistance);
@@ -1778,6 +1791,21 @@ void DeformableSurfaceModel::EnforceHardConstraints(double *dx) const
         if ((!_AllowExpansion && dp > 0.) || (!_AllowContraction && dp < 0.)) {
           d[0] = d[1] = d[2] = 0.;
         }
+      }
+    }
+
+    // Disallow points to travel further away from input surface than the given threshold
+    if (!IsInf(_MaxInputDistance)) {
+      int subId;
+      vtkIdType cellId;
+      vtkNew<vtkGenericCell> cell;
+      double p[3], x[3], dist2, *d = dx;
+      const double max_dist2 = _MaxInputDistance * _MaxInputDistance;
+      for (int ptId = 0; ptId < _PointSet.NumberOfSurfacePoints(); ++ptId, d += 3) {
+        _PointSet.Surface()->GetPoint(ptId, p);
+        p[0] += d[0], p[1] += d[1], p[2] += d[2];
+        _InputCellLocator->FindClosestPoint(p, x, cell.GetPointer(), cellId, subId, dist2);
+        if (dist2 > max_dist2) d[0] = d[1] = d[2] = 0.;
       }
     }
 

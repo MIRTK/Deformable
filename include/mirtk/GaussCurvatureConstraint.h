@@ -34,7 +34,7 @@ namespace mirtk {
  */
 class GaussCurvatureConstraint : public SurfaceConstraint
 {
-  mirtkEnergyTermMacro(GaussGaussCurvatureConstraint, EM_GaussCurvature);
+  mirtkEnergyTermMacro(GaussCurvatureConstraint, EM_GaussCurvature);
 
   // ---------------------------------------------------------------------------
   // Types

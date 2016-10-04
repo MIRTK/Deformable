@@ -1728,6 +1728,7 @@ void DeformableSurfaceModel
       vtkSmartPointer<vtkDataArray> collisions;
       collisions.TakeReference(check.GetCollisionTypeArray()->NewInstance());
       collisions->DeepCopy(check.GetCollisionTypeArray());
+      collisions->SetName(check.GetCollisionTypeArray()->GetName());
       current->GetCellData()->RemoveArray(collisions->GetName());
       current->GetCellData()->AddArray(collisions);
     }

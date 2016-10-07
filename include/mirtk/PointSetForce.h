@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -138,6 +138,9 @@ protected:
 
   /// Get edge table of point set mesh
   const EdgeTable *Edges() const;
+
+  /// Get edge table of point set mesh
+  SharedPtr<const EdgeTable> SharedEdgeTable() const;
 
   /// Get edge-connectivity table of point set node neighbors
   const NodeNeighbors *Neighbors(int = -1) const;
@@ -349,6 +352,12 @@ inline vtkDataArray *PointSetForce::Normals() const
 inline const PointSetForce::EdgeTable *PointSetForce::Edges() const
 {
   return _SurfaceForce ? _PointSet->SurfaceEdges() : _PointSet->Edges();
+}
+
+// -----------------------------------------------------------------------------
+inline SharedPtr<const PointSetForce::EdgeTable> PointSetForce::SharedEdgeTable() const
+{
+  return _SurfaceForce ? _PointSet->SharedSurfaceEdgeTable() : _PointSet->SharedEdgeTable();
 }
 
 // -----------------------------------------------------------------------------

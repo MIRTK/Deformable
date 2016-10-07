@@ -1,8 +1,8 @@
 /*
  * Medical Image Registration ToolKit (MIRTK)
  *
- * Copyright 2013-2015 Imperial College London
- * Copyright 2013-2015 Andreas Schuh
+ * Copyright 2013-2016 Imperial College London
+ * Copyright 2013-2016 Andreas Schuh
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -528,23 +528,22 @@ void PointSetForce::EvaluateGradient(double *gradient, double, double weight)
     // optimization of the deformable surface model can be mimicked.
     if (_GradientAveraging > 0) {
       MIRTK_START_TIMING();
-      const EdgeTable *edgeTable;
-      edgeTable = _SurfaceForce ? _PointSet->SurfaceEdges() : _PointSet->Edges();
+      SharedPtr<const EdgeTable> edgeTable = SharedEdgeTable();
       if (_AverageSignedGradients) {
         if (_AverageGradientMagnitude) {
           typedef struct AverageSignedGradientMagnitude AvgOp;
-          AverageGradientVectors<AvgOp>(_Gradient, edgeTable, _GradientAveraging);
+          AverageGradientVectors<AvgOp>(_Gradient, edgeTable.get(), _GradientAveraging);
         } else {
           typedef struct AverageSignedGradient AvgOp;
-          AverageGradientVectors<AvgOp>(_Gradient, edgeTable, _GradientAveraging);
+          AverageGradientVectors<AvgOp>(_Gradient, edgeTable.get(), _GradientAveraging);
         }
       } else {
         if (_AverageGradientMagnitude) {
           typedef struct AverageGradientMagnitude AvgOp;
-          AverageGradientVectors<AvgOp>(_Gradient, edgeTable, _GradientAveraging);
+          AverageGradientVectors<AvgOp>(_Gradient, edgeTable.get(), _GradientAveraging);
         } else {
           typedef struct AverageGradient AvgOp;
-          AverageGradientVectors<AvgOp>(_Gradient, edgeTable, _GradientAveraging);
+          AverageGradientVectors<AvgOp>(_Gradient, edgeTable.get(), _GradientAveraging);
         }
       }
       MIRTK_DEBUG_TIMING(3, "averaging of"

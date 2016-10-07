@@ -844,11 +844,13 @@ void MeanCurvatureConstraint::Update(bool gradient)
 
     SurfaceCurvature curv(SurfaceCurvature::Mean);
     curv.Input(surface);
+    curv.EdgeTable(SharedEdgeTable());
     curv.VtkCurvaturesOn();
     curv.Run();
 
     MeshSmoothing smoother;
     smoother.Input(curv.Output());
+    smoother.EdgeTable(SharedEdgeTable());
     smoother.SmoothPointsOff();
     smoother.SmoothArray(SurfaceCurvature::MEAN);
     smoother.NumberOfIterations(2);

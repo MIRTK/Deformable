@@ -328,11 +328,13 @@ void GaussCurvatureConstraint::Update(bool gradient)
   if (curv_types != 0) {
     SurfaceCurvature curv(curv_types);
     curv.Input(surface);
+    curv.EdgeTable(SharedEdgeTable());
     curv.VtkCurvaturesOn();
     curv.Run();
 
     MeshSmoothing smoother;
     smoother.Input(curv.Output());
+    smoother.EdgeTable(SharedEdgeTable());
     smoother.SmoothPointsOff();
     if ((curv_types & SurfaceCurvature::Gauss) != 0) {
       smoother.SmoothArray(SurfaceCurvature::GAUSS);

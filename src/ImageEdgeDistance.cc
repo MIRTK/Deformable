@@ -124,7 +124,7 @@ public:
     if (attr._x > 1) max_nsamples *= width;
     if (attr._y > 1) max_nsamples *= width;
     if (attr._z > 1) max_nsamples *= width;
-    _MinNumberOfSamples = 5 * max_nsamples / 100;
+    _MinNumberOfSamples = max(1, 5 * max_nsamples / 100);
   }
 
   template <class TIn, class TMask, class TOut>
@@ -191,7 +191,6 @@ struct ComputeDistances
   double _MaxDistance;
   double _StepLength;
   double _GlobalWhiteMatterMean;
-  double _GlobalWhiteMatterSigma;
   double _GlobalWhiteMatterVariance;
   double _GlobalGreyMatterMean;
   double _GlobalGreyMatterVariance;
@@ -203,6 +202,13 @@ struct ComputeDistances
   inline Point RayPoint(const Point &p, const Vector3 &dp, int i, int k) const
   {
     return p + static_cast<double>(i - (k - 1) / 2) * dp;
+  }
+
+  // ---------------------------------------------------------------------------
+  inline double GaussianWeight(double value, double mean, double var) const
+  {
+    value -= mean;
+    return exp(-.5 * value * value / var);
   }
 
   // ---------------------------------------------------------------------------
@@ -230,9 +236,7 @@ struct ComputeDistances
     int vi, vj, vk;
     p -= static_cast<double>((g.size() - 1) / 2) * dp;
     for (size_t i = 0; i < g.size(); ++i, p += dp) {
-      vi = iround(p.x);
-      vj = iround(p.y);
-      vk = iround(p.z);
+      vi = iround(p.x), vj = iround(p.y), vk = iround(p.z);
       if (_Image->Input()->IsInside(vi, vj, vk) && _Image->Input()->IsForeground(vi, vj, vk)) {
         _Image->Jacobian3D(jac, p.x, p.y, p.z);
         g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
@@ -366,7 +370,8 @@ struct ComputeDistances
   /// obtained by deforming a sphere/convex hull towards the white matter
   /// tissue segmentation mask. The surface thus is close to the target boundary
   /// and should only be refined using this force.
-  inline int NeonatalWhiteSurface(const Point &p, const Vector3 &dp, const Array<double> &f, const Array<double> &g) const
+  inline int NeonatalWhiteSurface(const Point &p, const Vector3 &dp,
+                                  const Array<double> &f, const Array<double> &g) const
   {
     int i, j;
 
@@ -375,27 +380,56 @@ struct ComputeDistances
     const double g1 = -_MinGradient;
     const double g2 = +_MinGradient;
 
+    const Point vox = RayPoint(p, dp, i0, k);
+    const int vi = iround(vox._x);
+    const int vj = iround(vox._y);
+    const int vk = iround(vox._z);
+
+    auto wm_mean = _GlobalWhiteMatterMean;
+    auto wm_var  = _GlobalWhiteMatterVariance;
+    auto gm_mean = _GlobalGreyMatterMean;
+    auto gm_var  = _GlobalGreyMatterVariance;
+    if (_LocalWhiteMatterMean) {
+      wm_mean = _LocalWhiteMatterMean->Get(vi, vj, vk);
+    }
+    if (_LocalWhiteMatterVariance) {
+      wm_var = _LocalWhiteMatterVariance->Get(vi, vj, vk);
+    }
+    if (_LocalGreyMatterMean) {
+      gm_mean = _LocalGreyMatterMean->Get(vi, vj, vk);
+    }
+    if (_LocalGreyMatterVariance) {
+      gm_var = _LocalGreyMatterVariance->Get(vi, vj, vk);
+    }
+    const auto wm_sigma = sqrt(wm_var);
+
     i = i0;
     while (1 < i && (g[i] >= g1 || g[i] >= g[i-1])) --i;
     j = i + 1;
     while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
     int i2 = (g[i] < g1 && g[j] > 0. ? i : -1);
+    if (!IsNaN(g[i0-1]) && f[i0-1] > _MaxIntensity) {
+      return (i2 != -1 && i2 < i0 ? i2 : 0);
+    }
 
     i = i0;
     while (i < k - 2 && ((g1 <= g[i] && g[i] <= g2) || g[i] >= g[i+1])) ++i;
+    int i1 = (g[i] < g1 ? i : -1);
+    if (i2 == -1 && abs(g[i0]) < wm_sigma) {
+      const auto &outside = f[i0+1];
+      const auto wm_min   = wm_mean - 1. * wm_sigma;
+      const auto wm_max   = wm_mean + 3. * wm_sigma;
+      if (wm_min <= outside && outside <= wm_max) {
+        return (i1 > i0 ? i1 : k-1);
+      }
+    }
     j = i + 1;
     while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
-    int i1 = (g[i] < g1 && g[j] > 0. ? i : -1);
+    if (g[j] <= 0.) i1 = -1;
 
     if (i1 != -1 && i2 != -1) {
       int    iw, ig;
       double score1 = 0., score2 = 0.;
-      double wm_mean, wm_var, gm_mean, gm_var;
-
-      const Point vox = RayPoint(p, dp, i0, k);
-      const int vi = iround(vox._x);
-      const int vj = iround(vox._y);
-      const int vk = iround(vox._z);
 
       iw = i1;
       while (0 < iw && f[iw-1] >= f[iw]) --iw;
@@ -407,29 +441,15 @@ struct ComputeDistances
         if (f[ig] < _MinIntensity || f[ig] < _Padding) {
           i1 = i0;
         } else {
-          wm_mean = _GlobalWhiteMatterMean;
-          wm_var  = _GlobalWhiteMatterVariance;
-          gm_mean = _GlobalGreyMatterMean;
-          gm_var  = _GlobalGreyMatterVariance;
-          if (_LocalWhiteMatterMean) {
-            wm_mean = _LocalWhiteMatterMean->Get(vi, vj, vk);
-          }
-          if (_LocalWhiteMatterVariance) {
-            wm_var = _LocalWhiteMatterVariance->Get(vi, vj, vk);
-          }
-          if (_LocalGreyMatterMean) {
-            gm_mean = _LocalGreyMatterMean->Get(vi, vj, vk);
-          }
-          if (_LocalGreyMatterVariance) {
-            gm_var = _LocalGreyMatterVariance->Get(vi, vj, vk);
-          }
           if (IsNaN(wm_mean) || IsNaN(wm_var) || wm_var == 0.) {
             score1 = abs(g[i1]);
+          } else if (f[iw] > wm_mean) {
+            score1 = 1.;
           } else {
-            score1 = exp(-.5 * pow(f[iw] - wm_mean, 2) / wm_var);
+            score1 = GaussianWeight(f[iw], wm_mean, wm_var);
           }
           if (f[ig] > gm_mean && !IsNaN(gm_var) && gm_var > 0.) {
-            score1 *= exp(-.5 * pow(f[ig] - gm_mean, 2) / gm_var);
+            score1 *= GaussianWeight(f[ig], gm_mean, gm_var);
           }
         }
       }
@@ -444,29 +464,15 @@ struct ComputeDistances
         if (f[ig] < _MinIntensity || f[ig] < _Padding) {
           i2 = i0;
         } else {
-          wm_mean = _GlobalWhiteMatterMean;
-          wm_var  = _GlobalWhiteMatterVariance;
-          gm_mean = _GlobalGreyMatterMean;
-          gm_var  = _GlobalGreyMatterVariance;
-          if (_LocalWhiteMatterMean) {
-            wm_mean = _LocalWhiteMatterMean->Get(vi, vj, vk);
-          }
-          if (_LocalWhiteMatterVariance) {
-            wm_var = _LocalWhiteMatterVariance->Get(vi, vj, vk);
-          }
-          if (_LocalGreyMatterMean) {
-            gm_mean = _LocalGreyMatterMean->Get(vi, vj, vk);
-          }
-          if (_LocalGreyMatterVariance) {
-            gm_var = _LocalGreyMatterVariance->Get(vi, vj, vk);
-          }
           if (IsNaN(wm_mean) || IsNaN(wm_var) || wm_var == 0.) {
             score2 = abs(g[i2]);
+          } else if (f[iw] > wm_mean) {
+            score2 = 1.;
           } else {
-            score2 = exp(-.5 * pow(f[iw] - wm_mean, 2) / wm_var);
+            score2 = GaussianWeight(f[iw], wm_mean, wm_var);
           }
           if (f[ig] > gm_mean && !IsNaN(gm_var) && gm_var > 0.) {
-            score2 *= exp(-.5 * pow(f[ig] - gm_mean, 2) / gm_var);
+            score2 *= GaussianWeight(f[ig], gm_mean, gm_var);
           }
         }
       }
@@ -1038,7 +1044,6 @@ void ImageEdgeDistance::Update(bool gradient)
   eval._EdgeType     = _EdgeType;
 
   eval._GlobalWhiteMatterMean     = _GlobalWhiteMatterMean;
-  eval._GlobalWhiteMatterSigma    = sqrt(_GlobalWhiteMatterVariance);
   eval._GlobalWhiteMatterVariance = _GlobalWhiteMatterVariance;
   eval._GlobalGreyMatterMean      = _GlobalGreyMatterMean;
   eval._GlobalGreyMatterVariance  = _GlobalGreyMatterVariance;

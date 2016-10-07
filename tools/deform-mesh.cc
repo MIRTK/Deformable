@@ -369,26 +369,6 @@ void PrintHelp(const char *name)
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-/// Resample mask
-void ResampleMask(BinaryImage &mask, const ImageAttributes &attr)
-{
-  const BinaryImage input(mask);
-  GenericNearestNeighborInterpolateImageFunction<BinaryImage> nn;
-  nn.Input(&input);
-  nn.Initialize();
-  mask.Initialize(attr, 1);
-  double x, y, z;
-  for (int k = 0; k < mask.Z(); ++k)
-  for (int j = 0; j < mask.Y(); ++j)
-  for (int i = 0; i < mask.X(); ++i) {
-    x = i, y = j, z = k;
-    mask.ImageToWorld(x, y, z);
-    nn  .WorldToImage(x, y, z);
-    mask(i, j, k) = nn.Evaluate(x, y, z);
-  }
-}
-
-// -----------------------------------------------------------------------------
 /// Resample image
 void ResampleImage(RealImage &image, const ImageAttributes &attr)
 {
@@ -405,6 +385,18 @@ void ResampleImage(RealImage &image, const ImageAttributes &attr)
     image.ImageToWorld(x, y, z);
     func.WorldToImage(x, y, z);
     image(i, j, k) = func.Evaluate(x, y, z);
+  }
+}
+
+// -----------------------------------------------------------------------------
+/// Resample mask
+void ResampleMask(BinaryImage &mask, const ImageAttributes &attr)
+{
+  RealImage resampled(mask);
+  ResampleImage(resampled, attr);
+  const int nvox = mask.NumberOfVoxels();
+  for (int vox = 0; vox < nvox; ++vox) {
+    mask(vox) = BinaryPixel(resampled(vox) >= .5 ? 1 : 0);
   }
 }
 
@@ -706,6 +698,9 @@ int main(int argc, char *argv[])
   bool        inflate_brain     = false; // mimick mris_inflate
   int         nlevels           = 1;     // no. of levels
 
+  const char *wm_mask_name = nullptr;
+  const char *gm_mask_name = nullptr;
+
   Array<int>    navgs;           // no. of total gradient averaging steps
   Array<int>    distance_navgs;  // no. of distance gradient averaging steps
   Array<int>    dedges_navgs;    // no. of edge distance gradient averaging steps
@@ -743,6 +738,12 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-mask")) {
       mask_name = ARGUMENT;
+    }
+    else if (OPTION("-white-matter-mask") || OPTION("-wm-mask")) {
+      wm_mask_name = ARGUMENT;
+    }
+    else if (OPTION("-grey-matter-mask") || OPTION("-gm-mask")) {
+      gm_mask_name = ARGUMENT;
     }
     else if (OPTION("-initial")) {
       initial_name = ARGUMENT;
@@ -972,6 +973,14 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-edge-distance-threshold")) {
       PARSE_ARGUMENT(dedges.Padding());
+    }
+    else if (OPTION("-edge-distance-white-matter-window") ||
+             OPTION("-edge-distance-wm-window")) {
+      PARSE_ARGUMENT(dedges.WhiteMatterWindowWidth());
+    }
+    else if (OPTION("-edge-distance-grey-matter-window") ||
+             OPTION("-edge-distance-gm-window")) {
+      PARSE_ARGUMENT(dedges.GreyMatterWindowWidth());
     }
     else if (OPTION("-edge-distance-min-intensity")) {
       PARSE_ARGUMENT(dedges.MinIntensity());
@@ -1397,6 +1406,25 @@ int main(int argc, char *argv[])
       ResampleMask(balloon_mask, attr);
     }
     balloon.ForegroundMask(&balloon_mask);
+  }
+
+  // Read tissue masks of image edge distance force
+  BinaryImage wm_mask, gm_mask;
+  if (dedges.Weight() != 0.) {
+    if (wm_mask_name) {
+      wm_mask.Read(wm_mask_name);
+      if (attr && !wm_mask.Attributes().EqualInSpace(attr)) {
+        ResampleMask(wm_mask, attr);
+      }
+      dedges.WhiteMatterMask(&wm_mask);
+    }
+    if (gm_mask_name) {
+      gm_mask.Read(gm_mask_name);
+      if (attr && !gm_mask.Attributes().EqualInSpace(attr)) {
+        ResampleMask(gm_mask, attr);
+      }
+      dedges.GreyMatterMask(&gm_mask);
+    }
   }
 
   // Add energy terms

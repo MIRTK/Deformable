@@ -38,6 +38,9 @@ class ImageEdgeDistance : public SurfaceForce
 
 public:
 
+  /// Type of image used to store local image statistics
+  typedef GenericImage<float> LocalStatsImage;
+
   /// Enumeration of edge force modes based on directional derivative of image intensities
   enum EdgeType
   {
@@ -86,6 +89,43 @@ private:
 
   /// Step length used for ray casting
   mirtkPublicAttributeMacro(double, StepLength);
+
+
+  /// White matter mask used by NeonatalWhiteSurface edge force
+  mirtkPublicAggregateMacro(BinaryImage, WhiteMatterMask);
+
+  /// Grey matter mask used by NeonatalWhiteSurface edge force
+  mirtkPublicAggregateMacro(BinaryImage, GreyMatterMask);
+
+  /// Width of local white matter intensity statistics window
+  mirtkPublicAttributeMacro(double, WhiteMatterWindowWidth);
+
+  /// Width of local grey matter intensity statistics window
+  mirtkPublicAttributeMacro(double, GreyMatterWindowWidth);
+
+  /// Global white matter intensity mean value
+  mirtkAttributeMacro(double, GlobalWhiteMatterMean);
+
+  /// Global white matter intensity variance value
+  mirtkAttributeMacro(double, GlobalWhiteMatterVariance);
+
+  /// Global grey matter intensity mean value
+  mirtkAttributeMacro(double, GlobalGreyMatterMean);
+
+  /// Global grey matter intensity variance value
+  mirtkAttributeMacro(double, GlobalGreyMatterVariance);
+
+  /// Image with voxel-wise local white matter intensity mean values
+  mirtkAttributeMacro(LocalStatsImage, LocalWhiteMatterMean);
+
+  /// Image with voxel-wise local white matter intensity variance values
+  mirtkAttributeMacro(LocalStatsImage, LocalWhiteMatterVariance);
+
+  /// Image with voxel-wise local grey matter intensity mean values
+  mirtkAttributeMacro(LocalStatsImage, LocalGreyMatterMean);
+
+  /// Image with voxel-wise local grey matter intensity variance values
+  mirtkAttributeMacro(LocalStatsImage, LocalGreyMatterVariance);
 
 private:
 

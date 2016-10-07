@@ -25,15 +25,12 @@
 #include "mirtk/DataStatistics.h"
 #include "mirtk/MeshSmoothing.h"
 #include "mirtk/MedianMeshFilter.h"
-#include "mirtk/EdgeConnectivity.h"
 #include "mirtk/FastCubicBSplineInterpolateImageFunction.h"
 
 #include "mirtk/PointSetIO.h"
 #include "mirtk/PointSetUtils.h"
 
 #include "vtkPointData.h"
-
-#include <algorithm>
 
 
 namespace mirtk {
@@ -53,28 +50,160 @@ namespace ImageEdgeDistanceUtils {
 // Type of discrete intensity image
 typedef GenericImage<double> DiscreteImage;
 
+// Type of local intensity statistics image
+typedef ImageEdgeDistance::LocalStatsImage LocalStatsImage;
+
 // Type of interpolated image
 typedef GenericFastCubicBSplineInterpolateImageFunction<DiscreteImage> ContinuousImage;
+
+// -----------------------------------------------------------------------------
+/// Compute global intensity statistics
+struct ComputeGlobalStatistics : public VoxelReduction
+{
+private:
+
+  int    _Num;
+  double _Sum;
+  double _Sum2;
+
+public:
+
+  ComputeGlobalStatistics() : _Num(0), _Sum(0.), _Sum2(0.) {}
+
+  void split(const ComputeGlobalStatistics &)
+  {
+    _Num = 0;
+    _Sum = _Sum2 = 0.;
+  }
+
+  void join(const ComputeGlobalStatistics &other)
+  {
+    _Num  += other._Num;
+    _Sum  += other._Sum;
+    _Sum2 += other._Sum2;
+  }
+
+  template <class TIn, class TMask>
+  void operator()(int, int, int, int, const TIn *in, const TMask *mask)
+  {
+    if (*mask != 0) {
+      _Num  += 1;
+      _Sum  += (*in);
+      _Sum2 += (*in) * (*in);
+    }
+  }
+
+  double Mean() const
+  {
+    return (_Num == 0 ? 0. : _Sum / _Num);
+  }
+
+  double Variance() const
+  {
+    const double mean = Mean();
+    return (_Num == 0 ? 0. : (_Sum2 / _Num) - mean * mean);
+  }
+};
+
+// -----------------------------------------------------------------------------
+/// Compute local intensity statistics
+class ComputeLocalStatistics : public VoxelFunction
+{
+  int    _Radius;
+  int    _MinNumberOfSamples;
+  double _GlobalMean;
+  double _GlobalVariance;
+
+public:
+
+  ComputeLocalStatistics(const ImageAttributes &attr, int width, double global_mean = 0., double global_variance = 0.)
+  :
+    _Radius(width / 2), _GlobalMean(global_mean), _GlobalVariance(global_variance)
+  {
+    int max_nsamples = 1;
+    if (attr._x > 1) max_nsamples *= width;
+    if (attr._y > 1) max_nsamples *= width;
+    if (attr._z > 1) max_nsamples *= width;
+    _MinNumberOfSamples = 5 * max_nsamples / 100;
+  }
+
+  template <class TIn, class TMask, class TOut>
+  void operator ()(int ci, int cj, int ck, int cl, const TIn *in, const TMask *mask, TOut *mean, TOut *var)
+  {
+    int    num = 0;
+    double sum = 0., sum2 = 0., v;
+
+    const int nx = _Domain->_x;
+    const int ny = _Domain->_y;
+    const int nz = _Domain->_z;
+
+    const int i1 = max(0, ci - _Radius), i2 = min(ci + _Radius, nx - 1);
+    const int j1 = max(0, cj - _Radius), j2 = min(cj + _Radius, ny - 1);
+    const int k1 = max(0, ck - _Radius), k2 = min(ck + _Radius, nz - 1);
+
+    const int xstride = 1;
+    const int ystride =  nx - (i2 - i1 + 1);
+    const int zstride = (ny - (j2 - j1 + 1)) * nx;
+    const int offset  = _Domain->LatticeToIndex(i1, j1, k1) - _Domain->LatticeToIndex(ci, cj, ck);
+
+    in -= offset, mask -= offset;
+    for (int k = k1; k <= k2; ++k, in += zstride, mask += zstride)
+    for (int j = j1; j <= j2; ++j, in += ystride, mask += ystride)
+    for (int i = i1; i <= i2; ++i, in += xstride, mask += xstride) {
+      if (*mask != 0) {
+        v = static_cast<double>(*in);
+        sum += v, sum2 += v * v, ++num;
+      }
+    }
+    if (num >= _MinNumberOfSamples) {
+      sum /= num, sum2 /= num;
+      *mean = sum;
+      *var  = sum2 - sum * sum;
+    } else {
+      *mean = _GlobalMean;
+      *var  = _GlobalVariance;
+    }
+  }
+};
 
 // -----------------------------------------------------------------------------
 /// Compute distance to closest image edge
 struct ComputeDistances
 {
-  vtkPoints       *_Points;
-  vtkDataArray    *_Status;
-  vtkDataArray    *_Normals;
-  ContinuousImage *_Image;
-  vtkDataArray    *_ImageGradient;
-  vtkDataArray    *_Distances;
-  vtkDataArray    *_Magnitude;
-  double           _Padding;
-  double           _MinIntensity;
-  double           _MaxIntensity;
-  double           _MinGradient;
-  double           _MaxDistance;
-  double           _StepLength;
+  vtkPoints    *_Points;
+  vtkDataArray *_Status;
+  vtkDataArray *_Normals;
+
+  vtkDataArray *_ImageGradient;
+  vtkDataArray *_Distances;
+  vtkDataArray *_Magnitude;
+
+  const ContinuousImage *_Image;
+  const LocalStatsImage *_LocalWhiteMatterMean;
+  const LocalStatsImage *_LocalWhiteMatterVariance;
+  const LocalStatsImage *_LocalGreyMatterMean;
+  const LocalStatsImage *_LocalGreyMatterVariance;
+
+  double _Padding;
+  double _MinIntensity;
+  double _MaxIntensity;
+  double _MinGradient;
+  double _MaxDistance;
+  double _StepLength;
+  double _GlobalWhiteMatterMean;
+  double _GlobalWhiteMatterSigma;
+  double _GlobalWhiteMatterVariance;
+  double _GlobalGreyMatterMean;
+  double _GlobalGreyMatterVariance;
 
   enum ImageEdgeDistance::EdgeType _EdgeType;
+  typedef Vector3D<int> Voxel;
+
+  // ---------------------------------------------------------------------------
+  inline Point RayPoint(const Point &p, const Vector3 &dp, int i, int k) const
+  {
+    return p + static_cast<double>(i - (k - 1) / 2) * dp;
+  }
 
   // ---------------------------------------------------------------------------
   inline void SampleIntensity(Array<double> &f, Point p, const Vector3 &dp) const
@@ -190,37 +319,159 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
+  inline int NextMinimumValue(const Array<double> &v, int i0, int di) const
+  {
+    int i = i0 + di;
+    const int k = static_cast<int>(v.size());
+    while (0 < i && i < k-1 && (IsNaN(v[i]) || v[i] < v[i + di])) i += di;
+    if (i == 0 || i == k-1) return i0;
+    while (0 < i && i < k-1 && v[i] > v[i + di]) i += di;
+    return i;
+  }
+
+  // ---------------------------------------------------------------------------
+  inline int NextMaximumValue(const Array<double> &v, int i0, int di) const
+  {
+    int i = i0 + di;
+    const int k = static_cast<int>(v.size());
+    while (0 < i && i < k-1 && (IsNaN(v[i]) || v[i] > v[i + di])) i += di;
+    if (i == 0 || i == k-1) return i0;
+    while (0 < i && i < k-1 && v[i] < v[i + di]) i += di;
+    return i;
+  }
+
+  // ---------------------------------------------------------------------------
+  inline double NextPositiveValue(const Array<double> &v, int i0, int di, double eps = 0.) const
+  {
+    int i = i0 + di;
+    const int k = static_cast<int>(v.size());
+    while (0 < i && i < k-1 && (v[i] <= eps || v[i] < v[i + di])) i += di;
+    return i;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Determine distance in mm to next positive peak along outward normal direction
+  inline double FrontfaceDistanceToMaxPositiveGradient(const Array<double> &g, int i0) const
+  {
+    int i = i0;
+    const int k = static_cast<int>(g.size());
+    while (i < k && (g[i] < _MinGradient || g[i] < g[i+1])) ++i;
+    return (i - i0) * _StepLength;
+  }
+
+  // ---------------------------------------------------------------------------
   /// Find image edge of WM/cGM boundary in T2-weighted MRI of neonatal brain
   ///
   /// The initial surface for the deformation process is the white surface
   /// obtained by deforming a sphere/convex hull towards the white matter
   /// tissue segmentation mask. The surface thus is close to the target boundary
   /// and should only be refined using this force.
-  inline int NeonatalWhiteSurface(const Array<double> &g) const
+  inline int NeonatalWhiteSurface(const Point &p, const Vector3 &dp, const Array<double> &f, const Array<double> &g) const
   {
-    const int k  = static_cast<int>(g.size());
-    const int i0 = (k - 1) / 2;
+    int i, j;
 
-    int i, j, i1, i2;
+    const int    k  = static_cast<int>(g.size());
+    const int    i0 = (k - 1) / 2;
     const double g1 = -_MinGradient;
     const double g2 = +_MinGradient;
 
     i = i0;
-    while (i < k - 2 && IsNaN(g[i])) ++i;
+    while (1 < i && (g[i] >= g1 || g[i] >= g[i-1])) --i;
+    j = i + 1;
+    while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
+    int i2 = (g[i] < g1 && g[j] > 0. ? i : -1);
+
+    i = i0;
     while (i < k - 2 && ((g1 <= g[i] && g[i] <= g2) || g[i] >= g[i+1])) ++i;
     j = i + 1;
     while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
-    i1 = (g[i] < g1 && g[j] > 0. ? i : -1);
-
-    i = i0;
-    while (i > 1 && IsNaN(g[i])) --i;
-    while (i > 1 && ((g1 <= g[i] && g[i] <= g2) || g[i] >= g[i-1])) --i;
-    j = i + 1;
-    while (j < k - 2 && (g[j] - g[j-1]) * (g[j] - g[j+1]) <= 0.) ++j;
-    i2 = (g[i] < g1 && g[j] > 0. ? i : -1);
+    int i1 = (g[i] < g1 && g[j] > 0. ? i : -1);
 
     if (i1 != -1 && i2 != -1) {
-      return (g[i2] < g[i1] ? i2 : i1);
+      int    iw, ig;
+      double score1 = 0., score2 = 0.;
+      double wm_mean, wm_var, gm_mean, gm_var;
+
+      const Point vox = RayPoint(p, dp, i0, k);
+      const int vi = iround(vox._x);
+      const int vj = iround(vox._y);
+      const int vk = iround(vox._z);
+
+      iw = i1;
+      while (0 < iw && f[iw-1] >= f[iw]) --iw;
+      if (f[iw] > _MaxIntensity) {
+        i1 = i0;
+      } else {
+        ig = i1;
+        while (ig < k-1 && f[ig+1] <= f[ig]) ++ig;
+        if (f[ig] < _MinIntensity || f[ig] < _Padding) {
+          i1 = i0;
+        } else {
+          wm_mean = _GlobalWhiteMatterMean;
+          wm_var  = _GlobalWhiteMatterVariance;
+          gm_mean = _GlobalGreyMatterMean;
+          gm_var  = _GlobalGreyMatterVariance;
+          if (_LocalWhiteMatterMean) {
+            wm_mean = _LocalWhiteMatterMean->Get(vi, vj, vk);
+          }
+          if (_LocalWhiteMatterVariance) {
+            wm_var = _LocalWhiteMatterVariance->Get(vi, vj, vk);
+          }
+          if (_LocalGreyMatterMean) {
+            gm_mean = _LocalGreyMatterMean->Get(vi, vj, vk);
+          }
+          if (_LocalGreyMatterVariance) {
+            gm_var = _LocalGreyMatterVariance->Get(vi, vj, vk);
+          }
+          if (IsNaN(wm_mean) || IsNaN(wm_var) || wm_var == 0.) {
+            score1 = abs(g[i1]);
+          } else {
+            score1 = exp(-.5 * pow(f[iw] - wm_mean, 2) / wm_var);
+          }
+          if (f[ig] > gm_mean && !IsNaN(gm_var) && gm_var > 0.) {
+            score1 *= exp(-.5 * pow(f[ig] - gm_mean, 2) / gm_var);
+          }
+        }
+      }
+
+      iw = i2;
+      while (0 < iw && f[iw-1] >= f[iw]) --iw;
+      if (f[iw] > _MaxIntensity) {
+        i2 = i0;
+      } else {
+        ig = i2;
+        while (ig < k-1 && f[ig+1] <= f[ig]) ++ig;
+        if (f[ig] < _MinIntensity || f[ig] < _Padding) {
+          i2 = i0;
+        } else {
+          wm_mean = _GlobalWhiteMatterMean;
+          wm_var  = _GlobalWhiteMatterVariance;
+          gm_mean = _GlobalGreyMatterMean;
+          gm_var  = _GlobalGreyMatterVariance;
+          if (_LocalWhiteMatterMean) {
+            wm_mean = _LocalWhiteMatterMean->Get(vi, vj, vk);
+          }
+          if (_LocalWhiteMatterVariance) {
+            wm_var = _LocalWhiteMatterVariance->Get(vi, vj, vk);
+          }
+          if (_LocalGreyMatterMean) {
+            gm_mean = _LocalGreyMatterMean->Get(vi, vj, vk);
+          }
+          if (_LocalGreyMatterVariance) {
+            gm_var = _LocalGreyMatterVariance->Get(vi, vj, vk);
+          }
+          if (IsNaN(wm_mean) || IsNaN(wm_var) || wm_var == 0.) {
+            score2 = abs(g[i2]);
+          } else {
+            score2 = exp(-.5 * pow(f[iw] - wm_mean, 2) / wm_var);
+          }
+          if (f[ig] > gm_mean && !IsNaN(gm_var) && gm_var > 0.) {
+            score2 *= exp(-.5 * pow(f[ig] - gm_mean, 2) / gm_var);
+          }
+        }
+      }
+
+      return (score2 < score1 ? i1 : i2);
     } else if (i1 != -1) {
       return i1;
     } else if (i2 != -1) {
@@ -274,7 +525,7 @@ struct ComputeDistances
     Vector3 n;
 
     Array<double> g(k), f;
-    if (!IsNaN(_Padding)) f.resize(k);
+    if (_EdgeType == ImageEdgeDistance::NeonatalWhiteSurface) f.resize(k);
 
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
@@ -320,41 +571,43 @@ struct ComputeDistances
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
         } break;
         case ImageEdgeDistance::NeonatalWhiteSurface: {
-          j = NeonatalWhiteSurface(g);
+          SampleIntensity(f, p, n);
+          j = NeonatalWhiteSurface(p, n, f, g);
         } break;
         case ImageEdgeDistance::NeonatalPialSurface: {
           j = NeonatalPialSurface(g);
         } break;
       }
       // When intensity thresholds set, use them to ignore irrelevant edges
-      if (j != r && (!IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
-        value = SampleIntensity(p, n, j, k);
-        if (value < _MinIntensity || value > _MaxIntensity) {
-          j = r;
+      if (_EdgeType != ImageEdgeDistance::NeonatalWhiteSurface) {
+        if (j != r && (!IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
+          value = SampleIntensity(p, n, j, k);
+          if (value < _MinIntensity || value > _MaxIntensity) {
+            j = r;
+          }
         }
-      }
-      if (j != r && !IsNaN(_Padding)) {
-        SampleIntensity(f, p, n);
-        if (j < r) {
-          i = r;
-          for (i = r; i > 0; --i) {
-            if (f[i] < _Padding) {
-              i = 0;
-              break;
+        if (j != r && !IsInf(_Padding)) {
+          if (j < r) {
+            i = r;
+            for (i = r; i > 0; --i) {
+              if (f[i] < _Padding) {
+                i = 0;
+                break;
+              }
+              if (g[j] * g[i] < 0.) break;
             }
-            if (g[j] * g[i] < 0.) break;
-          }
-          if (i == 0) j = r;
-        } else if (j > r) {
-          i = r;
-          for (i = r; i < k; ++i) {
-            if (f[i] < _Padding) {
-              i = k;
-              break;
+            if (i == 0) j = r;
+          } else if (j > r) {
+            i = r;
+            for (i = r; i < k; ++i) {
+              if (f[i] < _Padding) {
+                i = k;
+                break;
+              }
+              if (g[j] * g[i] < 0.) break;
             }
-            if (g[j] * g[i] < 0.) break;
+            if (i == k) j = r;
           }
-          if (i == k) j = r;
         }
       }
       // Set point distance to found edge and edge strength
@@ -522,6 +775,19 @@ void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
   _DistanceSmoothing  = other._DistanceSmoothing;
   _MagnitudeSmoothing = other._MagnitudeSmoothing;
   _StepLength         = other._StepLength;
+
+  _WhiteMatterMask           = other._WhiteMatterMask;
+  _GreyMatterMask            = other._GreyMatterMask;
+  _WhiteMatterWindowWidth    = other._WhiteMatterWindowWidth;
+  _GreyMatterWindowWidth     = other._GreyMatterWindowWidth;
+  _GlobalWhiteMatterMean     = other._GlobalWhiteMatterMean;
+  _GlobalWhiteMatterVariance = other._GlobalWhiteMatterVariance;
+  _GlobalGreyMatterMean      = other._GlobalGreyMatterMean;
+  _GlobalGreyMatterVariance  = other._GlobalGreyMatterVariance;
+  _LocalWhiteMatterMean      = other._LocalWhiteMatterMean;
+  _LocalWhiteMatterVariance  = other._LocalWhiteMatterVariance;
+  _LocalGreyMatterMean       = other._LocalGreyMatterMean;
+  _LocalGreyMatterVariance   = other._LocalGreyMatterVariance;
 }
 
 // -----------------------------------------------------------------------------
@@ -529,7 +795,7 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
 :
   SurfaceForce(name, weight),
   _EdgeType(Extremum),
-  _Padding(NaN),
+  _Padding(-inf),
   _MinIntensity(-inf),
   _MaxIntensity(+inf),
   _MinGradient(0.),
@@ -537,7 +803,15 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
   _MagnitudeSmoothing(2),
-  _StepLength(1.)
+  _StepLength(1.),
+  _WhiteMatterMask(nullptr),
+  _GreyMatterMask(nullptr),
+  _WhiteMatterWindowWidth(0),
+  _GreyMatterWindowWidth(0),
+  _GlobalWhiteMatterMean(NaN),
+  _GlobalWhiteMatterVariance(NaN),
+  _GlobalGreyMatterMean(NaN),
+  _GlobalGreyMatterVariance(NaN)
 {
   _ParameterPrefix.push_back("Image edge distance ");
   _ParameterPrefix.push_back("Intensity edge distance ");
@@ -604,6 +878,36 @@ bool ImageEdgeDistance::SetWithoutPrefix(const char *param, const char *value)
       strcmp(param, "Magnitude smoothing iterations") == 0) {
     return FromString(value, _MagnitudeSmoothing);
   }
+  if (strcmp(param, "Local white matter window width") == 0) {
+    return FromString(value, _WhiteMatterWindowWidth);
+  }
+  if (strcmp(param, "Local white matter window radius") == 0) {
+    int radius;
+    if (!FromString(value, radius)) return false;
+    _WhiteMatterWindowWidth = 2 * radius + 1;
+    return true;
+  }
+  if (strcmp(param, "Local grey matter window width") == 0) {
+    return FromString(value, _GreyMatterWindowWidth);
+  }
+  if (strcmp(param, "Local grey matter window radius") == 0) {
+    int radius;
+    if (!FromString(value, radius)) return false;
+    _GreyMatterWindowWidth = 2 * radius + 1;
+    return true;
+  }
+  if (strcmp(param, "Local window width") == 0) {
+    int width;
+    if (!FromString(value, width)) return false;
+    _WhiteMatterWindowWidth = _GreyMatterWindowWidth = width;
+    return false;
+  }
+  if (strcmp(param, "Local window radius") == 0) {
+    int radius;
+    if (!FromString(value, radius)) return false;
+    _WhiteMatterWindowWidth = _GreyMatterWindowWidth = 2 * radius + 1;
+    return true;
+  }
   return SurfaceForce::SetWithoutPrefix(param, value);
 }
 
@@ -620,6 +924,8 @@ ParameterList ImageEdgeDistance::Parameter() const
   InsertWithPrefix(params, "Median filter radius", _MedianFilterRadius);
   InsertWithPrefix(params, "Smoothing iterations", _DistanceSmoothing);
   InsertWithPrefix(params, "Magnitude smoothing",  _MagnitudeSmoothing);
+  InsertWithPrefix(params, "Local white matter window width", _WhiteMatterWindowWidth);
+  InsertWithPrefix(params, "Local grey matter window width", _GreyMatterWindowWidth);
   return params;
 }
 
@@ -646,6 +952,51 @@ void ImageEdgeDistance::Initialize()
   // Add point data arrays
   AddPointData("Distance");
   AddPointData("Magnitude");
+
+  // Calculate image intensity statistics
+  _LocalWhiteMatterMean.Clear();
+  _LocalWhiteMatterVariance.Clear();
+  _LocalGreyMatterMean.Clear();
+  _LocalGreyMatterVariance.Clear();
+  if (_EdgeType == NeonatalWhiteSurface) {
+    ImageAttributes attr = _Image->Attributes(); attr._dt = 0.;
+    if (_WhiteMatterMask) {
+      if (!_WhiteMatterMask->HasSpatialAttributesOf(_Image)) {
+        Throw(ERR_RuntimeError, __FUNCTION__, "Attributes of white matter mask differ from those of the intensity image!");
+      }
+      ComputeGlobalStatistics global;
+      ParallelForEachVoxel(attr, _Image, _WhiteMatterMask, global);
+      _GlobalWhiteMatterMean     = global.Mean();
+      _GlobalWhiteMatterVariance = global.Variance();
+      if (_WhiteMatterWindowWidth > 0) {
+        _LocalWhiteMatterMean.Initialize(attr);
+        _LocalWhiteMatterVariance.Initialize(attr);
+        ComputeLocalStatistics local(attr, _WhiteMatterWindowWidth, _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance);
+        ParallelForEachVoxel(attr, _Image, _WhiteMatterMask, &_LocalWhiteMatterMean, &_LocalWhiteMatterVariance, local);
+      }
+    }
+    if (_GreyMatterMask) {
+      if (!_GreyMatterMask->HasSpatialAttributesOf(_Image)) {
+        Throw(ERR_RuntimeError, __FUNCTION__, "Attributes of grey matter mask differ from those of the intensity image!");
+      }
+      ComputeGlobalStatistics global;
+      ParallelForEachVoxel(attr, _Image, _GreyMatterMask, global);
+      _GlobalGreyMatterMean     = global.Mean();
+      _GlobalGreyMatterVariance = global.Variance();
+      if (_GreyMatterWindowWidth > 0) {
+        _LocalGreyMatterMean.Initialize(attr);
+        _LocalGreyMatterVariance.Initialize(attr);
+        ComputeLocalStatistics local(attr, _GreyMatterWindowWidth, _GlobalGreyMatterMean, _GlobalGreyMatterVariance);
+        ParallelForEachVoxel(attr, _Image, _GreyMatterMask, &_LocalGreyMatterMean, &_LocalGreyMatterVariance, local);
+      }
+    }
+    if (IsNaN(_MinIntensity)) {
+      _MinIntensity = _GlobalGreyMatterMean  - 5. * sqrt(_GlobalGreyMatterVariance);
+    }
+    if (IsNaN(_MaxIntensity)) {
+      _MaxIntensity = _GlobalWhiteMatterMean + 5. * sqrt(_GlobalWhiteMatterVariance);
+    }
+  }
 }
 
 // =============================================================================
@@ -685,6 +1036,17 @@ void ImageEdgeDistance::Update(bool gradient)
   eval._MaxDistance  = _MaxDistance;
   eval._StepLength   = _StepLength;
   eval._EdgeType     = _EdgeType;
+
+  eval._GlobalWhiteMatterMean     = _GlobalWhiteMatterMean;
+  eval._GlobalWhiteMatterSigma    = sqrt(_GlobalWhiteMatterVariance);
+  eval._GlobalWhiteMatterVariance = _GlobalWhiteMatterVariance;
+  eval._GlobalGreyMatterMean      = _GlobalGreyMatterMean;
+  eval._GlobalGreyMatterVariance  = _GlobalGreyMatterVariance;
+  eval._LocalWhiteMatterMean      = (_LocalWhiteMatterMean    .IsEmpty() ? nullptr : &_LocalWhiteMatterMean);
+  eval._LocalWhiteMatterVariance  = (_LocalWhiteMatterVariance.IsEmpty() ? nullptr : &_LocalWhiteMatterVariance);
+  eval._LocalGreyMatterMean       = (_LocalGreyMatterMean     .IsEmpty() ? nullptr : &_LocalGreyMatterMean);
+  eval._LocalGreyMatterVariance   = (_LocalGreyMatterVariance .IsEmpty() ? nullptr : &_LocalGreyMatterVariance);
+
   parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
   MIRTK_DEBUG_TIMING(5, "computing edge distances");
 
@@ -693,6 +1055,7 @@ void ImageEdgeDistance::Update(bool gradient)
     MIRTK_RESET_TIMING();
     MedianMeshFilter median;
     median.Input(surface);
+    median.EdgeTable(SharedEdgeTable());
     median.Connectivity(_MedianFilterRadius);
     median.DataArray(distances);
     median.Run();
@@ -703,6 +1066,7 @@ void ImageEdgeDistance::Update(bool gradient)
     MIRTK_RESET_TIMING();
     MeshSmoothing smoother;
     smoother.Input(surface);
+    smoother.EdgeTable(SharedEdgeTable());
     smoother.SmoothPointsOff();
     smoother.SmoothArray(distances->GetName());
     smoother.Weighting(MeshSmoothing::Gaussian);
@@ -715,6 +1079,7 @@ void ImageEdgeDistance::Update(bool gradient)
     MIRTK_RESET_TIMING();
     MeshSmoothing smoother;
     smoother.Input(surface);
+    smoother.EdgeTable(SharedEdgeTable());
     smoother.SmoothPointsOff();
     smoother.SmoothArray(magnitude->GetName());
     smoother.Weighting(MeshSmoothing::Combinatorial);

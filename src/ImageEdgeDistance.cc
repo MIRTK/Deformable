@@ -186,6 +186,47 @@ public:
 };
 
 // -----------------------------------------------------------------------------
+/// Compute absolute difference of intensities around the mean
+struct ComputeMeanAbsoluteDifference : public VoxelReduction
+{
+private:
+
+  double _Mean;
+  int    _Num;
+  double _Sum;
+
+public:
+
+  ComputeMeanAbsoluteDifference(double mean) : _Mean(mean), _Num(0), _Sum(0.) {}
+
+  void split(const ComputeMeanAbsoluteDifference &)
+  {
+    _Num = 0;
+    _Sum = 0.;
+  }
+
+  void join(const ComputeMeanAbsoluteDifference &other)
+  {
+    _Num += other._Num;
+    _Sum += other._Sum;
+  }
+
+  template <class TIn, class TMask>
+  void operator()(int, int, int, int, const TIn *in, const TMask *mask)
+  {
+    if (*mask != 0) {
+      _Num += 1;
+      _Sum += abs(*in - _Mean);
+    }
+  }
+
+  double Value() const
+  {
+    return (_Num == 0 ? 0. : _Sum / _Num);
+  }
+};
+
+// -----------------------------------------------------------------------------
 /// Compute distance to closest image edge
 struct ComputeDistances
 {
@@ -1057,7 +1098,7 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _Padding(-inf),
   _MinIntensity(-inf),
   _MaxIntensity(+inf),
-  _MinGradient(0.),
+  _MinGradient(NaN),
   _MaxDistance(0.),
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
@@ -1233,6 +1274,11 @@ void ImageEdgeDistance::Initialize()
         ComputeLocalStatistics local(attr, _WhiteMatterWindowWidth, _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance);
         ParallelForEachVoxel(attr, _Image, _WhiteMatterMask, &_LocalWhiteMatterMean, &_LocalWhiteMatterVariance, local);
       }
+      if (IsNaN(_MinGradient)) {
+        ComputeMeanAbsoluteDifference mad(_GlobalWhiteMatterMean);
+        ParallelForEachVoxel(attr, _Image, _WhiteMatterMask, mad);
+        _MinGradient = .5 * mad.Value();
+      }
     }
     if (_GreyMatterMask) {
       if (!_GreyMatterMask->HasSpatialAttributesOf(_Image)) {
@@ -1259,6 +1305,9 @@ void ImageEdgeDistance::Initialize()
     #if BUILD_WITH_DEBUG_CODE
       cout << "\n" << __FUNCTION__ << ": Using WM intensity range = [" << _MinIntensity << ", " << _MaxIntensity << "]\n" << endl;
     #endif
+  }
+  if (IsNaN(_MinGradient)) {
+    _MinGradient = 0.;
   }
 }
 

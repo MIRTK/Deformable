@@ -361,12 +361,12 @@ struct UpdateMagnitude
             if (m > .0) m = - _MagnitudeDamping * m;
           }
         }
-        if (abs(m) < _MagnitudeThreshold) m = .0;
       // Zero force outside image foreground
       } else {
-        m = .0;
+        if (m > .0) m = - _MagnitudeDamping * m;
       }
       // Set new force magnitude
+      if (abs(m) < _MagnitudeThreshold) m = .0;
       _Magnitude->SetComponent(ptId, 0, m);
     }
   }

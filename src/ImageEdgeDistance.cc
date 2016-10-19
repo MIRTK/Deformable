@@ -31,8 +31,9 @@
 #include "mirtk/PointSetUtils.h"
 
 #include "vtkPointData.h"
-
-#define BUILD_WITH_DEBUG_CODE 0
+#include "vtkImageData.h"
+#include "vtkImageStencilData.h"
+#include "vtkImageStencilIterator.h"
 
 
 namespace mirtk {
@@ -41,6 +42,37 @@ namespace mirtk {
 // Register energy term with object factory during static initialization
 mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 
+// =============================================================================
+// Debugging -- output for creating figures of intensity profiles
+// =============================================================================
+#define BUILD_WITH_DEBUG_CODE 0
+
+#if BUILD_WITH_DEBUG_CODE
+  const double dbg_dist = 2.;
+
+  // dHCP CC00050XX01
+  // ----------------
+  // * outside wrong CSF->BG edge
+  //const Point dbg_voxel(64, 90, 61);
+  //const Point dbg_voxel(16, 128, 86);
+  // * outside within CSF next to opposite WM->GM edge
+  //const Point dbg_voxel(36, 64, 136);
+  // * already correct
+  //const Point dbg_voxel(80, 90, 66);
+  // * strong dark GM next to bright CSF at boundary
+  //const Point dbg_voxel(146, 76, 163);
+
+
+  // dHCP CC00050XX01
+  // ----------------
+
+  // * WM->dGM->cWM transition
+  //const Point dbg_voxel(60, 59, 85);
+  //const Point dbg_voxel(62, 65, 85);
+  // * already correct, near BG
+  //const Point dbg_voxel(94, 42, 73);
+  const Point dbg_voxel(94, 43, 70);
+#endif
 
 // =============================================================================
 // Auxiliary functions
@@ -57,6 +89,26 @@ typedef ImageEdgeDistance::LocalStatsImage LocalStatsImage;
 
 // Type of interpolated image
 typedef GenericFastCubicBSplineInterpolateImageFunction<DiscreteImage> ContinuousImage;
+
+// -----------------------------------------------------------------------------
+/// Compute intersection of two normal distributions
+double IntersectionOfNormalDistributions(double mean1, double var1, double mean2, double var2)
+{
+  if (fequal(mean1, mean2, 1e-9)) {
+    return .5 * (mean1 + mean2);
+  }
+
+  const double a = .5/var2 - .5/var1;
+  const double b = mean1/var1 - mean2/var2;
+  const double c = .5 * (mean2*mean2/var2 - mean1*mean1/var1) + log(sqrt(var2/var1));
+  const double d = sqrt(b*b - 4. * a * c);
+
+  const double x1 = -2. * c / (b - d);
+  const double x2 = -2. * c / (b + d);
+
+  if (mean1 > mean2) swap(mean1, mean2);
+  return (mean1 <= x1 && x1 <= mean2 ? x1 : x2);
+}
 
 // -----------------------------------------------------------------------------
 /// Compute global intensity statistics
@@ -227,6 +279,55 @@ public:
 };
 
 // -----------------------------------------------------------------------------
+/// Compute bounding box for WM->dGM->cGM correction
+///
+/// The region in which to perform this correction is posterior the corpus
+/// callosum towards the mid-plane of the cerebrum, nearby the posterior
+/// lateral ventricles. Given a spatial normalization of the brain image
+/// by the subdivide-brain-image tool, where the image axes are in RAS orientation
+/// and the image center is the center of the brain, this function determines
+/// a suitable bounding box for the correction. A ventricle mask/distance map
+/// further helps to limit the correction to the left/right given the bounding
+/// box of the lateral ventricles. The interior distance to the cortex as
+/// produced by the subdivide-brain-image -output-inner-cortical-distance
+/// option is further used to disable the correction near the boundary of
+/// the cortical hull and limit it to gyri deep within the brain volume.
+Array<int> ComputeCorticalDeepGreyMatterBoundingBox(const ImageAttributes &attr, const RealImage *dvent)
+{
+  Array<int> bounds(6);
+  // Left/Right bounds
+  if (dvent) {
+    bounds[0] = bounds[1] = attr._x / 2;
+    for (int k = 0; k < attr._z; ++k)
+    for (int j = 0; j < attr._y; ++j) {
+      for (int i = bounds[0] - 1; i >= 0; --i) {
+        if (dvent->Get(i, j, k) < 0.) {
+          bounds[0] = i;
+        }
+      }
+      for (int i = bounds[1] + 1; i < attr._x; ++i) {
+        if (dvent->Get(i, j, k) < 0.) {
+          bounds[1] = i;
+        }
+      }
+    }
+    const int margin = ifloor(4. / attr._dx) + 1;
+    bounds[0] = max(0,         bounds[0] - margin);
+    bounds[1] = min(attr._x-1, bounds[1] + margin);
+  } else {
+    bounds[0] = 0;
+    bounds[1] = attr._x - 1;
+  }
+  // Posterior/Anterior bounds
+  bounds[2] = 0;
+  bounds[3] = attr._y / 2;
+  // Inferior/Superior bounds -- inner cortical distance used separately
+  bounds[4] = 0;
+  bounds[5] = attr._z - 1;
+  return bounds;
+}
+
+// -----------------------------------------------------------------------------
 /// Compute distance to closest image edge
 struct ComputeDistances
 {
@@ -239,6 +340,10 @@ struct ComputeDistances
   vtkDataArray *_Magnitude;
 
   const ContinuousImage *_Image;
+  const BinaryImage     *_SurfaceMask;
+  const RealImage       *_CorticalHullDistance;
+  const RealImage       *_VentriclesDistance;
+  const RealImage       *_CerebellumDistance;
   const LocalStatsImage *_LocalWhiteMatterMean;
   const LocalStatsImage *_LocalWhiteMatterVariance;
   const LocalStatsImage *_LocalGreyMatterMean;
@@ -248,24 +353,74 @@ struct ComputeDistances
   double _MinIntensity;
   double _MaxIntensity;
   double _MinGradient;
+  double _MaxGradient;
   double _MaxDistance;
   double _StepLength;
+  int    _NumberOfSamples;
+  int    _MaxBackgroundSnapDepth;
+  double _MinCorticalHullDistance;
   double _GlobalWhiteMatterMean;
   double _GlobalWhiteMatterSigma;
   double _GlobalWhiteMatterVariance;
   double _GlobalGreyMatterMean;
+  double _GlobalGreyMatterSigma;
   double _GlobalGreyMatterVariance;
+  double _GlobalWhiteMatterThreshold;
+  const int *_CorticalDeepGreyMatterBoundingBox;
 
+  #if BUILD_WITH_DEBUG_CODE
+    Matrix *_IntensitySamples;
+    Matrix *_GradientSamples;
+  #endif
+
+  /// Enumeration of different image edge forces
   enum ImageEdgeDistance::EdgeType _EdgeType;
-  typedef Vector3D<int> Voxel;
 
   // ---------------------------------------------------------------------------
+  /// Structure used to store information of an extremum of the intensity profile
+  struct Extremum
+  {
+    int    idx;  ///< Index of normal ray sample corresponding to this extremum
+    bool   min;  ///< Whether this extremum is a minimum (GM) or maximum (WM)
+    double mean; ///< Local intensity mean
+    double std;  ///< Local intensity standard deviation
+    double var;  ///< Local intensity variance
+    double prb;  ///< Probability that this minimum/maximum belongs to GM/WM
+
+    Extremum(int i = -1, bool is_min = false)
+    :
+      idx(i), min(is_min), mean(NaN), var(NaN), prb(0.)
+    {}
+
+    inline operator bool() const { return idx >= 0; }
+    inline operator int() const { return idx; }
+    inline operator size_t() const { return static_cast<size_t>(idx); }
+  };
+
+  /// Type of 3D voxel index
+  typedef Vector3D<int> Voxel;
+
+  /// Sequence of function minima/maxima
+  typedef Array<Extremum> Extrema;
+
+  // ---------------------------------------------------------------------------
+  /// Image coordinates of i-th point of the ray in dp centered at p
   inline Point RayPoint(const Point &p, const Vector3 &dp, int i, int k) const
   {
     return p + static_cast<double>(i - k/2) * dp;
   }
 
   // ---------------------------------------------------------------------------
+  /// World coordinates of i-th point of the ray in dp centered at p
+  inline Point RayWorld(const Point &p, const Vector3 &dp, int i, int k) const
+  {
+    Point q = RayPoint(p, dp, i, k);
+    _Image->ImageToWorld(q);
+    return q;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Indices of voxel nearest to the i-th point of the ray in dp centered at p
   inline Voxel RayVoxel(const Point &p, const Vector3 &dp, int i, int k) const
   {
     const Point q = RayPoint(p, dp, i, k);
@@ -273,6 +428,7 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
+  /// Unnormalized Gaussian function value
   inline double GaussianWeight(double value, double mean, double var) const
   {
     value -= mean;
@@ -280,35 +436,116 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
-  inline void SampleIntensity(Array<double> &f, Point p, const Vector3 &dp) const
+  /// Evaluate directional image derivative along ray in dp centered at p
+  inline void SampleGradient(Array<double> &g, int k, const Point &p, const Vector3 &dp) const
   {
-    int vi, vj, vk;
-    p -= static_cast<double>((f.size() - 1) / 2) * dp;
-    for (size_t i = 0; i < f.size(); ++i, p += dp) {
-      vi = iround(p.x), vj = iround(p.y), vk = iround(p.z);
-      if (_Image->Input()->IsInside(vi, vj, vk) && _Image->Input()->IsForeground(vi, vj, vk)) {
-        f[i] = _Image->Evaluate(p.x, p.y, p.z);
-      } else {
-        f[i] = NaN;
+    const int i0 = k/2;
+    int i;
+
+    Point q;
+    Voxel v;
+    Matrix jac(1, 3);
+    Vector3 n = dp;
+    n.Normalize();
+
+    q = p;
+    for (i = i0; i <= k; ++i, q += dp) {
+      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
+      if (!_Image->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
+      _Image->Jacobian3D(jac, q.x, q.y, q.z);
+      g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+    }
+    while (i <= k) g[i++] = NaN;
+
+    q = p, q -= dp;
+    for (i = i0 - 1; i >= 0; --i, q -= dp) {
+      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
+      if (!_Image->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
+      _Image->Jacobian3D(jac, q.x, q.y, q.z);
+      g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+    }
+    while (i >= 0) g[i--] = NaN;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Evaluate image function along ray in dp centered at p
+  ///
+  /// When a mask of the current surface inside region is given, the function
+  /// values are set to NaN as soon as the ray goes from inside/outside the
+  /// surface to outside/inside of it. Given f and g, it can be determined if
+  /// a function value is NaN because of either the image foreground mask or
+  /// the surface mask. The latter is used to prevent the force of causing
+  /// self-intersections by finding the wrong image edges.
+  ///
+  /// \param[in] g Directional derivative values which are previously set to NaN
+  ///              once the ray left the image foreground region. Used to avoid
+  ///              re-evaluation of whether a point is in foreground or not.
+  inline void SampleIntensity(Array<double> &f, const Array<double> &g, int k, const Point &p, const Vector3 &dp) const
+  {
+    const int i0 = k/2;
+    int i;
+
+    Point q;
+    Voxel v;
+
+    i = i0, q = p;
+    if (_SurfaceMask) {
+      while (i <= k && !IsNaN(g[i])) {
+        f[i] = _Image->Evaluate(q.x, q.y, q.z);
+        v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
+        if (_SurfaceMask->Get(v.x, v.y, v.z) == 0) {
+          ++i, q += dp;
+          break;
+        }
+        ++i, q += dp;
       }
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  inline void SampleIntensity(Array<double> &f, const Array<double> &g, Point p, const Vector3 &dp) const
-  {
-    p -= static_cast<double>((f.size() - 1) / 2) * dp;
-    for (size_t i = 0; i < f.size(); ++i, p += dp) {
-      f[i] = (IsNaN(g[i]) ? NaN : _Image->Evaluate(p.x, p.y, p.z));
+    while (i <= k && !IsNaN(g[i])) {
+      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
+      if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) != 0) break;
+      f[i] = _Image->Evaluate(q.x, q.y, q.z);
+      ++i, q += dp;
     }
+    while (i <= k) f[i++] = NaN;
+
+    i = i0, q = p;
+    if (_SurfaceMask) {
+      while (i >= 0 && !IsNaN(g[i])) {
+        if (i != i0) f[i] = _Image->Evaluate(q.x, q.y, q.z);
+        v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
+        if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) != 0) {
+          --i, q -= dp;
+          break;
+        }
+        --i, q -= dp;
+      }
+    }
+    while (i >= 0 && !IsNaN(g[i])) {
+      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
+      if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) == 0) break;
+      f[i] = _Image->Evaluate(q.x, q.y, q.z);
+      if (_VentriclesDistance) {
+        const double d = _VentriclesDistance->Get(v.x, v.y, v.z);
+        if (d < _StepLength || (d < 2. && f[i] > _GlobalWhiteMatterMean)) {
+          if (f[i] > _GlobalWhiteMatterMean && i0 - i > iceil(1. / _StepLength)) {
+            --i;
+          }
+          --i;
+          break;
+        }
+      }
+      --i, q -= dp;
+    }
+    while (i >= 0) f[i--] = NaN;
   }
 
   // ---------------------------------------------------------------------------
+  /// Evaluate image function at a single ray point
   inline double SampleIntensity(Point p, const Vector3 &dp, int i, int k) const
   {
     p += static_cast<double>(i - k/2) * dp;
-    int vi = iround(p.x), vj = iround(p.y), vk = iround(p.z);
-    if (_Image->Input()->IsInside(vi, vj, vk) && _Image->Input()->IsForeground(vi, vj, vk)) {
+    const Voxel v(iround(p.x), iround(p.y), iround(p.z));
+    if (_Image->Input()->IsInsideForeground(v.x, v.y, v.z)) {
       return _Image->Evaluate(p.x, p.y, p.z);
     } else {
       return NaN;
@@ -316,22 +553,51 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
-  inline void SampleGradient(Array<double> &g, Point p, const Vector3 &dp) const
+  /// Get minimum value within interval
+  inline double MinimumValue(const Array<double> &v, int i = 0, int j = -1) const
   {
-    Matrix jac(1, 3);
-    Vector3 n = dp;
-    n.Normalize();
-    int vi, vj, vk;
-    p -= static_cast<double>((g.size() - 1) / 2) * dp;
-    for (size_t i = 0; i < g.size(); ++i, p += dp) {
-      vi = iround(p.x), vj = iround(p.y), vk = iround(p.z);
-      if (_Image->Input()->IsInside(vi, vj, vk) && _Image->Input()->IsForeground(vi, vj, vk)) {
-        _Image->Jacobian3D(jac, p.x, p.y, p.z);
-        g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
-      } else {
-        g[i] = NaN;
-      }
+    if (j < 0) {
+      j = static_cast<int>(v.size()) - 1;
+    } else if (i > j) {
+      swap(i, j);
     }
+    double vmin = v[i];
+    while (++i <= j) {
+      if (v[i] < vmin) vmin = v[i];
+    }
+    return vmin;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Get maximum value within interval
+  inline double MaximumValue(const Array<double> &v, int i = 0, int j = -1) const
+  {
+    if (j < 0) {
+      j = static_cast<int>(v.size()) - 1;
+    } else if (i > j) {
+      swap(i, j);
+    }
+    double vmax = v[i];
+    while (++i <= j) {
+      if (v[i] > vmax) vmax = v[i];
+    }
+    return vmax;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Get maximum absolute value within interval
+  inline double MaximumAbsValue(const Array<double> &v, int i = 0, int j = -1) const
+  {
+    if (j < 0) {
+      j = static_cast<int>(v.size() - 1);
+    } else if (i > j) {
+      swap(i, j);
+    }
+    double vmax = abs(v[i]);
+    while (++i <= j) {
+      if (abs(v[i]) > vmax) vmax = abs(v[i]);
+    }
+    return vmax;
   }
 
   // ---------------------------------------------------------------------------
@@ -411,34 +677,27 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
-  /// Starting at a strong image gradient towards background, fill up with NaN's
-  inline void TrimBackground(Array<double> &g, int k) const
+  /// Find index of previous extremum, including whether it is a minimum or maximum
+  inline Extremum PrevExtremum(const Extremum &current, const Array<double> &v, int k) const
   {
-    int i = k/2;
-    const double min_bg_gradient = -3. * _GlobalWhiteMatterSigma;
-    while (i < k && g[i] >= min_bg_gradient) ++i;
-    if (g[i] < min_bg_gradient) {
-      while (i > 0 && abs(g[i]) > abs(g[i-1])) {
-        g[i] = NaN;
-        --i;
+    Extremum next;
+    if (current.idx > 0) {
+      int j = current.idx - 1;
+      if (!IsNaN(v[j])) {
+        while (j > 0 && v[j] == v[j-1]) --j;
+        if (j > 0) {
+          next.min = (v[current.idx] > v[j]);
+          if (next.min) {
+            while (j > 0 && v[j] >= v[j-1]) --j;
+          } else {
+            while (j > 0 && v[j] <= v[j-1]) --j;
+          }
+          next.idx = j;
+        }
       }
     }
+    return next;
   }
-
-  // ---------------------------------------------------------------------------
-  /// Structure used to store information of an extremum of the intensity profile
-  struct Extremum
-  {
-    int    idx; ///< Index of normal ray sample corresponding to this extremum
-    bool   min; ///< Whether this extremum is a minimum
-    double prb; ///< Probability that this minimum/maximum belongs to GM/WM
-
-    Extremum(int i = -1) : idx(i), min(false), prb(0.) {}
-
-    inline operator bool() const { return idx >= 0; }
-    inline operator int() const { return idx; }
-    inline operator size_t() const { return static_cast<size_t>(idx); }
-  };
 
   // ---------------------------------------------------------------------------
   /// Find index of next extremum, including whether it is a minimum or maximum
@@ -449,7 +708,7 @@ struct ComputeDistances
       int j = current.idx + 1;
       if (!IsNaN(v[j])) {
         while (j < k && v[j] == v[j+1]) ++j;
-        if (j < k) {
+        if (j <= k) {
           next.min = (v[current.idx] > v[j]);
           if (next.min) {
             while (j < k && v[j] >= v[j+1]) ++j;
@@ -465,7 +724,7 @@ struct ComputeDistances
 
   // ---------------------------------------------------------------------------
   /// Get indices of alternating sequence of minima and maxima
-  inline void FindExtrema(Array<Extremum> &extrema, const Array<double> &v, int k) const
+  inline void FindExtrema(Extrema &extrema, const Array<double> &v, int k) const
   {
     extrema.clear();
     Extremum begin(k/2);
@@ -483,60 +742,209 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
-  /// Remove extrema with low intensity difference caused by noise
-  inline void NormExtrema(Array<Extremum> &extrema, const Array<double> &v, double min_diff = 0.) const
+  /// Get position of central extremum
+  inline Extrema::iterator CentralExtremum(Extrema &extrema, int k, bool min = false) const
   {
-    if (min_diff <= 0.) return;
-    double d, m;
-    Array<Extremum>::iterator l, i, r;
-    if (extrema.size() < 3) return;
-    // Remove last value if it does not significanlty differ from last extremum
-    r = extrema.end() - 1;
-    l = r - 1;
-    d = abs(v[l->idx] - v[r->idx]);
-    if (d < min_diff) {
-      extrema.erase(r);
+    const int i0 = k/2;
+    if (extrema.size() < 2) return extrema.end();
+    Extrema::iterator m = extrema.begin();
+    while (m != extrema.end() && m->idx < i0) ++m;
+    if (m == extrema.end()) --m;
+    if (min) {
+      if (m->min) {
+        //if (distance(extrema.begin(), m) > 1) m -= 2;
+      } else {
+        if (m == extrema.begin()) ++m;
+        else                      --m;
+      }
     }
-    // Remove first value if it does not significanlty differ from first extremum
-    l = extrema.begin();
-    r = l + 1;
-    d = abs(v[l->idx] - v[r->idx]);
-    if (d < min_diff) {
-      extrema.erase(l);
+    return m;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Remove irrelevant extrema
+  inline void CleanExtrema(Extrema &extrema, const Array<double> &f, const Array<double> &g, int k) const
+  {
+    Extrema::iterator l, r;
+    if (extrema.size() < 2) {
+      extrema.clear();
+      return;
+    }
+    const double gm_thres = _GlobalGreyMatterMean - 3. * _GlobalGreyMatterSigma;
+    // Insert stationary inflection points and interim points in cases
+    // where the minimum is below Mean(GM) - 3 StDev(GM), i.e., likely
+    // a transition to background. If even below the _MinIntensity,
+    // this minimum will be removed afterwards. An actual minimum at
+    // the interim point where the curvature changes rapidly is needed
+    // to still be able to identify a WM/GM edge near dark background.
+    const double min_diff = 2. * _GlobalWhiteMatterSigma;
+    const double max_diff = 5. * _GlobalWhiteMatterSigma;
+    Extremum prv, mid, nxt;
+    r = extrema.end() - 1;
+    while (r != extrema.begin()) {
+      l = r - 1;
+      const double diff = abs(f[l->idx] - f[r->idx]);
+      if (diff > min_diff) {
+        int prv_mid_idx = r->idx;
+        nxt = PrevExtremum(*r,  g, k);
+        if (l->idx < nxt.idx) {
+          mid = PrevExtremum(nxt, g, k);
+          if (l->idx < mid.idx) {
+            prv = PrevExtremum(mid, g, k);
+            while (l->idx < prv.idx) {
+              // When edge is downhill, require mid to be maximum of derivative g
+              // When edge is uphill,   require mid to be minimum of derivative g
+              if (mid.min == l->min) {
+                bool insert = false;
+                // Require mid point to be a nearly stationary point
+                if (abs(g[mid.idx]) <= _MinGradient && diff <= max_diff) {
+                  insert = (abs(g[mid.idx] - g[prv.idx]) >= _MinGradient) &&
+                           (abs(g[mid.idx] - g[nxt.idx]) >= _MinGradient);
+                // If minimum is below GM threshold or intensity difference
+                // between extrema is too big, insert interim point even if
+                // there is only a subtle change of curvature
+                } else {
+                  const bool bg = (r->min && f[r->idx] < gm_thres) ||
+                                  (l->min && f[l->idx] < gm_thres);
+                  if (bg || diff > max_diff) {
+                    const double min_g = .5 * _MinGradient;
+                    const bool   left  = (abs(g[mid.idx] - g[prv.idx]) >= min_g);
+                    const bool   right = (abs(g[mid.idx] - g[nxt.idx]) >= min_g);
+                    insert = left || right;
+                    if (insert && bg && (!left || !right)) {
+                      if (mid.min) {
+                        while (mid.idx > prv.idx && f[mid.idx] > _GlobalGreyMatterMean) --mid.idx;
+                      } else {
+                        while (mid.idx < prv_mid_idx && f[mid.idx] > _GlobalGreyMatterMean) ++mid.idx;
+                      }
+                    }
+                  }
+                }
+                if (insert) {
+                  mid.min = !r->min;
+                  r = extrema.insert(r, mid);
+                  mid.min = !mid.min;
+                  r = extrema.insert(r, mid);
+                  l = r - 1;
+                }
+                prv_mid_idx = mid.idx;
+              }
+              nxt = mid, mid = prv, prv = PrevExtremum(mid, g, k);
+            }
+          }
+        }
+      }
+      --r;
+    }
+    // Remove extrema outside the surface which are cut off by BG or CSF
+    r = CentralExtremum(extrema, k);
+    while (r != extrema.end()) {
+      if (f[r->idx] < _MinIntensity || f[r->idx] > _MaxIntensity) {
+        if (r == extrema.begin()) {
+          extrema.clear();
+        } else {
+          const int idx = r->idx;
+          extrema.erase(r, extrema.end());
+          // Insert a substitute point within GM for cases where the WM->GM->BG
+          // edge would otherwise get lost by removing the BG minimum; however,
+          // avoid creating an artificial WM->GM edge next to a very weak WM->GM
+          // edge caused by partial volume where the cortex is very close to
+          // the brain mask BG
+          if (f[idx] < _MinIntensity) {
+            const int i = extrema.back().idx;
+            if (!extrema.back().min || abs(g[i]) >= _MaxGradient) {
+              int j = idx - 1;
+              while (i < j) {
+                if (_MinIntensity <= f[j] && f[j] <= _MaxIntensity) {
+                  if ((abs(g[j]) <= _MaxGradient && f[j] > gm_thres) || f[j-1] > _GlobalGreyMatterMean) {
+                    if (abs(f[i] - f[j]) >= _MinGradient && abs(g[j]) < 1.5 * _GlobalGreyMatterSigma) {
+                      extrema.push_back(Extremum(j, f[i] >= f[j]));
+                    }
+                    break;
+                  }
+                }
+                --j;
+              }
+              if (i == j) {
+                j = idx - 1;
+                while (i < j) {
+                  if (_MinIntensity <= f[j] && f[j] <= _MaxIntensity && abs(g[j] - g[j-1]) <= .1 * _MinGradient) {
+                    if (abs(f[i] - f[j]) >= _MinGradient && abs(g[j]) < 1.5 * _GlobalGreyMatterSigma) {
+                      extrema.push_back(Extremum(j, f[i] >= f[j]));
+                    }
+                    break;
+                  }
+                  --j;
+                }
+              }
+            }
+          }
+        }
+        break;
+      }
+      ++r;
+    }
+    // Trim extrema at ends caused by end-of-ray
+    if (extrema.size() > 2) {
+      // Remove last value if it does not significantly differ from last extremum
+      r = extrema.end() - 1;
+      l = r - 1;
+      if (abs(f[l->idx] - f[r->idx]) <= _MinGradient) {
+        extrema.erase(r);
+      }
+      // Remove first value if it does not significantly differ from first extremum
+      l = extrema.begin();
+      r = l + 1;
+      if (abs(f[l->idx] - f[r->idx]) <= _MinGradient) {
+        extrema.erase(l);
+      }
     }
     // Remove intermediate extrema if too close
-    while (extrema.size() > 2) {
-      l = extrema.begin() + 1;
-      r = l + 1;
-      m = min_diff;
-      while (r != extrema.end() - 1) {
-        d = abs(v[l->idx] - v[r->idx]);
-        if (d < m) {
-          i = l;
-          m = d;
+    // Don't do this in conjunction with the insertion of inflection points...
+    #if 0
+      double d, m;
+      Extrema::iterator i;
+      while (extrema.size() > 2) {
+        l = extrema.begin() + 1;
+        r = l + 1;
+        m = _MinGradient;
+        while (r != extrema.end() - 1) {
+          d = abs(f[l->idx] - f[r->idx]);
+          if (d < m) {
+            i = l;
+            m = d;
+          }
+          l = r++;
         }
-        l = r++;
+        if (m < _MinGradient) {
+          extrema.erase(i, i + 2);
+        } else break;
       }
-      if (m < min_diff) {
-        extrema.erase(i, i + 2);
-      } else break;
+    #endif
+    if (extrema.size() < 2) {
+      extrema.clear();
+      return;
     }
   }
 
   // ---------------------------------------------------------------------------
   /// Get either global or local normal distribution parameters
-  inline void GetIntensityStatistics(const Point &p, const Vector3 &dp,
-                                     int i, int k, double &mean, double &var,
-                                     const double &global_mean, const double &global_var,
+  inline void GetIntensityStatistics(const Point &p, const Vector3 &dp, int i, int k,
+                                     double &mean, double &std, double &var,
+                                     const double &global_mean,
+                                     const double &global_std,
+                                     const double &global_var,
                                      const LocalStatsImage *local_mean = nullptr,
                                      const LocalStatsImage *local_var  = nullptr) const
   {
     if (local_mean != nullptr && local_var != nullptr) {
       const Voxel v = RayVoxel(p, dp, i, k);
-      mean = local_mean    ->Get(v.x, v.y, v.z);
-      var  = local_var->Get(v.x, v.y, v.z);
+      mean = local_mean->Get(v.x, v.y, v.z);
+      var  = local_var ->Get(v.x, v.y, v.z);
+      std  = sqrt(var);
     } else {
       mean = global_mean;
+      std  = global_std;
       var  = global_var;
     }
   }
@@ -544,55 +952,189 @@ struct ComputeDistances
   // ---------------------------------------------------------------------------
   /// Get either global or local normal distribution parameters of WM intensities
   inline void GetWhiteMatterStatistics(const Point &p, const Vector3 &dp,
-                                       int i, int k, double &mean, double &var) const
+                                       int i, int k, double &mean, double &std, double &var) const
   {
-    GetIntensityStatistics(p, dp, i, k, mean, var,
-        _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance,
+    GetIntensityStatistics(p, dp, i, k, mean, std, var,
+        _GlobalWhiteMatterMean, _GlobalWhiteMatterSigma, _GlobalWhiteMatterVariance,
         _LocalWhiteMatterMean,  _LocalWhiteMatterVariance);
   }
 
   // ---------------------------------------------------------------------------
   /// Get either global or local normal distribution parameters of GM intensities
   inline void GetGreyMatterStatistics(const Point &p, const Vector3 &dp,
-                                      int i, int k, double &mean, double &var) const
+                                      int i, int k, double &mean, double &std, double &var) const
   {
-    GetIntensityStatistics(p, dp, i, k, mean, var,
-        _GlobalGreyMatterMean, _GlobalGreyMatterVariance,
+    GetIntensityStatistics(p, dp, i, k, mean, std, var,
+        _GlobalGreyMatterMean, _GlobalGreyMatterSigma, _GlobalGreyMatterVariance,
         _LocalGreyMatterMean,  _LocalGreyMatterVariance);
   }
 
   // ---------------------------------------------------------------------------
   /// Evaluate tissue probabilities and return position of central minimum
-  inline Array<Extremum>::iterator
-  InitExtrema(Array<Extremum> &extrema,
-              const Point &p, const Vector3 &dp,
-              const Array<double> &v, int k) const
+  inline void EvalExtremum(Extremum &extremum,
+                           const Point &p, const Vector3 &dp,
+                           const Array<double> &f, int k) const
   {
-    if (extrema.size() < 1) return extrema.end();
-    double mean, var, value;
-    for (auto &&extremum : extrema) {
-      value = v[extremum.idx];
-      if (_MinIntensity <= value && value <= _MaxIntensity) {
-        if (extremum.min) {
-          GetGreyMatterStatistics(p, dp, extremum.idx, k, mean, var);
-          extremum.prb = (value <= mean ? 1. : GaussianWeight(value, mean, var));
+    double lower, upper, limit;
+    const auto &value  = f[extremum.idx];
+    if (_MinIntensity <= value && value <= _MaxIntensity) {
+      if (extremum.min) {
+        GetGreyMatterStatistics(p, dp, extremum.idx, k, extremum.mean, extremum.std, extremum.var);
+        //limit = _GlobalWhiteMatterThreshold; //extremum.mean + 3. * extremum.std;
+        limit = extremum.mean + 3. * extremum.std;
+        upper = extremum.mean; //extremum.mean + 1. * extremum.std;
+        lower = extremum.mean - 3. * extremum.std;
+        // If minimum which looks like background is right next to clearly CSF,
+        // still consider it as GM as long as it is not below the _MinIntensity
+        // (which is GM mean minus 5 times the GM standard deviation).
+        Extremum ext;
+        if (((ext = NextExtremum(extremum, f, k)) && f[ext.idx] > _MaxIntensity) ||
+            ((ext = PrevExtremum(extremum, f, k)) && f[ext.idx] > _MaxIntensity)) {
+          lower = _MinIntensity;
+        }
+        if (value > upper) {
+          extremum.prb = 1. - SShapedMembershipFunction(value, upper, limit);
+        } else if (value < lower) {
+          extremum.prb = SShapedMembershipFunction(value, _MinIntensity, lower);
         } else {
-          GetWhiteMatterStatistics(p, dp, extremum.idx, k, mean, var);
-          extremum.prb = (value >= mean ? 1. : GaussianWeight(value, mean, var));
+          extremum.prb = 1.;
         }
       } else {
-        extremum.prb = 0.;
+        extremum.prb = 1.;
+        GetWhiteMatterStatistics(p, dp, extremum.idx, k, extremum.mean, extremum.std, extremum.var);
+        upper = extremum.mean + 1.5 * extremum.std; //+ 3. * extremum.std;
+        lower = _GlobalWhiteMatterThreshold;//extremum.mean - 1. * extremum.std;
+        limit = extremum.mean - 3. * extremum.std;
+        if (_VentriclesDistance != nullptr) {
+          const Voxel v = RayVoxel(p, dp, extremum.idx, k);
+          if (_VentriclesDistance->Get(v.x, v.y, v.z) < .5) {
+            extremum.prb = 0.;
+            upper = lower = NaN;
+          } else if (_VentriclesDistance->Get(v.x, v.y, v.z) < 2.) {
+            upper = extremum.mean - 1. * extremum.std;
+            lower = extremum.mean - 3. * extremum.std;
+            limit = extremum.mean - 5. * extremum.std;
+          }
+        }
+        if (value > upper) {
+          extremum.prb = 1. - SShapedMembershipFunction(value, upper, _MaxIntensity);
+        } else if (value < lower) {
+          extremum.prb = SShapedMembershipFunction(value, limit, lower);
+        }
+      }
+    } else {
+      extremum.prb = 0.;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Evaluate tissue probabilities and return position of central minimum
+  inline void EvalExtrema(Extrema &extrema,
+                          const Point &p, const Vector3 &dp,
+                          const Array<double> &f, int k) const
+  {
+    for (auto &&extremum : extrema) {
+      EvalExtremum(extremum, p, dp, f, k);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Check if edge may belong to white surface boundary
+  inline bool IsNeonatalWhiteSurfaceEdge(const Extrema::iterator &i, const Extrema::iterator &j,
+                                         const Array<double> &f, const Array<double> &g, int k) const
+  {
+    if (i->idx < j->idx && !i->min && j->min && i->prb > .5 && j->prb > .5) {
+      const double slope = -MinimumValue(g, i->idx, j->idx);
+      if (slope > _MinGradient) return true;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Check if found white surface boundary is opposite to the desired
+  /// boundary, i.e., belongs to a neighboring gyrus than this one
+  inline bool IsOtherNeonatalWhiteSurfaceEdge(const Extrema &extrema, const Point &p, const Vector3 &dp,
+                                              const Extrema::iterator &i, const Extrema::iterator &j,
+                                              const Array<double> &f, const Array<double> &g, int k) const
+  {
+    const int end = (j == extrema.end() ? k : min(j->idx + 1, k));
+    for (int idx = i->idx; idx <= end; ++idx) {
+      if (IsNaN(f[idx])) {
+        if (IsNaN(g[idx])) return false;
+        if (_CerebellumDistance != nullptr) {
+          const Voxel v = RayVoxel(p, dp, idx, k);
+          if (_CerebellumDistance->Get(v.x, v.y, v.z) < .5) return false;
+        }
+        return true;
       }
     }
-    const int i0 = k/2;
-    Array<Extremum>::iterator m = extrema.begin();
-    while (m != extrema.end() && m->idx < i0) ++m;
-    if (m == extrema.end()) {
-      m = extrema.end() - 1;
-    } else if (m != extrema.begin()) {
-      if (m->idx != i0 && v[m->idx] > v[i0]) --m;
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Find image edge of neonatal white surface given the two edge extrema
+  inline int FindNeonatalWhiteSurface(Extrema::iterator i, Extrema::iterator j,
+                                      const Array<double> &f, const Array<double> &g, int k) const
+  {
+    int edge;
+    // If minimum is not an actual minimum but interim point where intensity
+    // falls rapidly below GM mean towards background, move inwards to
+    // previous maximum in gradient function and then further inwards below
+    // the the preceeding minimum of the gradient function, i.e., the first
+    // downhill part of the WM->GM->BG transition
+    if (g[j->idx] < -_MinGradient) {
+      edge = j->idx - 1;
+      while (edge > i->idx && g[edge] < g[edge-1]) --edge;
+      while (edge > i->idx && g[edge] > g[edge-1]) --edge;
+      if (edge == i->idx) edge = -1;
+    } else {
+      edge = -1;
+      // 1. Find edge stronger than _MaxGradient closest to GM minimum
+      double min_gradient   = -_MinGradient;
+      int    strongest_edge = -1;
+      Extremum ext(j->idx);
+      while ((ext = PrevExtremum(ext, g, k)).idx > i->idx) {
+        if (ext.min) {
+          if (g[ext.idx] < -_MaxGradient) {
+            edge = ext.idx;
+            break;
+          }
+          if (g[ext.idx] < min_gradient) {
+            strongest_edge = ext.idx;
+            min_gradient   = 1.5 * g[ext.idx];
+          }
+        }
+      }
+      // 2. If no such edge found, use strongest edge closest to WM maximum
+      if (edge == -1) edge = strongest_edge;
     }
-    return m;
+    // 3. Last resort is middle point between WM max and GM min
+    if (edge == -1) edge = (i->idx + j->idx) / 2;
+    return edge;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Find image edge of neonatal pial surface given the two edge extrema
+  inline int FindNeonatalPialSurface(const Extrema::iterator &i,
+                                     const Extrema::iterator &j,
+                                     const Array<double> &g, int k,
+                                     double min_gradient) const
+  {
+    int    idx = -1;
+    double min = min_gradient;
+    Extremum prv = Extremum(i->idx, true);
+    Extremum nxt = prv;
+    while (nxt.idx < j->idx) {
+      nxt = NextExtremum(prv, g, k);
+      if (nxt.idx == -1) break;
+      if (prv.min && !nxt.min && g[nxt.idx] > min) {
+        idx = nxt.idx;
+        min = g[idx] + _MinGradient;
+        if (g[idx] > _GlobalGreyMatterSigma) break;
+      }
+      prv = nxt;
+    }
+    return idx;
   }
 
   // ---------------------------------------------------------------------------
@@ -604,49 +1146,11 @@ struct ComputeDistances
   /// and should only be refined using this force.
   inline int NeonatalWhiteSurface(int ptId, const Point &p, const Vector3 &dp,
                                   const Array<double> &f, const Array<double> &g,
-                                  Array<Extremum> &extrema) const
+                                  Extrema &extrema, Extrema::iterator &i,
+                                  Extrema::iterator &j, bool dbg = false) const
   {
     const int k  = static_cast<int>(g.size()) - 1;
     const int i0 = k / 2;
-
-    Array<Extremum>::iterator m, i, j, pos1, pos2;
-    double prb1 = 0., prb2 = 0., prb;
-    int    nop1 = 0,  nop2 = 0;
-
-    #if BUILD_WITH_DEBUG_CODE
-      bool dbg = false;
-      #if 0
-        const double max_dist = 2.;
-        dbg = (dbg || p.Distance(Point(64, 39, 51)) < max_dist);
-      #endif
-      if (dbg) {
-        cout << "\nPoint " << ptId << ":\n\tf=[";
-        for (size_t i = 0; i < f.size(); ++i) {
-          if (i > 0) cout << ", ";
-          cout << f[i];
-        }
-        cout << "];\n\tg=[";
-        for (size_t i = 0; i < g.size(); ++i) {
-          if (i > 0) cout << ", ";
-          cout << g[i];
-        }
-        cout << "];";
-      }
-    #endif
-
-    // See if point is near deep subcortical structures (i.e., f/g=NaN);
-    // requires foreground mask of image to exclude ventricles
-    #if 1
-      const int max_depth = min(i0, max(1, iceil(1. / _StepLength)));
-      for (int depth = 0; depth <= max_depth; ++depth) {
-        if (IsNaN(g[i0 - depth])) {
-          #if BUILD_WITH_DEBUG_CODE
-            if (dbg) cout << "\n\tnearby ventricles, don't move" << endl;
-          #endif
-          return i0;
-        }
-      }
-    #endif
 
     // Find relevant extrema of intensity profile
     FindExtrema(extrema, f, k);
@@ -660,7 +1164,7 @@ struct ComputeDistances
         cout << "];";
       }
     #endif
-    NormExtrema(extrema, f, _MinGradient);
+    CleanExtrema(extrema, f, g, k);
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
         cout << "\n\tj=[";
@@ -672,9 +1176,46 @@ struct ComputeDistances
       }
     #endif
 
-    // Evaluate tissue probabilities and initialize search using closest minimum
-    m = InitExtrema(extrema, p, dp, f, k);
-    if (m == extrema.end()) return i0;
+    // Evaluate tissue probabilities and initialize search using next minimum inside
+    Extrema::iterator m = CentralExtremum(extrema, k, true);
+    if (m == extrema.end()) {
+      i = j = extrema.end();
+      return i0;
+    }
+
+    // Avoid mistakes when right next to ventricles
+    if (_VentriclesDistance != nullptr) {
+      Voxel v(iround(p.x), iround(p.y), iround(p.z));
+      const double ventricles_distance = _VentriclesDistance->Get(v.x, v.y, v.z);
+      // When inside a ventricle, move outwards until the surface no longer
+      // intersects the ventricles
+      if (ventricles_distance < .1) {
+        #if BUILD_WITH_DEBUG_CODE
+          if (dbg) cout << "\n\tinside ventricles, move outwards" << endl;
+        #endif
+        int idx;
+        for (idx = i0; idx < k && !IsNaN(g[idx]); ++idx) {
+          v = RayVoxel(p, dp, idx, k);
+          if (_VentriclesDistance->Get(v.x, v.y, v.z) > .1) break;
+        }
+        if (IsNaN(g[idx])) return i0;
+        return idx;
+      // When right next to a ventricle, the following assumptions of valid
+      // image edges may be incorrect; thus better stay and rely on the segmentation.
+      } else if (ventricles_distance < 1.) {
+        #if BUILD_WITH_DEBUG_CODE
+          if (dbg) cout << "\n\tnext to ventricles, don't move" << endl;
+        #endif
+        return i0;
+      }
+    }
+
+    // Whether correction of found WM->dGM edge near the ventricles is allowed
+    // given that the intensity profile matches a WM->dGM->cGM transition
+    bool allow_deep_matter_correction = (_CorticalHullDistance != nullptr);
+
+    // Find probable WM/cGM edge inside/outside the surface
+    EvalExtrema(extrema, p, dp, f, k);
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
         cout << "\n\t";
@@ -685,149 +1226,416 @@ struct ComputeDistances
         cout << "};";
       }
     #endif
-
-    prb1 = prb2 = 0.;
-    pos1 = pos2 = extrema.end();
-
-    // Find probable WM/cGM edge inside the surface
+    Extrema::iterator pos1 = extrema.end();
+    Extrema::iterator pos2 = extrema.end();
+    double prb1 = 0., prb2 = 0., prb, slope;
+    int    nop1 = 0,  nop2 = 0;
     if (m != extrema.begin()) {
       i = m;
       do {
         j = i--;
-        prb = i->prb * j->prb;
-        if (prb > .1) {
+        if (i->idx < j->idx) {
           if (i->min) {
-            ++nop1;
-          } else {
-            pos1 = i;
-            prb1 = prb;
-            break;
+            slope = MaximumValue(g, i->idx, j->idx);
+            if (slope > _MinGradient) {
+              if (i->prb > .5) {
+                if (i->idx >= i0) {
+                  ++nop2;
+                } else {
+                  ++nop1;
+                }
+              }
+              if (pos1 != extrema.end()) break;
+            }
+          } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
+            prb = i->prb * j->prb;
+            if (prb > prb1) {
+              pos1 = i;
+              prb1 = prb;
+            }
           }
         }
       } while (i != extrema.begin());
     }
-
-    // Find probable WM/cGM edge outside the surface
     j = m + 1;
     while (j != extrema.end()) {
       i = j - 1;
-      prb = i->prb * j->prb;
-      if (prb > .1) {
+      if (i->idx < j->idx) {
         if (i->min) {
-          ++nop2;
-        } else {
-          pos2 = i;
-          prb2 = prb;
-          break;
+          if (i->idx >= i0) {
+            slope = MaximumValue(g, i->idx, j->idx);
+            if (slope > _MinGradient) {
+              if (i->prb > .5) {
+                ++nop2;
+                #if BUILD_WITH_DEBUG_CODE
+                  if (dbg) {
+                    cout << "\n\topposite WM/GM edge [" << i->idx << ", " << j->idx << "] encountered, look no further outwards";
+                  }
+                #endif
+                break;
+              }
+              if (slope > 1.5 * _GlobalWhiteMatterSigma) {
+                #if BUILD_WITH_DEBUG_CODE
+                  if (dbg) {
+                    cout << "\n\tstrong opposite edge [" << i->idx << ", " << j->idx << "] encountered, look no further outwards";
+                  }
+                #endif
+                break;
+              }
+            }
+          }
+        } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
+          if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, j, j + 1, f, g, k)) {
+            // Close to the superior of corpus callosum and the lateral ventricles,
+            // there are small sulci where the cortex begins, keep this edge even
+            // when close to another
+            if (_VentriclesDistance && f[j->idx] > _GlobalGreyMatterMean - 1.5 * _GlobalGreyMatterSigma) {
+              const Voxel v = RayVoxel(p, dp, i->idx, k);
+              if (_VentriclesDistance->Get(v.x, v.y, v.z) < 5.) {
+                pos2 = i;
+                prb2 = i->prb * j->prb;
+              }
+            }
+            if (pos2 == extrema.end()) {
+              #if BUILD_WITH_DEBUG_CODE
+                if (dbg) {
+                  cout << "\n\tedge [" << i->idx << ", " << j->idx << "] is opposite to another WM/cGM edge";
+                }
+              #endif
+              // When there is a stationary inflection point and the second
+              // downhill part of the edge (i, j) is next to a neighboring gyrus,
+              // choose the downhill part corresponding to the previous minimum
+              // in the gradient function as white surface boundary edge.
+              Extremum ext = PrevExtremum(Extremum(j->idx), g, k);
+              if (ext.idx > i->idx && ext.min) {
+                Extremum mid = PrevExtremum(ext, g, k);
+                if (mid.idx > i->idx && abs(g[mid.idx]) < _MinGradient) {
+                  ext = PrevExtremum(mid, g, k);
+                  if (ext.idx > i->idx) {
+                    EvalExtremum(mid, p, dp, f, k);
+                    j = extrema.insert(j, mid); // need alternating sequence of min/max
+                    mid.min = true;
+                    j = extrema.insert(j, mid);
+                    pos2 = i;
+                    prb2 = i->prb * j->prb;
+                  }
+                }
+              }
+              // Otherwise, choose the previous outside edge instead which may
+              // have only a slight GM minimum above the GM mean due to partial
+              // volume with nearby CSF and was therefore skipped before.
+              if (pos2 == extrema.end() && distance(extrema.begin(), i) > 1) {
+                i -= 2, j = i + 1;
+                prb = i->prb * j->prb;
+                if (pos1 != i && prb > .1) {
+                  pos2 = i;
+                  prb2 = prb;
+                }
+              }
+            }
+            break;
+          } else {
+            prb = i->prb * j->prb;
+            if (prb > prb2) {
+              pos2 = i;
+              prb2 = prb;
+            }
+          }
         }
       }
       ++j;
     }
+    #if BUILD_WITH_DEBUG_CODE
+      if (dbg) {
+        cout << "\n\tmid = " << m->idx;
+        if (prb1 > 0.) {
+          cout << "; inwards: edge = [" << pos1->idx << ", " << (pos1+1)->idx << "], prb = " << prb1 << ", nop = " << nop1;
+        } else {
+          cout << "; inwards: edge = None, nop = " << nop1;
+        }
+        if (prb2 > 0.) {
+          cout << "; outwards: edge = [" << pos2->idx << ", " << (pos2+1)->idx << "], prb = " << prb2 << ", nop = " << nop2;
+        } else {
+          cout << "; outwards: edge = None, nop = " << nop2;
+        }
+      }
+    #endif
 
     // Choose pair of maximum and minimum within which image edge occurs
-    if (prb1 > 0. && prb2 > 0.) {
-      if      (nop1 < nop2) i = pos1;
-      else if (nop1 > nop2) i = pos2;
-      else                  i = (prb1 >= prb2 ? pos1 : pos2);
-    } else if (prb1 > 0.) {
+    i = extrema.end();
+    if (pos1 != extrema.end() && pos2 != extrema.end()) {
+      // If the outwards edge is opposite to bright CSF, choose it even if
+      // its "probability" score is lower than the inwards edge as long as
+      // it is high enough and nop2 is zero
+      if (nop1 == 0 && nop2 == 0 && prb2 > .5) {
+        j = pos2 + 1;
+        if (MaximumValue(g, pos2->idx, j->idx) < -_GlobalGreyMatterSigma) {
+          Extremum ext = NextExtremum(*j, f, k);
+          if (ext.idx != -1 && f[ext.idx] > _MaxIntensity) i = pos2;
+        }
+      }
+      if (i == extrema.end()) {
+        #if 0
+        if (nop1 == nop2) {
+          i = (prb1 >= prb2 ? pos1 : pos2);
+        } else {
+          i = (nop1 < nop2 ? pos1 : pos2);
+        }
+        #else
+        if (nop1 == 0 && nop2 == 0) {
+          i = (prb1 >= prb2 ? pos1 : pos2);
+        } else {
+          i = pos1;
+        }
+        #endif
+      }
+    } else if (pos1 != extrema.end()) {
       i = pos1;
-    } else if (prb2 > 0.) {
+    } else if (pos2 != extrema.end() && nop2 == 0) {
       i = pos2;
-    } else {
-      i = (m == extrema.begin() ? m : m - 1);
+    }
+    j = i + 1;
+    if (i == extrema.end() || j == extrema.end() || i->min) {
+      #if BUILD_WITH_DEBUG_CODE
+        if (dbg) {
+          cout << "\n\tno suitable edge found";
+        }
+      #endif
+      i = j = extrema.end();
+      return i0;
     }
 
     // Identify strongest (negative) image gradient between these extrema;
-    // prefer image edges closer to GM minimum over those near WM maximum
-    double gmin = 0.;
-    int    edge = -1;
-    if (i != extrema.end() && !i->min) {
-      for (int idx = (i+1)->idx; idx >= i->idx; --idx) {
-        if (g[idx] < gmin - _MinGradient) {
-          gmin = g[idx];
-          edge = idx;
-        }
-      }
-    }
-
-    // If no edge found, expand while within WM
-    #if 0
-      if (edge == -1 && abs(g[i0]) < _MinGradient) {
-        double mean, var;
-        GetWhiteMatterStatistics(p, dp, i0, k, mean, var);
-        const double std = sqrt(var);
-        const double min = mean - 1. * std;
-        const double max = mean + 3. * std;
-        if (min <= f[i0] && f[i0] <= max) {
-          #if BUILD_WITH_DEBUG_CODE
-            if (dbg) cout << "\n\twithin WM, move outwards" << endl;
-          #endif
-          int j = i0 + 1;
-          while (j < k && g[k] > -_MinGradient) ++j;
-          return j;
-        }
-      }
-    #endif
-
+    // prefer image edges closer to GM minimum over those near WM maximum;
+    // require maximum in gradient to the right of this minimum to avoid
+    // finding a strong "minimum" in the gradient near foreground boundary
+    int edge = FindNeonatalWhiteSurface(i, j, f, g, k);
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
-        cout << "\n\tedge index = " << edge << endl;
+        cout << "\n\tWM/cGM edge index = " << edge;
       }
     #endif
-    return (edge == -1 ? i0 : edge);
+    const Voxel v = RayVoxel(p, dp, edge, k);
+    if (_CorticalDeepGreyMatterBoundingBox) {
+      const int * const &bounds = _CorticalDeepGreyMatterBoundingBox;
+      if (v.x < bounds[0] || v.x > bounds[1] ||
+          v.y < bounds[2] || v.y > bounds[3] ||
+          v.z < bounds[4] || v.z > bounds[5]) {
+        allow_deep_matter_correction = false;
+      }
+    }
+    if (allow_deep_matter_correction) {
+      // If the found edge is followed by another decrease of intensity
+      // towards a relatively dark cortical GM where the start of this
+      // following edge is within darker WM or deep GM, use this next
+      // edge instead which is further outside. But only when this edge
+      // was not previously identified as near to a neighboring gyrus.
+      const auto a = j + 1, b = j + 2;
+      if (a != extrema.end() && b != extrema.end()) {
+        if (abs(g[b->idx]) < _MaxGradient) {
+          if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, b, b + 1, f, g, k)) {
+            #if BUILD_WITH_DEBUG_CODE
+              if (dbg) {
+                cout << "\n\tfollowing edge is opposite to another WM/cGM edge";
+              }
+            #endif
+          } else {
+            // Use approximate distance maps to outer cortical surface
+            // (boundary of union of GM and WM tissue segmentation) and distance
+            // to ventricles to decide when to perform this correction
+            double cortex_distance = _CorticalHullDistance->Get(v.x, v.y, v.z);
+            #if BUILD_WITH_DEBUG_CODE
+              if (dbg) {
+                cout << "\n\tf[i=" << i->idx << "]=" << f[i->idx] << ", f[j=" << j->idx << "]=" << f[j->idx]
+                     << ", f[a=" << a->idx << "]=" << f[a->idx] << ", f[b=" << b->idx << "]=" << f[b->idx]
+                     << ", cortex distance = " << cortex_distance;
+              }
+            #endif
+            if (cortex_distance > 5.) {
+              double vents_distance = NaN;
+              if (_VentriclesDistance != nullptr) {
+                vents_distance = _VentriclesDistance->Get(v.x, v.y, v.z);
+              }
+              #if BUILD_WITH_DEBUG_CODE
+                if (dbg) {
+                  cout << ", ventricles distance = " << vents_distance;
+                }
+              #endif
+              // Default parameters
+              double min_max_f_delta = max(1.5 * _GlobalGreyMatterSigma, .5 * (f[i->idx] - f[j->idx]));
+              double max_max_f_delta = 0.5 * _GlobalWhiteMatterSigma;
+              double min_min_f_delta = 0.5 * _GlobalGreyMatterSigma;
+              double min_max_g_limit = 2.0 * _MaxGradient;
+              double min_g_value     = -_GlobalGreyMatterSigma;
+              // ...relax parameters nearer the ventricles
+              if (vents_distance < 5.) {
+                min_max_f_delta = 3.0 * _GlobalGreyMatterSigma;
+                min_g_value    *= .5;
+              }
+              #if 0 // too relaxed for dHCP CC00050XX01
+                if (vents_distance < 2.5) {
+                  min_max_f_delta = inf;
+                  max_max_f_delta = 0.;
+                  min_min_f_delta = -.5 * _GlobalGreyMatterSigma;
+                }
+              #endif
+              // Do not perform such correction if the intensity profile is
+              // high -> low -> less high -> lower -> low --> even lower,
+              // i.e., when we picked already the "lower -> low" interval
+              if (distance(extrema.begin(), i) > 1) {
+                const auto c = i - 2;
+                const auto d = i - 1;
+                if (f[i->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
+                    // 1. Difference between GM minimum and next maximum is low
+                    && f[i->idx] - f[d->idx] < min_max_f_delta
+                    // 2. Next maximum is below WM maximum
+                    && f[c->idx] - f[i->idx] > max_max_f_delta
+                    // 3. Next minimum is lower than this GM minimum
+                    && f[d->idx] - f[j->idx] > min_min_f_delta
+                    // 4. Edge from GM minimum to next maximum is not too strong
+                    && MaximumValue(g, d->idx, i->idx) < min_max_g_limit) {
+                  allow_deep_matter_correction = false;
+                  #if BUILD_WITH_DEBUG_CODE
+                    if (dbg) {
+                      cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 1)";
+                    }
+                  #endif
+                } else if (f[c->idx] > _GlobalWhiteMatterMean + 1.5 * _GlobalWhiteMatterSigma
+                           && f[i->idx] < _GlobalWhiteMatterMean + .5 * _GlobalWhiteMatterSigma
+                           && f[i->idx] > _GlobalWhiteMatterThreshold) {
+                  allow_deep_matter_correction = false;
+                  #if BUILD_WITH_DEBUG_CODE
+                    if (dbg) {
+                      cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 2)";
+                    }
+                  #endif
+                }
+              }
+              if (allow_deep_matter_correction) {
+                // Need to distinguish WM->GM->BG from WM->dGM->cGM transition
+                // Use subdivide-brain-image -output-inner-cortical-distance to
+                // generate cortical depth map.
+                if (f[b->idx] < _GlobalGreyMatterMean - 3. * _GlobalGreyMatterSigma && (cortex_distance < 5. || vents_distance > 20.)) {
+                  #if BUILD_WITH_DEBUG_CODE
+                    if (dbg) {
+                      cout << "\n\tis possibly WM->GM->BG transition, keep first found edge";
+                    }
+                  #endif
+                } else {
+                  #if BUILD_WITH_DEBUG_CODE
+                    if (dbg) {
+                      cout << "\n\tupper min_max_f_delta = " << min_max_f_delta << " (difference = " << f[a->idx] - f[j->idx] << ")"
+                           <<   ", lower max_max_f_delta = " << max_max_f_delta << " (difference = " << f[i->idx] - f[a->idx] << ")"
+                           <<   ", lower min_min_f_delta = " << min_min_f_delta << " (difference = " << f[j->idx] - f[b->idx] << ")"
+                           <<   ", upper min_max_g_limit = " << min_max_g_limit << " (max. grad. = " << MaximumValue(g, j->idx, a->idx) << ")";
+                    }
+                  #endif
+                  if (// 1. Difference between GM minimum and next maximum is low
+                      f[a->idx] - f[j->idx] < min_max_f_delta
+                      // 2. Next maximum is below WM maximum
+                      && f[i->idx] - f[a->idx] > max_max_f_delta
+                      // 3. Next minimum is lower than this GM minimum
+                      && f[j->idx] - f[b->idx] > min_min_f_delta
+                      // 4. Edge from GM minimum to next maximum is not too strong
+                      && MaximumValue(g, j->idx, a->idx) < min_max_g_limit) {
+                    // Following edge is relatively strong or at least stronger than the previous one
+                    const int idx = FindNeonatalWhiteSurface(a, b, f, g, k);
+                    if (g[idx] < min_g_value || g[idx] < g[edge] - _MinGradient || MaximumValue(g, edge, idx) < 0.) {
+                      i = a, j = b;
+                      edge = idx;
+                      #if BUILD_WITH_DEBUG_CODE
+                        if (dbg) {
+                          cout << "\n\tnew WM/cGM edge index = " << edge;
+                        }
+                      #endif
+                    } else {
+                      #if BUILD_WITH_DEBUG_CODE
+                        if (dbg) {
+                          cout << "\n\tnew WM/cGM edge not strong enough";
+                        }
+                      #endif
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          #if BUILD_WITH_DEBUG_CODE
+            if (dbg) {
+              cout << "\n\tno WM->dGM->cGM correction due to high gradient at next minimum";
+            }
+          #endif
+        }
+      } else {
+        #if BUILD_WITH_DEBUG_CODE
+          if (dbg) {
+            cout << "\n\tless than two extrema left outwards";
+          }
+        #endif
+      }
+    } else {
+      #if BUILD_WITH_DEBUG_CODE
+        if (dbg) {
+          cout << "\n\tWM->dGM->cGM correction disabled";
+        }
+      #endif
+    }
+    return edge;
   }
 
   // ---------------------------------------------------------------------------
   /// Find image edge of cGM/CSF boundary in T2-weighted MRI of neonatal brain
-  ///
-  /// The initial surface for the deformation process is the white surface
-  /// delineating the WM/cGM boundary. The image foreground (mask) should
-  /// exclude the interior of this initial surface such that the pial surface
-  /// may only deform outwards from this initial surface mesh.
-  inline int NeonatalPialSurface(const Array<double> &g) const
+  inline int NeonatalPialSurface(const Point &p, const Vector3 &dp,
+                                 const Array<double> &f, const Array<double> &g,
+                                 Extrema &extrema, Extrema::iterator &i,
+                                 Extrema::iterator &j, bool dbg = false) const
   {
-    const int k  = static_cast<int>(g.size()) - 1;
-    const int i0 = k / 2;
+    const int k = static_cast<int>(f.size()) - 1;
 
-    int i;
-
-    i = i0;
-    while (i > 0 && (g[i] <= _MinGradient || g[i] < g[i-1])) --i;
-    const auto i1 = (g[i] > 0. ? i : -1);
-
-    i = i0;
-    while (i < k && IsNaN(g[i])) ++i;
-    while (i < k && (g[i] <= _MinGradient || g[i] < g[i+1])) ++i;
-    const auto i2 = (g[i] > 0. ? i : -1);
-
-    if (i1 != -1 && i2 != -1) {
-      return (abs(i0 - i1) < abs(i0 - i2) ? i1 : i2);
-    } else if (i1 != -1) {
-      return i1;
-    } else if (i2 != -1) {
-      return i2;
-    } else {
-      return i0;
+    int edge = -1;
+    NeonatalWhiteSurface(0, p, dp, f, g, extrema, i, j, dbg);
+    if (i != extrema.end() && j != extrema.end() && j->min) {
+      i = j, j = i + 1;
+      if (j != extrema.end()) {
+        edge = FindNeonatalPialSurface(i, j, g, k, _MinGradient);
+      }
     }
+    if (edge == -1) {
+      edge = ClosestMaximum(g);
+    }
+    #if BUILD_WITH_DEBUG_CODE
+      if (dbg) {
+        cout << "\n\tGM/CSF edge index = " << edge;
+      }
+    #endif
+
+    return edge;
   }
 
   // ---------------------------------------------------------------------------
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    const int r = ifloor(_MaxDistance / _StepLength);
-    const int k = 2 * r;
+    const int k = _NumberOfSamples - 1;
+    const int r = k / 2;
 
     double  value;
     int     i, j, j1, j2;
     Point   p;
     Vector3 n;
 
+    bool dbg = false;
+    const bool cortex = (_EdgeType == ImageEdgeDistance::NeonatalWhiteSurface ||
+                         _EdgeType == ImageEdgeDistance::NeonatalPialSurface);
+
     Array<double> g(k+1), f;
-    Array<Extremum> extrema;
-    if (_EdgeType == ImageEdgeDistance::NeonatalWhiteSurface) {
+    Extrema extrema;
+    Extrema::iterator a, b;
+    if (cortex) {
       f.resize(g.size());
       extrema.reserve(10);
     }
+
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
         _Distances->SetComponent(ptId, 0, 0.);
@@ -840,8 +1648,50 @@ struct ComputeDistances
       // Transform point/vector to image space
       _Image->WorldToImage(p);
       _Image->WorldToImage(n);
-      // Sample image gradient along cast ray
-      SampleGradient(g, p, n);
+      // Sample image gradient/intensities along ray
+      SampleGradient(g, k, p, n);
+      #if BUILD_WITH_DEBUG_CODE
+        if (_GradientSamples) {
+          for (int i = 0; i < _NumberOfSamples; ++i) {
+            _GradientSamples->Put(ptId, i, g[i]);
+          }
+        }
+      #endif
+      if (cortex) {
+        SampleIntensity(f, g, k, p, n);
+        #if BUILD_WITH_DEBUG_CODE
+          if (_IntensitySamples) {
+            for (int i = 0; i < _NumberOfSamples; ++i) {
+              _IntensitySamples->Put(ptId, i, f[i]);
+            }
+          }
+        #endif
+      }
+      // Choose points for which to print the values and extrema indices
+      // for visualization and analysis in MATLAB, for example
+      // - Copy and paste output into MATLAB to define f, g, i, and j
+      // - Plot with the following MATLAB code:
+      //     x=1:size(f,2);
+      //     yyaxis left, plot(x, f), hold on
+      //     plot(x(i+1), f(i+1), 'r*')
+      //     plot(x(j+1), f(j+1), 'g+')
+      //     yyaxis right, plot(x, g), hold off
+      #if BUILD_WITH_DEBUG_CODE
+        dbg = (p.Distance(dbg_voxel) < dbg_dist);
+        if (dbg) {
+          cout << "\nPoint " << ptId << ":\n\tf=[";
+          for (size_t i = 0; i < f.size(); ++i) {
+            if (i > 0) cout << ", ";
+            cout << f[i];
+          }
+          cout << "];\n\tg=[";
+          for (size_t i = 0; i < g.size(); ++i) {
+            if (i > 0) cout << ", ";
+            cout << g[i];
+          }
+          cout << "];";
+        }
+      #endif
       // Find edge in normal direction
       switch (_EdgeType) {
         case ImageEdgeDistance::Extremum: {
@@ -872,16 +1722,15 @@ struct ComputeDistances
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
         } break;
         case ImageEdgeDistance::NeonatalWhiteSurface: {
-          TrimBackground(g, k);
-          SampleIntensity(f, g, p, n);
-          j = NeonatalWhiteSurface(ptId, p, n, f, g, extrema);
+          j = NeonatalWhiteSurface(ptId, p, n, f, g, extrema, a, b, dbg);
         } break;
         case ImageEdgeDistance::NeonatalPialSurface: {
-          j = NeonatalPialSurface(g);
+          j = NeonatalPialSurface(p, n, f, g, extrema, a, b, dbg);
         } break;
       }
       // When intensity thresholds set, use them to ignore irrelevant edges
-      if (_EdgeType != ImageEdgeDistance::NeonatalWhiteSurface) {
+      if (_EdgeType != ImageEdgeDistance::NeonatalWhiteSurface &&
+          _EdgeType != ImageEdgeDistance::NeonatalPialSurface) {
         if (j != r && (!IsInf(_MinIntensity) || !IsInf(_MaxIntensity))) {
           value = SampleIntensity(p, n, j, k);
           if (value < _MinIntensity || value > _MaxIntensity) {
@@ -913,6 +1762,9 @@ struct ComputeDistances
       // Set point distance to found edge and edge strength
       _Distances->SetComponent(ptId, 0, static_cast<double>(j - r) * _StepLength);
       _Magnitude->SetComponent(ptId, 0, IsNaN(g[j]) ? 0. : abs(g[j]));
+      #if BUILD_WITH_DEBUG_CODE
+        if (dbg) cout << endl;
+      #endif
     }
   }
 };
@@ -1078,6 +1930,9 @@ void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
 
   _WhiteMatterMask           = other._WhiteMatterMask;
   _GreyMatterMask            = other._GreyMatterMask;
+  _CorticalHullDistance      = other._CorticalHullDistance;
+  _VentriclesDistance        = other._VentriclesDistance;
+  _CerebellumDistance        = other._CerebellumDistance;
   _WhiteMatterWindowWidth    = other._WhiteMatterWindowWidth;
   _GreyMatterWindowWidth     = other._GreyMatterWindowWidth;
   _GlobalWhiteMatterMean     = other._GlobalWhiteMatterMean;
@@ -1099,6 +1954,7 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _MinIntensity(-inf),
   _MaxIntensity(+inf),
   _MinGradient(NaN),
+  _MaxGradient(NaN),
   _MaxDistance(0.),
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
@@ -1106,6 +1962,9 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _StepLength(1.),
   _WhiteMatterMask(nullptr),
   _GreyMatterMask(nullptr),
+  _CorticalHullDistance(nullptr),
+  _VentriclesDistance(nullptr),
+  _CerebellumDistance(nullptr),
   _WhiteMatterWindowWidth(0),
   _GreyMatterWindowWidth(0),
   _GlobalWhiteMatterMean(NaN),
@@ -1240,6 +2099,10 @@ void ImageEdgeDistance::Initialize()
   SurfaceForce::Initialize();
   if (_NumberOfPoints == 0) return;
 
+  #if BUILD_WITH_DEBUG_CODE
+    cout << "\n" << NameOfClass() << "::" << __FUNCTION__ << ":";
+  #endif
+
   // Image resolution, i.e., length of voxel diagonal
   const double res = sqrt(pow(_Image->XSize(), 2) +
                           pow(_Image->YSize(), 2) +
@@ -1248,6 +2111,9 @@ void ImageEdgeDistance::Initialize()
   // Parameters for ray casting to sample image intensities near surface
   _StepLength = .25 * res;
   if (_MaxDistance <= 0.) _MaxDistance = 4. * res;
+  #if BUILD_WITH_DEBUG_CODE
+    cout << "\n\tstep length = " << _StepLength << ", max distance = " << _MaxDistance;
+  #endif
 
   // Add point data arrays
   AddPointData("Distance");
@@ -1258,7 +2124,7 @@ void ImageEdgeDistance::Initialize()
   _LocalWhiteMatterVariance.Clear();
   _LocalGreyMatterMean.Clear();
   _LocalGreyMatterVariance.Clear();
-  if (_EdgeType == NeonatalWhiteSurface) {
+  if (_EdgeType == NeonatalWhiteSurface || _EdgeType == NeonatalPialSurface) {
     ImageAttributes attr = _Image->Attributes(); attr._dt = 0.;
     if (_WhiteMatterMask) {
       if (!_WhiteMatterMask->HasSpatialAttributesOf(_Image)) {
@@ -1301,14 +2167,44 @@ void ImageEdgeDistance::Initialize()
     if (IsInf(_MaxIntensity)) {
       _MaxIntensity = _GlobalWhiteMatterMean + 5. * sqrt(_GlobalWhiteMatterVariance);
     }
-    // TODO: Set _MinGradient based on WM variance
+    _CorticalDeepGreyMatterBoundingBox = ComputeCorticalDeepGreyMatterBoundingBox(attr, _VentriclesDistance);
     #if BUILD_WITH_DEBUG_CODE
-      cout << "\n" << __FUNCTION__ << ": Using WM intensity range = [" << _MinIntensity << ", " << _MaxIntensity << "]\n" << endl;
+      cout << "\n\tintensity range = [" << _MinIntensity << ", " << _MaxIntensity << "]";
+      if (_WhiteMatterMask) {
+        cout << "\n\tWM mean = " << _GlobalWhiteMatterMean;
+        cout << ", WM sigma = " << sqrt(_GlobalWhiteMatterVariance);
+      }
+      if (_GreyMatterMask) {
+        cout << "\n\tGM mean = " << _GlobalGreyMatterMean;
+        cout << ", GM sigma = " << sqrt(_GlobalGreyMatterVariance);
+      }
+      if (_WhiteMatterMask && _GreyMatterMask) {
+        const double thres = IntersectionOfNormalDistributions(
+                                _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance,
+                                _GlobalGreyMatterMean,  _GlobalGreyMatterVariance);
+        cout << "\n\tWM/GM threshold = " << thres;
+      }
+      cout << ", min. gradient = " << _MinGradient;
+      cout << "\n\tWM->dGM->cGM bounding box = [";
+      for (int i = 0; i < 6; ++i) {
+        if (i > 0) {
+          if (i % 2 == 0) cout << "] x [";
+          else            cout << ", ";
+        }
+        cout << _CorticalDeepGreyMatterBoundingBox[i];
+      }
+      cout << "]";
     #endif
   }
   if (IsNaN(_MinGradient)) {
     _MinGradient = 0.;
   }
+  if (IsNaN(_MaxGradient)) {
+    _MaxGradient = 2. * _MinGradient;
+  }
+  #if BUILD_WITH_DEBUG_CODE
+    cout << "\n" << endl;
+  #endif
 }
 
 // =============================================================================
@@ -1329,6 +2225,13 @@ void ImageEdgeDistance::Update(bool gradient)
   if (distances->GetMTime() >= surface->GetMTime()) return;
 
   // Compute distance to closest image edge
+  const int radius   = ifloor(_MaxDistance / _StepLength);
+  const int nsamples = 2 * radius + 1;
+
+  const double wm_threshold = IntersectionOfNormalDistributions(
+                                  _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance,
+                                  _GlobalGreyMatterMean,  _GlobalGreyMatterVariance);
+
   ContinuousImage image;
   image.Input(_Image);
   image.DefaultValue(NaN);
@@ -1336,32 +2239,93 @@ void ImageEdgeDistance::Update(bool gradient)
 
   MIRTK_START_TIMING();
   ComputeDistances eval;
-  eval._Points       = Points();
-  eval._Status       = InitialStatus();
-  eval._Normals      = Normals();
-  eval._Image        = &image;
-  eval._Distances    = distances;
-  eval._Magnitude    = magnitude;
-  eval._Padding      = _Padding;
-  eval._MinIntensity = _MinIntensity;
-  eval._MaxIntensity = _MaxIntensity;
-  eval._MinGradient  = _MinGradient;
-  eval._MaxDistance  = _MaxDistance;
-  eval._StepLength   = _StepLength;
-  eval._EdgeType     = _EdgeType;
+  eval._Points          = Points();
+  eval._Status          = InitialStatus();
+  eval._Normals         = Normals();
+  eval._Image           = &image;
+  eval._Distances       = distances;
+  eval._Magnitude       = magnitude;
+  eval._Padding         = _Padding;
+  eval._MinIntensity    = _MinIntensity;
+  eval._MaxIntensity    = _MaxIntensity;
+  eval._MinGradient     = _MinGradient;
+  eval._MaxGradient     = _MaxGradient;
+  eval._MaxDistance     = _MaxDistance;
+  eval._StepLength      = _StepLength;
+  eval._NumberOfSamples = nsamples;
+  eval._EdgeType        = _EdgeType;
 
-  eval._GlobalWhiteMatterMean     = _GlobalWhiteMatterMean;
-  eval._GlobalWhiteMatterSigma    = sqrt(_GlobalWhiteMatterVariance);
-  eval._GlobalWhiteMatterVariance = _GlobalWhiteMatterVariance;
-  eval._GlobalGreyMatterMean      = _GlobalGreyMatterMean;
-  eval._GlobalGreyMatterVariance  = _GlobalGreyMatterVariance;
-  eval._LocalWhiteMatterMean      = (_LocalWhiteMatterMean    .IsEmpty() ? nullptr : &_LocalWhiteMatterMean);
-  eval._LocalWhiteMatterVariance  = (_LocalWhiteMatterVariance.IsEmpty() ? nullptr : &_LocalWhiteMatterVariance);
-  eval._LocalGreyMatterMean       = (_LocalGreyMatterMean     .IsEmpty() ? nullptr : &_LocalGreyMatterMean);
-  eval._LocalGreyMatterVariance   = (_LocalGreyMatterVariance .IsEmpty() ? nullptr : &_LocalGreyMatterVariance);
+  eval._CorticalHullDistance = _CorticalHullDistance;
+  eval._VentriclesDistance   = _VentriclesDistance;
+  eval._CerebellumDistance   = _CerebellumDistance;
+  eval._CorticalDeepGreyMatterBoundingBox = _CorticalDeepGreyMatterBoundingBox.data();
+
+  BinaryImage surface_mask;
+  if (_EdgeType == NeonatalWhiteSurface) {
+    surface_mask.Initialize(_Image->Attributes(), 1);
+    vtkSmartPointer<vtkPointSet> pointset = WorldToImage(surface, &surface_mask);
+    vtkSmartPointer<vtkPolyData> polydata = vtkPolyData::SafeDownCast(pointset);
+    vtkSmartPointer<vtkImageData>        vtkmask = NewVtkMask(_Image->X(), _Image->Y(), _Image->Z());
+    vtkSmartPointer<vtkImageStencilData> stencil = ImageStencil(vtkmask, polydata);
+    ImageStencilToMask(stencil, vtkmask);
+    surface_mask.CopyFrom(reinterpret_cast<BinaryPixel *>(vtkmask->GetScalarPointer()));
+    eval._SurfaceMask = &surface_mask;
+  } else {
+    eval._SurfaceMask = nullptr;
+  }
+
+  if (_EdgeType == NeonatalWhiteSurface) {
+    eval._MaxBackgroundSnapDepth = max(1, iceil(1. / _StepLength));
+  } else {
+    eval._MaxBackgroundSnapDepth = 0.;
+  }
+
+  eval._GlobalWhiteMatterMean      = _GlobalWhiteMatterMean;
+  eval._GlobalWhiteMatterSigma     = sqrt(_GlobalWhiteMatterVariance);
+  eval._GlobalWhiteMatterVariance  = _GlobalWhiteMatterVariance;
+  eval._GlobalGreyMatterMean       = _GlobalGreyMatterMean;
+  eval._GlobalGreyMatterSigma      = sqrt(_GlobalGreyMatterVariance);
+  eval._GlobalGreyMatterVariance   = _GlobalGreyMatterVariance;
+  eval._GlobalWhiteMatterThreshold = wm_threshold;
+  eval._LocalWhiteMatterMean       = (_LocalWhiteMatterMean    .IsEmpty() ? nullptr : &_LocalWhiteMatterMean);
+  eval._LocalWhiteMatterVariance   = (_LocalWhiteMatterVariance.IsEmpty() ? nullptr : &_LocalWhiteMatterVariance);
+  eval._LocalGreyMatterMean        = (_LocalGreyMatterMean     .IsEmpty() ? nullptr : &_LocalGreyMatterMean);
+  eval._LocalGreyMatterVariance    = (_LocalGreyMatterVariance .IsEmpty() ? nullptr : &_LocalGreyMatterVariance);
 
   #if BUILD_WITH_DEBUG_CODE
-    eval(blocked_range<int>(0, _NumberOfPoints));
+    static int ncalls = 0;
+    #if 0
+      ++ncalls;
+    #endif
+    Matrix f, g;
+    if (ncalls == 1) {
+      f.Initialize(_NumberOfPoints, nsamples);
+      g.Initialize(_NumberOfPoints, nsamples);
+      eval._IntensitySamples = &f;
+      eval._GradientSamples  = &g;
+    } else {
+      eval._IntensitySamples = nullptr;
+      eval._GradientSamples  = nullptr;
+    }
+    if (dbg_dist >= 0.) {
+      eval(blocked_range<int>(0, _NumberOfPoints));
+    } else {
+      parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
+    }
+    if (f.Rows() > 0) {
+      #if MIRTK_Numerics_WITH_MATLAB
+        f.WriteMAT("debug_image_edge_distance_f.mat", "f");
+      #else
+        f.Write("debug_image_edge_distance_f.bin");
+      #endif
+    }
+    if (g.Rows() > 0) {
+      #if MIRTK_Numerics_WITH_MATLAB
+        g.WriteMAT("debug_image_edge_distance_g.mat", "g");
+      #else
+        g.Write("debug_image_edge_distance_g.bin");
+      #endif
+    }
   #else
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
   #endif

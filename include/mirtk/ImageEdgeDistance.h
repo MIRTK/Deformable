@@ -75,6 +75,9 @@ private:
   /// Minimum image edge gradient magnitude
   mirtkPublicAttributeMacro(double, MinGradient);
 
+  /// Maximum image edge gradient magnitude to consider a point non-stationary
+  mirtkPublicAttributeMacro(double, MaxGradient);
+
   /// Maximum edge point distance
   mirtkPublicAttributeMacro(double, MaxDistance);
 
@@ -90,12 +93,26 @@ private:
   /// Step length used for ray casting
   mirtkPublicAttributeMacro(double, StepLength);
 
-
   /// White matter mask used by NeonatalWhiteSurface edge force
-  mirtkPublicAggregateMacro(BinaryImage, WhiteMatterMask);
+  mirtkPublicAggregateMacro(const BinaryImage, WhiteMatterMask);
 
   /// Grey matter mask used by NeonatalWhiteSurface edge force
-  mirtkPublicAggregateMacro(BinaryImage, GreyMatterMask);
+  mirtkPublicAggregateMacro(const BinaryImage, GreyMatterMask);
+
+  /// Approximate distance to boundary of cortex used to disable
+  /// WM->dGM->cGM correction near the boundary to avoid accidental
+  /// correction where a WM->cGM->BG transition is given instead
+  ///
+  /// \sa Application subdivide-brain-image.cc option -output-depth.
+  mirtkPublicAggregateMacro(const RealImage, CorticalHullDistance);
+
+  /// Distance to ventricles used to ignore edges caused by hyper-intense WM
+  mirtkPublicAggregateMacro(const RealImage, VentriclesDistance);
+
+  /// Distance to cerebellum used to avoid choosing second downhill part
+  /// of WM->GM->BG transition over WM->GM part in case of following bright
+  /// CSF near the cerebellum which is also surrounded by bright CSF
+  mirtkPublicAggregateMacro(const RealImage, CerebellumDistance);
 
   /// Width of local white matter intensity statistics window
   mirtkPublicAttributeMacro(double, WhiteMatterWindowWidth);
@@ -126,6 +143,9 @@ private:
 
   /// Image with voxel-wise local grey matter intensity variance values
   mirtkAttributeMacro(LocalStatsImage, LocalGreyMatterVariance);
+
+  /// Bounding box within which to allow WM->dGM->cGM correction
+  mirtkAttributeMacro(Array<int>, CorticalDeepGreyMatterBoundingBox);
 
 private:
 

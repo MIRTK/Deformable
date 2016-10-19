@@ -394,7 +394,8 @@ void ResampleMask(BinaryImage &mask, const ImageAttributes &attr)
 {
   RealImage resampled(mask);
   ResampleImage(resampled, attr);
-  const int nvox = mask.NumberOfVoxels();
+  mask.Initialize(resampled.Attributes());
+  const int nvox = resampled.NumberOfVoxels();
   for (int vox = 0; vox < nvox; ++vox) {
     mask(vox) = BinaryPixel(resampled(vox) >= .5 ? 1 : 0);
   }
@@ -698,8 +699,11 @@ int main(int argc, char *argv[])
   bool        inflate_brain     = false; // mimick mris_inflate
   int         nlevels           = 1;     // no. of levels
 
-  const char *wm_mask_name = nullptr;
-  const char *gm_mask_name = nullptr;
+  const char *wm_mask_name         = nullptr;
+  const char *gm_mask_name         = nullptr;
+  const char *cortex_dmap_name     = nullptr;
+  const char *vents_dmap_name      = nullptr;
+  const char *cerebellum_dmap_name = nullptr;
 
   Array<int>    navgs;           // no. of total gradient averaging steps
   Array<int>    distance_navgs;  // no. of distance gradient averaging steps
@@ -744,6 +748,15 @@ int main(int argc, char *argv[])
     }
     else if (OPTION("-grey-matter-mask") || OPTION("-gm-mask")) {
       gm_mask_name = ARGUMENT;
+    }
+    else if (OPTION("-inner-cortical-dmap") || OPTION("-inner-cortical-distance-map") || OPTION("-inner-cortical-distance-image")) {
+      cortex_dmap_name = ARGUMENT;
+    }
+    else if (OPTION("-ventricles-dmap") || OPTION("-ventricles-distance-map") || OPTION("-ventricles-distance-image")) {
+      vents_dmap_name = ARGUMENT;
+    }
+    else if (OPTION("-cerebellum-dmap") || OPTION("-cerebellum-distance-map") || OPTION("-cerebellum-distance-image")) {
+      cerebellum_dmap_name = ARGUMENT;
     }
     else if (OPTION("-initial")) {
       initial_name = ARGUMENT;
@@ -1410,6 +1423,7 @@ int main(int argc, char *argv[])
 
   // Read tissue masks of image edge distance force
   BinaryImage wm_mask, gm_mask;
+  RealImage cortex_dmap, vents_dmap, cerebellum_dmap;
   if (dedges.Weight() != 0.) {
     if (wm_mask_name) {
       wm_mask.Read(wm_mask_name);
@@ -1424,6 +1438,27 @@ int main(int argc, char *argv[])
         ResampleMask(gm_mask, attr);
       }
       dedges.GreyMatterMask(&gm_mask);
+    }
+    if (cortex_dmap_name) {
+      cortex_dmap.Read(cortex_dmap_name);
+      if (attr && !cortex_dmap.Attributes().EqualInSpace(attr)) {
+        ResampleImage(cortex_dmap, attr);
+      }
+      dedges.CorticalHullDistance(&cortex_dmap);
+    }
+    if (vents_dmap_name) {
+      vents_dmap.Read(vents_dmap_name);
+      if (attr && !vents_dmap.Attributes().EqualInSpace(attr)) {
+        ResampleImage(vents_dmap, attr);
+      }
+      dedges.VentriclesDistance(&vents_dmap);
+    }
+    if (cerebellum_dmap_name) {
+      cerebellum_dmap.Read(cerebellum_dmap_name);
+      if (attr && !cerebellum_dmap.Attributes().EqualInSpace(attr)) {
+        ResampleImage(cerebellum_dmap, attr);
+      }
+      dedges.CerebellumDistance(&cerebellum_dmap);
     }
   }
 

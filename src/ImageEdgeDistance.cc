@@ -63,7 +63,7 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
   //const Point dbg_voxel(146, 76, 163);
 
 
-  // dHCP CC00050XX01
+  // dHCP CC00051XX02
   // ----------------
 
   // * WM->dGM->cWM transition
@@ -71,7 +71,27 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
   //const Point dbg_voxel(62, 65, 85);
   // * already correct, near BG
   //const Point dbg_voxel(94, 42, 73);
-  const Point dbg_voxel(94, 43, 70);
+  //const Point dbg_voxel(94, 43, 70);
+
+  // dHCP CC00055XX06
+  // ----------------
+
+  // * already correct, missing after refinement
+  //const Point dbg_voxel(77, 47, 74);
+  //const Point dbg_voxel(76, 47, 74);
+  //const Point dbg_voxel(117, 98, 52);
+  const Point dbg_voxel(108, 54, 155);
+
+  // * slightly inside, missing after refinement
+  //const Point dbg_voxel(105, 89, 71);
+
+  // * WM->cGM->BG misclassified as WM->dGM->cGM transition
+  //const Point dbg_voxel(69, 41, 57);
+  //const Point dbg_voxel(108, 77, 85); // not very clear
+
+  // * correctly applied WM->dGM->cGM correction
+  //const Point dbg_voxel(119, 39, 82);
+
 #endif
 
 // =============================================================================
@@ -888,15 +908,19 @@ struct ComputeDistances
     if (extrema.size() > 2) {
       // Remove last value if it does not significantly differ from last extremum
       r = extrema.end() - 1;
-      l = r - 1;
-      if (abs(f[l->idx] - f[r->idx]) <= _MinGradient) {
-        extrema.erase(r);
+      if (r->idx == k || IsNaN(g[r->idx+1])) {
+        l = r - 1;
+        if (abs(f[l->idx] - f[r->idx]) <= _MinGradient) {
+          extrema.erase(r);
+        }
       }
       // Remove first value if it does not significantly differ from first extremum
       l = extrema.begin();
-      r = l + 1;
-      if (abs(f[l->idx] - f[r->idx]) <= _MinGradient) {
-        extrema.erase(l);
+      if (l->idx == 0 || IsNaN(g[l->idx-1])) {
+        r = l + 1;
+        if (abs(f[l->idx] - f[r->idx]) <= _MinGradient) {
+          extrema.erase(l);
+        }
       }
     }
     // Remove intermediate extrema if too close
@@ -982,7 +1006,7 @@ struct ComputeDistances
         GetGreyMatterStatistics(p, dp, extremum.idx, k, extremum.mean, extremum.std, extremum.var);
         //limit = _GlobalWhiteMatterThreshold; //extremum.mean + 3. * extremum.std;
         limit = extremum.mean + 3. * extremum.std;
-        upper = extremum.mean; //extremum.mean + 1. * extremum.std;
+        upper = extremum.mean + .5 * extremum.std;
         lower = extremum.mean - 3. * extremum.std;
         // If minimum which looks like background is right next to clearly CSF,
         // still consider it as GM as long as it is not below the _MinIntensity
@@ -1057,16 +1081,13 @@ struct ComputeDistances
                                               const Extrema::iterator &i, const Extrema::iterator &j,
                                               const Array<double> &f, const Array<double> &g, int k) const
   {
-    const int end = (j == extrema.end() ? k : min(j->idx + 1, k));
-    for (int idx = i->idx; idx <= end; ++idx) {
-      if (IsNaN(f[idx])) {
-        if (IsNaN(g[idx])) return false;
-        if (_CerebellumDistance != nullptr) {
-          const Voxel v = RayVoxel(p, dp, idx, k);
-          if (_CerebellumDistance->Get(v.x, v.y, v.z) < .5) return false;
-        }
-        return true;
+    const int idx = (j == extrema.end() ? NextExtremum(*i, f, k) : *j).idx + 1;
+    if (idx != -1 && idx <= k && IsNaN(f[idx]) && !IsNaN(g[idx])) {
+      if (_CerebellumDistance != nullptr) {
+        const Voxel v = RayVoxel(p, dp, idx, k);
+        if (_CerebellumDistance->Get(v.x, v.y, v.z) < .5) return false;
       }
+      return true;
     }
     return false;
   }
@@ -1080,7 +1101,7 @@ struct ComputeDistances
     // If minimum is not an actual minimum but interim point where intensity
     // falls rapidly below GM mean towards background, move inwards to
     // previous maximum in gradient function and then further inwards below
-    // the the preceeding minimum of the gradient function, i.e., the first
+    // the preceeding minimum of the gradient function, i.e., the first
     // downhill part of the WM->GM->BG transition
     if (g[j->idx] < -_MinGradient) {
       edge = j->idx - 1;
@@ -1105,11 +1126,22 @@ struct ComputeDistances
           }
         }
       }
-      // 2. If no such edge found, use strongest edge closest to WM maximum
+      // 2. If no such edge found, use strongest edge
       if (edge == -1) edge = strongest_edge;
     }
     // 3. Last resort is middle point between WM max and GM min
     if (edge == -1) edge = (i->idx + j->idx) / 2;
+    // 4. Move outwards if edge is steep and intensity is yet above threshold
+    if (g[edge] < 1.5 * _GlobalWhiteMatterSigma && f[j->idx] < _GlobalGreyMatterMean) {
+      int idx = edge;
+      while (idx < j->idx && f[idx] > _GlobalWhiteMatterThreshold) ++idx;
+      if (idx > edge) {
+        edge = idx++;
+        if (_GlobalWhiteMatterThreshold - f[edge] > f[idx] - _GlobalWhiteMatterThreshold) {
+          edge = idx;
+        }
+      }
+    }
     return edge;
   }
 
@@ -1238,7 +1270,7 @@ struct ComputeDistances
           if (i->min) {
             slope = MaximumValue(g, i->idx, j->idx);
             if (slope > _MinGradient) {
-              if (i->prb > .5) {
+              if (i->prb > .8 && j->prb > .8) {
                 if (i->idx >= i0) {
                   ++nop2;
                 } else {
@@ -1265,8 +1297,7 @@ struct ComputeDistances
           if (i->idx >= i0) {
             slope = MaximumValue(g, i->idx, j->idx);
             if (slope > _MinGradient) {
-              if (i->prb > .5) {
-                ++nop2;
+              if (i->prb > .8 && j->prb > .8) {
                 #if BUILD_WITH_DEBUG_CODE
                   if (dbg) {
                     cout << "\n\topposite WM/GM edge [" << i->idx << ", " << j->idx << "] encountered, look no further outwards";
@@ -1336,11 +1367,22 @@ struct ComputeDistances
             break;
           } else {
             prb = i->prb * j->prb;
+            #if BUILD_WITH_DEBUG_CODE
+              if (dbg) {
+                cout << "\n\tPr([" << i->idx << ", " << j->idx << "]) = " << prb;
+              }
+            #endif
             if (prb > prb2) {
               pos2 = i;
               prb2 = prb;
             }
           }
+        } else {
+          #if BUILD_WITH_DEBUG_CODE
+            if (dbg) {
+              cout << "\n\tskip edge [" << i->idx << ", " << j->idx << "], not a WM/cGM edge";
+            }
+          #endif
         }
       }
       ++j;
@@ -1356,7 +1398,7 @@ struct ComputeDistances
         if (prb2 > 0.) {
           cout << "; outwards: edge = [" << pos2->idx << ", " << (pos2+1)->idx << "], prb = " << prb2 << ", nop = " << nop2;
         } else {
-          cout << "; outwards: edge = None, nop = " << nop2;
+          cout << "; outwards: edge = None";
         }
       }
     #endif
@@ -1367,7 +1409,7 @@ struct ComputeDistances
       // If the outwards edge is opposite to bright CSF, choose it even if
       // its "probability" score is lower than the inwards edge as long as
       // it is high enough and nop2 is zero
-      if (nop1 == 0 && nop2 == 0 && prb2 > .5) {
+      if (nop1 == 0 && prb2 > .5) {
         j = pos2 + 1;
         if (MaximumValue(g, pos2->idx, j->idx) < -_GlobalGreyMatterSigma) {
           Extremum ext = NextExtremum(*j, f, k);
@@ -1382,7 +1424,7 @@ struct ComputeDistances
           i = (nop1 < nop2 ? pos1 : pos2);
         }
         #else
-        if (nop1 == 0 && nop2 == 0) {
+        if (nop1 == 0) {
           i = (prb1 >= prb2 ? pos1 : pos2);
         } else {
           i = pos1;
@@ -1422,7 +1464,21 @@ struct ComputeDistances
           v.y < bounds[2] || v.y > bounds[3] ||
           v.z < bounds[4] || v.z > bounds[5]) {
         allow_deep_matter_correction = false;
+        #if BUILD_WITH_DEBUG_CODE
+          if (dbg) {
+            cout << "\n\tedge is not within WM->dGM->cGM bounding box";
+          }
+        #endif
       }
+    }
+    if (allow_deep_matter_correction &&
+        MinimumValue(g, i->idx, j->idx) < -1.5 * _GlobalWhiteMatterSigma) {
+      #if BUILD_WITH_DEBUG_CODE
+        if (dbg) {
+          cout << "\n\tedge is strong, skip WM->dGM->cGM correction";
+        }
+      #endif
+      allow_deep_matter_correction = false;
     }
     if (allow_deep_matter_correction) {
       // If the found edge is followed by another decrease of intensity
@@ -1787,8 +1843,8 @@ struct ComputeMagnitude
         _Magnitude->SetComponent(ptId, 0, 0.);
       } else {
         // Edge magnitude factor
-        m1 = _Magnitude->GetComponent(ptId, 0);
-        m1 = SShapedMembershipFunction(m1, 0., _MaxMagnitude);
+        //m1 = _Magnitude->GetComponent(ptId, 0);
+        //m1 = SShapedMembershipFunction(m1, 0., _MaxMagnitude);
         // Edge distance factor
         d  = _Distances->GetComponent(ptId, 0);
         d2 = _DistanceScale * d, d2 *= d2;
@@ -2143,7 +2199,7 @@ void ImageEdgeDistance::Initialize()
       if (IsNaN(_MinGradient)) {
         ComputeMeanAbsoluteDifference mad(_GlobalWhiteMatterMean);
         ParallelForEachVoxel(attr, _Image, _WhiteMatterMask, mad);
-        _MinGradient = .5 * mad.Value();
+        _MinGradient = .25 * mad.Value();
       }
     }
     if (_GreyMatterMask) {
@@ -2200,7 +2256,7 @@ void ImageEdgeDistance::Initialize()
     _MinGradient = 0.;
   }
   if (IsNaN(_MaxGradient)) {
-    _MaxGradient = 2. * _MinGradient;
+    _MaxGradient = 4. * _MinGradient;
   }
   #if BUILD_WITH_DEBUG_CODE
     cout << "\n" << endl;

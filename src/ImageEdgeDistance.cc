@@ -43,7 +43,7 @@ namespace mirtk {
 mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 
 // =============================================================================
-// Debugging -- output for creating figures of intensity profiles
+// Debugging output for creating figures of intensity profiles
 // =============================================================================
 #define BUILD_WITH_DEBUG_CODE 0
 
@@ -73,6 +73,12 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
   //const Point dbg_voxel(94, 42, 73);
   //const Point dbg_voxel(94, 43, 70);
 
+  // dHCP CC00052XX03
+  // ----------------
+
+  // * already correct, mislead by dark dGM near ventricles
+  const Point dbg_voxel(109, 41, 82);
+
   // dHCP CC00055XX06
   // ----------------
 
@@ -80,7 +86,7 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
   //const Point dbg_voxel(77, 47, 74);
   //const Point dbg_voxel(76, 47, 74);
   //const Point dbg_voxel(117, 98, 52);
-  const Point dbg_voxel(108, 54, 155);
+  //const Point dbg_voxel(108, 54, 155);
 
   // * slightly inside, missing after refinement
   //const Point dbg_voxel(105, 89, 71);
@@ -1503,8 +1509,8 @@ struct ComputeDistances
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
                 cout << "\n\tf[i=" << i->idx << "]=" << f[i->idx] << ", f[j=" << j->idx << "]=" << f[j->idx]
-                     << ", f[a=" << a->idx << "]=" << f[a->idx] << ", f[b=" << b->idx << "]=" << f[b->idx]
-                     << ", cortex distance = " << cortex_distance;
+                     << ", f[a=" << a->idx << "]=" << f[a->idx] << ", f[b=" << b->idx << "]=" << f[b->idx];
+                cout << "\n\tcortex distance = " << cortex_distance;
               }
             #endif
             if (cortex_distance > 5.) {
@@ -1518,37 +1524,32 @@ struct ComputeDistances
                 }
               #endif
               // Default parameters
-              double min_max_f_delta = max(1.5 * _GlobalGreyMatterSigma, .5 * (f[i->idx] - f[j->idx]));
               double max_max_f_delta = 0.5 * _GlobalWhiteMatterSigma;
               double min_min_f_delta = 0.5 * _GlobalGreyMatterSigma;
               double min_max_g_limit = 2.0 * _MaxGradient;
               double min_g_value     = -_GlobalGreyMatterSigma;
               // ...relax parameters nearer the ventricles
-              if (vents_distance < 5.) {
-                min_max_f_delta = 3.0 * _GlobalGreyMatterSigma;
-                min_g_value    *= .5;
-              }
-              #if 0 // too relaxed for dHCP CC00050XX01
-                if (vents_distance < 2.5) {
-                  min_max_f_delta = inf;
-                  max_max_f_delta = 0.;
-                  min_min_f_delta = -.5 * _GlobalGreyMatterSigma;
-                }
-              #endif
+              if (vents_distance < 5.) min_g_value *= .5;
               // Do not perform such correction if the intensity profile is
               // high -> low -> less high -> lower -> low --> even lower,
               // i.e., when we picked already the "lower -> low" interval
               if (distance(extrema.begin(), i) > 1) {
                 const auto c = i - 2;
                 const auto d = i - 1;
+                #if BUILD_WITH_DEBUG_CODE
+                  if (dbg) {
+                    cout << "\n\tf[c=" << c->idx << "]=" << f[c->idx];
+                    cout << ", f[d=" << d->idx << "]=" << f[d->idx];
+                    cout << ", max(g(d:i))=" << MaximumValue(g, d->idx, i->idx);
+                    cout << ", min(g(i:j))=" << MinimumValue(g, i->idx, j->idx);
+                  }
+                #endif
                 if (f[i->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
-                    // 1. Difference between GM minimum and next maximum is low
-                    && f[i->idx] - f[d->idx] < min_max_f_delta
-                    // 2. Next maximum is below WM maximum
+                    // 1. Next maximum is below WM maximum
                     && f[c->idx] - f[i->idx] > max_max_f_delta
-                    // 3. Next minimum is lower than this GM minimum
+                    // 2. Next minimum is lower than this GM minimum
                     && f[d->idx] - f[j->idx] > min_min_f_delta
-                    // 4. Edge from GM minimum to next maximum is not too strong
+                    // 3. Edge from GM minimum to next maximum is not too strong
                     && MaximumValue(g, d->idx, i->idx) < min_max_g_limit) {
                   allow_deep_matter_correction = false;
                   #if BUILD_WITH_DEBUG_CODE
@@ -1556,13 +1557,31 @@ struct ComputeDistances
                       cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 1)";
                     }
                   #endif
-                } else if (f[c->idx] > _GlobalWhiteMatterMean + 1.5 * _GlobalWhiteMatterSigma
-                           && f[i->idx] < _GlobalWhiteMatterMean + .5 * _GlobalWhiteMatterSigma
+                } else if (   f[c->idx] > _GlobalWhiteMatterMean + 1.5 * _GlobalWhiteMatterSigma
+                           && f[i->idx] < _GlobalWhiteMatterMean + 0.5 * _GlobalWhiteMatterSigma
                            && f[i->idx] > _GlobalWhiteMatterThreshold) {
                   allow_deep_matter_correction = false;
                   #if BUILD_WITH_DEBUG_CODE
                     if (dbg) {
                       cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 2)";
+                    }
+                  #endif
+                } else if (// Prev minimum is bright GM (i.e., dGM)
+                           _GlobalGreyMatterMean < f[d->idx] && f[d->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
+                           // Next minimum is darker GM (i.e., cGM)
+                           && f[j->idx] < _GlobalGreyMatterMean - .5 * _GlobalGreyMatterSigma
+                           // Separating maximum is above GM/WM threshold
+                           && f[i->idx] > _GlobalWhiteMatterThreshold
+                           // Edge between prev minimum and WM maximum is weak
+                           && MaximumValue(g, d->idx, i->idx) < _GlobalWhiteMatterSigma
+                           // Edge between next minimum and WM maximum is strong
+                           && MinimumValue(g, i->idx, j->idx) < -_GlobalWhiteMatterSigma
+                           // Difference of inside edge is less than outside edge
+                           && 1.5 * (f[c->idx] - f[d->idx]) < (f[i->idx] - f[j->idx])) {
+                  allow_deep_matter_correction = false;
+                  #if BUILD_WITH_DEBUG_CODE
+                    if (dbg) {
+                      cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 3)";
                     }
                   #endif
                 }
@@ -1580,19 +1599,16 @@ struct ComputeDistances
                 } else {
                   #if BUILD_WITH_DEBUG_CODE
                     if (dbg) {
-                      cout << "\n\tupper min_max_f_delta = " << min_max_f_delta << " (difference = " << f[a->idx] - f[j->idx] << ")"
-                           <<   ", lower max_max_f_delta = " << max_max_f_delta << " (difference = " << f[i->idx] - f[a->idx] << ")"
+                      cout << "\n\tlower max_max_f_delta = " << max_max_f_delta << " (difference = " << f[i->idx] - f[a->idx] << ")"
                            <<   ", lower min_min_f_delta = " << min_min_f_delta << " (difference = " << f[j->idx] - f[b->idx] << ")"
                            <<   ", upper min_max_g_limit = " << min_max_g_limit << " (max. grad. = " << MaximumValue(g, j->idx, a->idx) << ")";
                     }
                   #endif
-                  if (// 1. Difference between GM minimum and next maximum is low
-                      f[a->idx] - f[j->idx] < min_max_f_delta
-                      // 2. Next maximum is below WM maximum
-                      && f[i->idx] - f[a->idx] > max_max_f_delta
-                      // 3. Next minimum is lower than this GM minimum
+                  if (// 1. Next maximum is below WM maximum
+                      f[i->idx] - f[a->idx] > max_max_f_delta
+                      // 2. Next minimum is lower than this GM minimum
                       && f[j->idx] - f[b->idx] > min_min_f_delta
-                      // 4. Edge from GM minimum to next maximum is not too strong
+                      // 3. Edge from GM minimum to next maximum is not too strong
                       && MaximumValue(g, j->idx, a->idx) < min_max_g_limit) {
                     // Following edge is relatively strong or at least stronger than the previous one
                     const int idx = FindNeonatalWhiteSurface(a, b, f, g, k);

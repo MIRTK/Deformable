@@ -50,6 +50,9 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 #if BUILD_WITH_DEBUG_CODE
   const double dbg_dist = 2.;
 
+  const Point dbg_voxel(112, 178, 150);
+  //const Point dbg_voxel(111, 177, 155);
+
   // dHCP CC00050XX01
   // ----------------
   // * outside wrong CSF->BG edge
@@ -72,12 +75,24 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
   // * already correct, near BG
   //const Point dbg_voxel(94, 42, 73);
   //const Point dbg_voxel(94, 43, 70);
+  // * near dark subcortical structures
+  //const Point dbg_voxel(43, 141, 78);
 
   // dHCP CC00052XX03
   // ----------------
 
   // * already correct, mislead by dark dGM near ventricles
-  const Point dbg_voxel(109, 41, 82);
+  //const Point dbg_voxel(109, 41, 82);
+
+  // dHCP CC00054XX05
+  // ----------------
+
+  // * already correct, low image contrast between WM/GM,
+  //   finds wrong edge far inside WM in anterior superior part of cerebrum
+  //const Point dbg_voxel(74, 177, 156);
+  //const Point dbg_voxel(111, 177, 152);
+  //const Point dbg_voxel(111, 178, 153);
+  //const Point dbg_voxel(111, 176, 150);
 
   // dHCP CC00055XX06
   // ----------------
@@ -97,6 +112,56 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 
   // * correctly applied WM->dGM->cGM correction
   //const Point dbg_voxel(119, 39, 82);
+
+  // * leaks into deep GM structures instead of finding WM/cGM boundary
+  //const Point dbg_voxel(130, 145, 84);
+
+  // * already correct, wrong WM->dGM edge found
+  // * failed to correct worng WM->dGM boundary
+  //const Point dbg_voxel(115, 62, 90);
+
+  // dHCP CC00056XX07
+  // ----------------
+
+  // * already correct, finds WM->dGM edge instead of dGM->cGM
+  //const Point dbg_voxel(55, 57, 97);
+
+  // * already correct, moves outside sulcus into GM
+  //const Point dbg_voxel(34, 106, 65);
+  //const Point dbg_voxel(40, 106, 109);
+  //const Point dbg_voxel(39, 109, 103);
+
+  // dHCP CC00057XX08
+  // ----------------
+
+  // * unable to remove plenty of bridges, incorrectly included CSF,
+  //   posterior, medial near lateral ventricles,
+  //   possibly wrong WM->dGM->cGM correction
+  //const Point dbg_voxel(66, 66, 83);
+  //const Point dbg_voxel(74, 68, 78);
+
+  // * failes to move surfaces deep enough into sulcus,
+  //   cortex nearby lateral ventricles
+  //const Point dbg_voxel(51, 96, 68);
+  //const Point dbg_voxel(124, 100, 59);
+  //const Point dbg_voxel(48, 131, 61);
+
+  // dHCP CC00058XX09
+  // ----------------
+
+  // * unable to move surface outwards away from deep GM structures
+  //   deformed slightly inwards instead, partially b/c of wrong surface
+  //   just outside cortical boundary due to mislabeled CSF
+  // * leaked comletely into Amygdala and Hippocampus (RH)
+  //const Point dbg_voxel(135, 142, 91);
+  //const Point dbg_voxel(132, 145, 91);
+
+  // dHCP CC00060XX03
+  // ----------------
+
+  // * slightly inside cortex, partially missing dark WM surrounded by
+  //   rim of "black" cGM
+  //const Point dbg_voxel(78, 33, 90);
 
 #endif
 
@@ -776,13 +841,9 @@ struct ComputeDistances
     Extrema::iterator m = extrema.begin();
     while (m != extrema.end() && m->idx < i0) ++m;
     if (m == extrema.end()) --m;
-    if (min) {
-      if (m->min) {
-        //if (distance(extrema.begin(), m) > 1) m -= 2;
-      } else {
-        if (m == extrema.begin()) ++m;
-        else                      --m;
-      }
+    if (min && !m->min) {
+      if (m == extrema.begin()) ++m;
+      else                      --m;
     }
     return m;
   }
@@ -829,7 +890,8 @@ struct ComputeDistances
                 // If minimum is below GM threshold or intensity difference
                 // between extrema is too big, insert interim point even if
                 // there is only a subtle change of curvature
-                } else {
+                } else if (abs(f[mid.idx] - f[prv_mid_idx]) > _MaxGradient &&
+                           abs(f[mid.idx] - f[l->idx])      > _MaxGradient) {
                   const bool bg = (r->min && f[r->idx] < gm_thres) ||
                                   (l->min && f[l->idx] < gm_thres);
                   if (bg || diff > max_diff) {
@@ -1276,24 +1338,36 @@ struct ComputeDistances
           if (i->min) {
             slope = MaximumValue(g, i->idx, j->idx);
             if (slope > _MinGradient) {
-              if (i->prb > .8 && j->prb > .8) {
+              if (i->prb > .8 || f[j->idx] > _GlobalWhiteMatterMean + 2. * _GlobalWhiteMatterSigma) {
+                if (f[j->idx] > _GlobalWhiteMatterMean + 3. * _GlobalWhiteMatterSigma) {
+                  prb1 = 0.;
+                }
                 if (i->idx >= i0) {
                   ++nop2;
                 } else {
                   ++nop1;
                 }
+              } else if (pos1 != extrema.end()) {
+                break;
               }
-              if (pos1 != extrema.end()) break;
             }
           } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
-            prb = i->prb * j->prb;
-            if (prb > prb1) {
+            prb = .5 * (i->prb + j->prb);
+            #if BUILD_WITH_DEBUG_CODE
+              if (dbg) {
+                cout << "\n\tPr([" << i->idx << ", " << j->idx << "]) = " << prb;
+              }
+            #endif
+            if (prb > prb1 + .1) {
               pos1 = i;
               prb1 = prb;
             }
           }
         }
       } while (i != extrema.begin());
+    }
+    if (pos1 != extrema.end()) {
+      prb1 = .5 * (pos1->prb + (pos1+1)->prb);
     }
     j = m + 1;
     while (j != extrema.end()) {
@@ -1303,7 +1377,7 @@ struct ComputeDistances
           if (i->idx >= i0) {
             slope = MaximumValue(g, i->idx, j->idx);
             if (slope > _MinGradient) {
-              if (i->prb > .8 && j->prb > .8) {
+              if (i->prb > .8 || f[j->idx] > _GlobalWhiteMatterMean + 2. * _GlobalWhiteMatterSigma) {
                 #if BUILD_WITH_DEBUG_CODE
                   if (dbg) {
                     cout << "\n\topposite WM/GM edge [" << i->idx << ", " << j->idx << "] encountered, look no further outwards";
@@ -1322,6 +1396,7 @@ struct ComputeDistances
             }
           }
         } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
+          prb = .5 * (i->prb + j->prb);
           if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, j, j + 1, f, g, k)) {
             // Close to the superior of corpus callosum and the lateral ventricles,
             // there are small sulci where the cortex begins, keep this edge even
@@ -1330,7 +1405,7 @@ struct ComputeDistances
               const Voxel v = RayVoxel(p, dp, i->idx, k);
               if (_VentriclesDistance->Get(v.x, v.y, v.z) < 5.) {
                 pos2 = i;
-                prb2 = i->prb * j->prb;
+                prb2 = prb;
               }
             }
             if (pos2 == extrema.end()) {
@@ -1354,7 +1429,7 @@ struct ComputeDistances
                     mid.min = true;
                     j = extrema.insert(j, mid);
                     pos2 = i;
-                    prb2 = i->prb * j->prb;
+                    prb2 = prb;
                   }
                 }
               }
@@ -1363,8 +1438,8 @@ struct ComputeDistances
               // volume with nearby CSF and was therefore skipped before.
               if (pos2 == extrema.end() && distance(extrema.begin(), i) > 1) {
                 i -= 2, j = i + 1;
-                prb = i->prb * j->prb;
-                if (pos1 != i && prb > .1) {
+                prb = .5 * (i->prb + j->prb);
+                if (pos1 != i && prb > .5) {
                   pos2 = i;
                   prb2 = prb;
                 }
@@ -1372,13 +1447,12 @@ struct ComputeDistances
             }
             break;
           } else {
-            prb = i->prb * j->prb;
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
                 cout << "\n\tPr([" << i->idx << ", " << j->idx << "]) = " << prb;
               }
             #endif
-            if (prb > prb2) {
+            if (prb > prb2 + .1) {
               pos2 = i;
               prb2 = prb;
             }
@@ -1477,14 +1551,15 @@ struct ComputeDistances
         #endif
       }
     }
-    if (allow_deep_matter_correction &&
-        MinimumValue(g, i->idx, j->idx) < -1.5 * _GlobalWhiteMatterSigma) {
-      #if BUILD_WITH_DEBUG_CODE
-        if (dbg) {
-          cout << "\n\tedge is strong, skip WM->dGM->cGM correction";
-        }
-      #endif
-      allow_deep_matter_correction = false;
+    if (allow_deep_matter_correction) {
+      if (MinimumValue(g, i->idx, j->idx) < -1.5 * _GlobalWhiteMatterSigma) {
+        #if BUILD_WITH_DEBUG_CODE
+          if (dbg) {
+            cout << "\n\tedge is strong, skip WM->dGM->cGM correction";
+          }
+        #endif
+        allow_deep_matter_correction = false;
+      }
     }
     if (allow_deep_matter_correction) {
       // If the found edge is followed by another decrease of intensity

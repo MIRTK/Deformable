@@ -93,6 +93,9 @@ private:
   /// Step length used for ray casting
   mirtkPublicAttributeMacro(double, StepLength);
 
+  /// T1-weighted MR image
+  mirtkPublicAggregateMacro(const RealImage, T1WeightedImage);
+
   /// White matter mask used by NeonatalWhiteSurface edge force
   mirtkPublicAggregateMacro(const BinaryImage, WhiteMatterMask);
 
@@ -120,6 +123,9 @@ private:
   /// Width of local grey matter intensity statistics window
   mirtkPublicAttributeMacro(double, GreyMatterWindowWidth);
 
+  /// Width of local grey matter intensity statistics window
+  mirtkPublicAttributeMacro(double, T1GreyMatterWindowWidth);
+
   /// Global white matter intensity mean value
   mirtkAttributeMacro(double, GlobalWhiteMatterMean);
 
@@ -143,6 +149,12 @@ private:
 
   /// Image with voxel-wise local grey matter intensity variance values
   mirtkAttributeMacro(LocalStatsImage, LocalGreyMatterVariance);
+
+  /// Image with voxel-wise local grey matter T1 intensity mean values
+  mirtkAttributeMacro(LocalStatsImage, LocalGreyMatterT1Mean);
+
+  /// Image with voxel-wise local grey matter T1 intensity variance values
+  mirtkAttributeMacro(LocalStatsImage, LocalGreyMatterT1Variance);
 
   /// Bounding box within which to allow WM->dGM->cGM correction
   mirtkAttributeMacro(Array<int>, CorticalDeepGreyMatterBoundingBox);

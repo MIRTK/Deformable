@@ -430,7 +430,8 @@ struct ComputeDistances
   vtkDataArray *_Distances;
   vtkDataArray *_Magnitude;
 
-  const ContinuousImage *_Image;
+  const ContinuousImage *_T1WeightedImage;
+  const ContinuousImage *_T2WeightedImage;
   const BinaryImage     *_SurfaceMask;
   const RealImage       *_CorticalHullDistance;
   const RealImage       *_VentriclesDistance;
@@ -439,6 +440,8 @@ struct ComputeDistances
   const LocalStatsImage *_LocalWhiteMatterVariance;
   const LocalStatsImage *_LocalGreyMatterMean;
   const LocalStatsImage *_LocalGreyMatterVariance;
+  const LocalStatsImage *_LocalGreyMatterT1Mean;
+  const LocalStatsImage *_LocalGreyMatterT1Variance;
 
   double _Padding;
   double _MinIntensity;
@@ -460,8 +463,10 @@ struct ComputeDistances
   const int *_CorticalDeepGreyMatterBoundingBox;
 
   #if BUILD_WITH_DEBUG_CODE
-    Matrix *_IntensitySamples;
-    Matrix *_GradientSamples;
+    Matrix *_T1IntensitySamples;
+    Matrix *_T2IntensitySamples;
+    Matrix *_T1GradientSamples;
+    Matrix *_T2GradientSamples;
   #endif
 
   /// Enumeration of different image edge forces
@@ -506,7 +511,7 @@ struct ComputeDistances
   inline Point RayWorld(const Point &p, const Vector3 &dp, int i, int k) const
   {
     Point q = RayPoint(p, dp, i, k);
-    _Image->ImageToWorld(q);
+    _T2WeightedImage->ImageToWorld(q);
     return q;
   }
 
@@ -542,8 +547,8 @@ struct ComputeDistances
     q = p;
     for (i = i0; i <= k; ++i, q += dp) {
       v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-      if (!_Image->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
-      _Image->Jacobian3D(jac, q.x, q.y, q.z);
+      if (!_T2WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
+      _T2WeightedImage->Jacobian3D(jac, q.x, q.y, q.z);
       g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
     }
     while (i <= k) g[i++] = NaN;
@@ -551,8 +556,8 @@ struct ComputeDistances
     q = p, q -= dp;
     for (i = i0 - 1; i >= 0; --i, q -= dp) {
       v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-      if (!_Image->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
-      _Image->Jacobian3D(jac, q.x, q.y, q.z);
+      if (!_T2WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
+      _T2WeightedImage->Jacobian3D(jac, q.x, q.y, q.z);
       g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
     }
     while (i >= 0) g[i--] = NaN;
@@ -582,7 +587,7 @@ struct ComputeDistances
     i = i0, q = p;
     if (_SurfaceMask) {
       while (i <= k && !IsNaN(g[i])) {
-        f[i] = _Image->Evaluate(q.x, q.y, q.z);
+        f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
         v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
         if (_SurfaceMask->Get(v.x, v.y, v.z) == 0) {
           ++i, q += dp;
@@ -594,7 +599,7 @@ struct ComputeDistances
     while (i <= k && !IsNaN(g[i])) {
       v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
       if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) != 0) break;
-      f[i] = _Image->Evaluate(q.x, q.y, q.z);
+      f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
       ++i, q += dp;
     }
     while (i <= k) f[i++] = NaN;
@@ -602,7 +607,7 @@ struct ComputeDistances
     i = i0, q = p;
     if (_SurfaceMask) {
       while (i >= 0 && !IsNaN(g[i])) {
-        if (i != i0) f[i] = _Image->Evaluate(q.x, q.y, q.z);
+        if (i != i0) f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
         v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
         if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) != 0) {
           --i, q -= dp;
@@ -614,7 +619,7 @@ struct ComputeDistances
     while (i >= 0 && !IsNaN(g[i])) {
       v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
       if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) == 0) break;
-      f[i] = _Image->Evaluate(q.x, q.y, q.z);
+      f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
       if (_VentriclesDistance) {
         const double d = _VentriclesDistance->Get(v.x, v.y, v.z);
         if (d < _StepLength || (d < 2. && f[i] > _GlobalWhiteMatterMean)) {
@@ -636,10 +641,52 @@ struct ComputeDistances
   {
     p += static_cast<double>(i - k/2) * dp;
     const Voxel v(iround(p.x), iround(p.y), iround(p.z));
-    if (_Image->Input()->IsInsideForeground(v.x, v.y, v.z)) {
-      return _Image->Evaluate(p.x, p.y, p.z);
+    if (_T2WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) {
+      return _T2WeightedImage->Evaluate(p.x, p.y, p.z);
     } else {
       return NaN;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  inline double SampleT1Intensity(Point p, const Vector3 &dp, int i, int k) const
+  {
+    p += static_cast<double>(i - k/2) * dp;
+    const Voxel v(iround(p.x), iround(p.y), iround(p.z));
+    if (_T1WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) {
+      return _T1WeightedImage->Evaluate(p.x, p.y, p.z);
+    } else {
+      return NaN;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  inline void SampleT1Intensity(Array<double> &f1, const Array<double> &f2, int k, const Point &p, const Vector3 &dp) const
+  {
+    Point q = p - double(k/2) * dp;
+    for (int i = 0; i <= k; ++i, q += dp) {
+      if (IsNaN(f2[i])) {
+        f1[i] = NaN;
+      } else {
+        f1[i] = _T1WeightedImage->Evaluate(q.x, q.y, q.z);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  inline void SampleT1Gradient(Array<double> &g1, const Array<double> &g2, int k, const Point &p, const Vector3 &dp) const
+  {
+    Matrix jac(1, 3);
+    Vector3 n = dp;
+    n.Normalize();
+    Point q = p - double(k/2) * dp;
+    for (int i = 0; i <= k; ++i, q += dp) {
+      if (IsNaN(g2[i])) {
+        g1[i] = NaN;
+      } else {
+        _T1WeightedImage->Jacobian3D(jac, q.x, q.y, q.z);
+        g1[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+      }
     }
   }
 
@@ -1131,6 +1178,62 @@ struct ComputeDistances
   }
 
   // ---------------------------------------------------------------------------
+  /// Assign score to edge based on T1-weighted MR intensity profile
+  inline double T1EdgeGradient(Extrema &extrema, const Extrema::iterator &i, const Extrema::iterator &j,
+                               const Array<double> &f1, int k) const
+  {
+    int    min_index = i->idx;
+    double min_value = f1[min_index];
+    while (min_index > 0 && f1[min_index-1] <= min_value) {
+      min_value = f1[--min_index];
+    }
+    while (min_index < j->idx && f1[min_index+1] <= min_value) {
+      min_value = f1[++min_index];
+    }
+
+    int    max_index = j->idx;
+    double max_value = f1[max_index];
+    while (max_index < k && f1[max_index+1] >= max_value) {
+      max_value = f1[++max_index];
+    }
+    while (max_index > i->idx && f1[max_index-1] >= max_value) {
+      max_value = f1[--max_index];
+    }
+
+    return (max_value - min_value) / (max_index - min_index);
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Assign score to edge based on maximum T1-weighted MR intensity
+  inline double T1GreyMatterScore(Extrema &extrema, const Extrema::iterator &i, const Extrema::iterator &j,
+                                  const Point &p, const Vector3 &dp, const Array<double> &f1, int k) const
+  {
+    if (_T1WeightedImage && _LocalGreyMatterT1Mean && _LocalGreyMatterT1Variance) {
+      const Voxel v(iround(p.x), iround(p.y), iround(p.z));
+      double mean  = _LocalGreyMatterT1Mean->Get(v.x, v.y, v.z);
+      double sigma = sqrt(_LocalGreyMatterT1Variance->Get(v.x, v.y, v.z));
+      double limit = mean - 3. * sigma;
+      double lower = mean + 1. * sigma;
+
+      int end_index = k;
+      Extrema::iterator end = j + 1;
+      if (end != extrema.end()) end_index = end->idx;
+
+      int    max_index = j->idx;
+      double max_value = f1[max_index];
+      while (max_index < end_index && f1[max_index+1] >= max_value) {
+        max_value = f1[++max_index];
+      }
+      while (max_index > i->idx && f1[max_index-1] >= max_value) {
+        max_value = f1[--max_index];
+      }
+
+      return SShapedMembershipFunction(max_value, limit, lower);
+    }
+    return 1.;
+  }
+
+  // ---------------------------------------------------------------------------
   /// Check if edge may belong to white surface boundary
   inline bool IsNeonatalWhiteSurfaceEdge(const Extrema::iterator &i, const Extrema::iterator &j,
                                          const Array<double> &f, const Array<double> &g, int k) const
@@ -1245,7 +1348,9 @@ struct ComputeDistances
   /// tissue segmentation mask. The surface thus is close to the target boundary
   /// and should only be refined using this force.
   inline int NeonatalWhiteSurface(int ptId, const Point &p, const Vector3 &dp,
-                                  const Array<double> &f, const Array<double> &g,
+                                  const Array<double> &f1,
+                                  const Array<double> &f,
+                                  const Array<double> &g,
                                   Extrema &extrema, Extrema::iterator &i,
                                   Extrema::iterator &j, bool dbg = false) const
   {
@@ -1353,6 +1458,10 @@ struct ComputeDistances
             }
           } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
             prb = .5 * (i->prb + j->prb);
+            // When T1-weighted MR intensities are available, use these to
+            // discard/downgrade WM->dGM edges within the white surface
+            // which have a lower T1 value compared to cortical GM
+            prb *= T1GreyMatterScore(extrema, i, j, p, dp, f1, k);
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
                 cout << "\n\tPr([" << i->idx << ", " << j->idx << "]) = " << prb;
@@ -1497,19 +1606,23 @@ struct ComputeDistances
         }
       }
       if (i == extrema.end()) {
-        #if 0
-        if (nop1 == nop2) {
-          i = (prb1 >= prb2 ? pos1 : pos2);
-        } else {
-          i = (nop1 < nop2 ? pos1 : pos2);
-        }
-        #else
         if (nop1 == 0) {
-          i = (prb1 >= prb2 ? pos1 : pos2);
+          if (f1.empty()) {
+            i = (prb1 >= prb2 ? pos1 : pos2);
+          } else {
+            // When T1-weighted intensities are available, choose edge based
+            // on strenght of gradient from low T1 value inside to high T1
+            // value outside within the cortex
+            double slope1 = T1EdgeGradient(extrema, pos1, pos1+1, f1, k);
+            double slope2 = T1EdgeGradient(extrema, pos2, pos2+1, f1, k);
+            if (dbg) {
+              cout << "\n\tT1-w slope1 = " << slope1 << ", slope2 = " << slope2 << endl;
+            }
+            i = (slope1 >= slope2 ? pos1 : pos2);
+          }
         } else {
           i = pos1;
         }
-        #endif
       }
     } else if (pos1 != extrema.end()) {
       i = pos1;
@@ -1734,14 +1847,16 @@ struct ComputeDistances
   // ---------------------------------------------------------------------------
   /// Find image edge of cGM/CSF boundary in T2-weighted MRI of neonatal brain
   inline int NeonatalPialSurface(const Point &p, const Vector3 &dp,
-                                 const Array<double> &f, const Array<double> &g,
+                                 const Array<double> &f1,
+                                 const Array<double> &f2,
+                                 const Array<double> &g,
                                  Extrema &extrema, Extrema::iterator &i,
                                  Extrema::iterator &j, bool dbg = false) const
   {
-    const int k = static_cast<int>(f.size()) - 1;
+    const int k = static_cast<int>(f2.size()) - 1;
 
     int edge = -1;
-    NeonatalWhiteSurface(0, p, dp, f, g, extrema, i, j, dbg);
+    NeonatalWhiteSurface(0, p, dp, f1, f2, g, extrema, i, j, dbg);
     if (i != extrema.end() && j != extrema.end() && j->min) {
       i = j, j = i + 1;
       if (j != extrema.end()) {
@@ -1775,13 +1890,22 @@ struct ComputeDistances
     const bool cortex = (_EdgeType == ImageEdgeDistance::NeonatalWhiteSurface ||
                          _EdgeType == ImageEdgeDistance::NeonatalPialSurface);
 
-    Array<double> g(k+1), f;
+    Array<double> g(k+1), f, f1;
     Extrema extrema;
     Extrema::iterator a, b;
     if (cortex) {
       f.resize(g.size());
-      extrema.reserve(10);
+      extrema.reserve(20);
+      if (_T1WeightedImage) {
+        f1.resize(g.size());
+      }
     }
+    #if BUILD_WITH_DEBUG_CODE
+    Array<double> g1;
+    if (cortex && _T1WeightedImage) {
+      g1.resize(g.size());
+    }
+    #endif
 
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
@@ -1793,23 +1917,41 @@ struct ComputeDistances
       _Points ->GetPoint(ptId, p);
       _Normals->GetTuple(ptId, n), n *= _StepLength;
       // Transform point/vector to image space
-      _Image->WorldToImage(p);
-      _Image->WorldToImage(n);
+      _T2WeightedImage->WorldToImage(p);
+      _T2WeightedImage->WorldToImage(n);
       // Sample image gradient/intensities along ray
       SampleGradient(g, k, p, n);
       #if BUILD_WITH_DEBUG_CODE
-        if (_GradientSamples) {
+        if (_T2GradientSamples) {
           for (int i = 0; i < _NumberOfSamples; ++i) {
-            _GradientSamples->Put(ptId, i, g[i]);
+            _T2GradientSamples->Put(ptId, i, g[i]);
           }
         }
       #endif
       if (cortex) {
         SampleIntensity(f, g, k, p, n);
+        if (!f1.empty()) {
+          SampleT1Intensity(f1, f, k, p, n);
+          #if BUILD_WITH_DEBUG_CODE
+            if (_T1IntensitySamples) {
+              for (int i = 0; i < _NumberOfSamples; ++i) {
+                _T1IntensitySamples->Put(ptId, i, f1[i]);
+              }
+            }
+          #endif
+        }
         #if BUILD_WITH_DEBUG_CODE
-          if (_IntensitySamples) {
+          if (_T2IntensitySamples) {
             for (int i = 0; i < _NumberOfSamples; ++i) {
-              _IntensitySamples->Put(ptId, i, f[i]);
+              _T2IntensitySamples->Put(ptId, i, f[i]);
+            }
+          }
+          if (_T1WeightedImage) {
+            SampleT1Gradient(g1, g, k, p, n);
+            if (_T1GradientSamples) {
+              for (int i = 0; i < _NumberOfSamples; ++i) {
+                _T1GradientSamples->Put(ptId, i, g1[i]);
+              }
             }
           }
         #endif
@@ -1837,6 +1979,24 @@ struct ComputeDistances
             cout << g[i];
           }
           cout << "];";
+          #if BUILD_WITH_DEBUG_CODE
+            if (!f1.empty()) {
+              cout << "\n\tf1=[";
+              for (size_t i = 0; i < f1.size(); ++i) {
+                if (i > 0) cout << ", ";
+                cout << f1[i];
+              }
+              cout << "];";
+            }
+            if (!g1.empty()) {
+              cout << "\n\tg1=[";
+              for (size_t i = 0; i < g1.size(); ++i) {
+                if (i > 0) cout << ", ";
+                cout << g1[i];
+              }
+              cout << "];";
+            }
+          #endif
         }
       #endif
       // Find edge in normal direction
@@ -1869,10 +2029,10 @@ struct ComputeDistances
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
         } break;
         case ImageEdgeDistance::NeonatalWhiteSurface: {
-          j = NeonatalWhiteSurface(ptId, p, n, f, g, extrema, a, b, dbg);
+          j = NeonatalWhiteSurface(ptId, p, n, f1, f, g, extrema, a, b, dbg);
         } break;
         case ImageEdgeDistance::NeonatalPialSurface: {
-          j = NeonatalPialSurface(p, n, f, g, extrema, a, b, dbg);
+          j = NeonatalPialSurface(p, n, f1, f, g, extrema, a, b, dbg);
         } break;
       }
       // When intensity thresholds set, use them to ignore irrelevant edges
@@ -2075,6 +2235,7 @@ void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
   _MagnitudeSmoothing = other._MagnitudeSmoothing;
   _StepLength         = other._StepLength;
 
+  _T1WeightedImage           = other._T1WeightedImage;
   _WhiteMatterMask           = other._WhiteMatterMask;
   _GreyMatterMask            = other._GreyMatterMask;
   _CorticalHullDistance      = other._CorticalHullDistance;
@@ -2082,6 +2243,7 @@ void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
   _CerebellumDistance        = other._CerebellumDistance;
   _WhiteMatterWindowWidth    = other._WhiteMatterWindowWidth;
   _GreyMatterWindowWidth     = other._GreyMatterWindowWidth;
+  _T1GreyMatterWindowWidth   = other._T1GreyMatterWindowWidth;
   _GlobalWhiteMatterMean     = other._GlobalWhiteMatterMean;
   _GlobalWhiteMatterVariance = other._GlobalWhiteMatterVariance;
   _GlobalGreyMatterMean      = other._GlobalGreyMatterMean;
@@ -2090,6 +2252,10 @@ void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
   _LocalWhiteMatterVariance  = other._LocalWhiteMatterVariance;
   _LocalGreyMatterMean       = other._LocalGreyMatterMean;
   _LocalGreyMatterVariance   = other._LocalGreyMatterVariance;
+  _LocalGreyMatterT1Mean     = other._LocalGreyMatterT1Mean;
+  _LocalGreyMatterT1Variance = other._LocalGreyMatterT1Variance;
+
+  _CorticalDeepGreyMatterBoundingBox = other._CorticalDeepGreyMatterBoundingBox;
 }
 
 // -----------------------------------------------------------------------------
@@ -2114,6 +2280,7 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _CerebellumDistance(nullptr),
   _WhiteMatterWindowWidth(0),
   _GreyMatterWindowWidth(0),
+  _T1GreyMatterWindowWidth(11),
   _GlobalWhiteMatterMean(NaN),
   _GlobalWhiteMatterVariance(NaN),
   _GlobalGreyMatterMean(NaN),
@@ -2271,6 +2438,8 @@ void ImageEdgeDistance::Initialize()
   _LocalWhiteMatterVariance.Clear();
   _LocalGreyMatterMean.Clear();
   _LocalGreyMatterVariance.Clear();
+  _LocalGreyMatterT1Mean.Clear();
+  _LocalGreyMatterT1Variance.Clear();
   if (_EdgeType == NeonatalWhiteSurface || _EdgeType == NeonatalPialSurface) {
     ImageAttributes attr = _Image->Attributes(); attr._dt = 0.;
     if (_WhiteMatterMask) {
@@ -2306,6 +2475,14 @@ void ImageEdgeDistance::Initialize()
         _LocalGreyMatterVariance.Initialize(attr);
         ComputeLocalStatistics local(attr, _GreyMatterWindowWidth, _GlobalGreyMatterMean, _GlobalGreyMatterVariance);
         ParallelForEachVoxel(attr, _Image, _GreyMatterMask, &_LocalGreyMatterMean, &_LocalGreyMatterVariance, local);
+      }
+      if (_T1WeightedImage && _T1GreyMatterWindowWidth > 0) {
+        _LocalGreyMatterT1Mean.Initialize(attr);
+        _LocalGreyMatterT1Variance.Initialize(attr);
+        ComputeGlobalStatistics global;
+        ParallelForEachVoxel(attr, _T1WeightedImage, _GreyMatterMask, global);
+        ComputeLocalStatistics local(attr, _T1GreyMatterWindowWidth, global.Mean(), global.Variance());
+        ParallelForEachVoxel(attr, _T1WeightedImage, _GreyMatterMask, &_LocalGreyMatterT1Mean, &_LocalGreyMatterT1Variance, local);
       }
     }
     if (IsInf(_MinIntensity)) {
@@ -2379,17 +2556,25 @@ void ImageEdgeDistance::Update(bool gradient)
                                   _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance,
                                   _GlobalGreyMatterMean,  _GlobalGreyMatterVariance);
 
-  ContinuousImage image;
-  image.Input(_Image);
-  image.DefaultValue(NaN);
-  image.Initialize();
+  ContinuousImage t1image;
+  if (_T1WeightedImage) {
+    t1image.Input(_T1WeightedImage);
+    t1image.DefaultValue(NaN);
+    t1image.Initialize();
+  }
+
+  ContinuousImage t2image;
+  t2image.Input(_Image);
+  t2image.DefaultValue(NaN);
+  t2image.Initialize();
 
   MIRTK_START_TIMING();
   ComputeDistances eval;
   eval._Points          = Points();
   eval._Status          = InitialStatus();
   eval._Normals         = Normals();
-  eval._Image           = &image;
+  eval._T1WeightedImage = (_T1WeightedImage ? &t1image : nullptr);
+  eval._T2WeightedImage = &t2image;
   eval._Distances       = distances;
   eval._Magnitude       = magnitude;
   eval._Padding         = _Padding;
@@ -2438,21 +2623,30 @@ void ImageEdgeDistance::Update(bool gradient)
   eval._LocalWhiteMatterVariance   = (_LocalWhiteMatterVariance.IsEmpty() ? nullptr : &_LocalWhiteMatterVariance);
   eval._LocalGreyMatterMean        = (_LocalGreyMatterMean     .IsEmpty() ? nullptr : &_LocalGreyMatterMean);
   eval._LocalGreyMatterVariance    = (_LocalGreyMatterVariance .IsEmpty() ? nullptr : &_LocalGreyMatterVariance);
+  eval._LocalGreyMatterT1Mean      = (_LocalGreyMatterT1Mean    .IsEmpty() ? nullptr : &_LocalGreyMatterT1Mean);
+  eval._LocalGreyMatterT1Variance  = (_LocalGreyMatterT1Variance.IsEmpty() ? nullptr : &_LocalGreyMatterT1Variance);
 
   #if BUILD_WITH_DEBUG_CODE
     static int ncalls = 0;
     #if 0
       ++ncalls;
     #endif
-    Matrix f, g;
+    Matrix f, g, f1, g1;
+    eval._T1IntensitySamples = nullptr;
+    eval._T1GradientSamples  = nullptr;
+    eval._T2IntensitySamples = nullptr;
+    eval._T2GradientSamples  = nullptr;
     if (ncalls == 1) {
       f.Initialize(_NumberOfPoints, nsamples);
       g.Initialize(_NumberOfPoints, nsamples);
-      eval._IntensitySamples = &f;
-      eval._GradientSamples  = &g;
-    } else {
-      eval._IntensitySamples = nullptr;
-      eval._GradientSamples  = nullptr;
+      eval._T2IntensitySamples = &f;
+      eval._T2GradientSamples  = &g;
+      if (_T1WeightedImage) {
+        f1.Initialize(_NumberOfPoints, nsamples);
+        g1.Initialize(_NumberOfPoints, nsamples);
+        eval._T1IntensitySamples = &f1;
+        eval._T1GradientSamples  = &g1;
+      }
     }
     if (dbg_dist >= 0.) {
       eval(blocked_range<int>(0, _NumberOfPoints));
@@ -2471,6 +2665,20 @@ void ImageEdgeDistance::Update(bool gradient)
         g.WriteMAT("debug_image_edge_distance_g.mat", "g");
       #else
         g.Write("debug_image_edge_distance_g.bin");
+      #endif
+    }
+    if (f1.Rows() > 0) {
+      #if MIRTK_Numerics_WITH_MATLAB
+        f1.WriteMAT("debug_image_edge_distance_f1.mat", "f1");
+      #else
+        f1.Write("debug_image_edge_distance_f1.bin");
+      #endif
+    }
+    if (g1.Rows() > 0) {
+      #if MIRTK_Numerics_WITH_MATLAB
+        g1.WriteMAT("debug_image_edge_distance_g1.mat", "g1");
+      #else
+        g1.Write("debug_image_edge_distance_g1.bin");
       #endif
     }
   #else

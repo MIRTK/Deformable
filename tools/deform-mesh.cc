@@ -699,6 +699,8 @@ int main(int argc, char *argv[])
   bool        inflate_brain     = false; // mimick mris_inflate
   int         nlevels           = 1;     // no. of levels
 
+  const char *t1w_image_name       = nullptr;
+  const char *t2w_image_name       = nullptr;
   const char *wm_mask_name         = nullptr;
   const char *gm_mask_name         = nullptr;
   const char *cortex_dmap_name     = nullptr;
@@ -730,6 +732,12 @@ int main(int argc, char *argv[])
     // Input
     if (OPTION("-image")) {
       image_name = ARGUMENT;
+    }
+    else if (OPTION("-t1-weighted-image") || OPTION("-t1w-image") || OPTION("-t1-image") || OPTION("-t1w")) {
+      t1w_image_name = ARGUMENT;
+    }
+    else if (OPTION("-t2-weighted-image") || OPTION("-t2w-image") || OPTION("-t2-image") || OPTION("-t2w")) {
+      t2w_image_name = ARGUMENT;
     }
     else if (OPTION("-dmap") || OPTION("-distance-map") || OPTION("-distance-image") || OPTION("-implicit-surface")) {
       dmap_name = ARGUMENT;
@@ -1304,6 +1312,16 @@ int main(int argc, char *argv[])
   if (debug   < 0) debug   = 0;
   if (verbose < 0) verbose = 0;
 
+  if (!image_name) {
+    if (dedges.Weight() != 0.) {
+      image_name = t2w_image_name;
+    } else if (t1w_image_name && t2w_image_name) {
+      FatalError("Not both T1-w and T2-w images used, specify only one or use -image option");
+    } else {
+      image_name = (t1w_image_name ? t1w_image_name : t2w_image_name);
+    }
+  }
+
   double nspring = .5 * (spring.InwardNormalWeight() + spring.OutwardNormalWeight());
   if (spring.Weight() == .0) { // no -spring, but -nspring and/or -tspring
     spring.Weight(nspring + spring.TangentialWeight());
@@ -1423,8 +1441,15 @@ int main(int argc, char *argv[])
 
   // Read tissue masks of image edge distance force
   BinaryImage wm_mask, gm_mask;
-  RealImage cortex_dmap, vents_dmap, cerebellum_dmap;
+  RealImage t1w_image, cortex_dmap, vents_dmap, cerebellum_dmap;
   if (dedges.Weight() != 0.) {
+    if (t1w_image_name) {
+      t1w_image.Read(t1w_image_name);
+      if (attr && !t1w_image.Attributes().EqualInSpace(attr)) {
+        ResampleImage(t1w_image, attr);
+      }
+      dedges.T1WeightedImage(&t1w_image);
+    }
     if (wm_mask_name) {
       wm_mask.Read(wm_mask_name);
       if (attr && !wm_mask.Attributes().EqualInSpace(attr)) {

@@ -1438,6 +1438,7 @@ struct ComputeDistances
         cout << "};";
       }
     #endif
+
     Extrema::iterator pos1 = extrema.end();
     Extrema::iterator pos2 = extrema.end();
     double prb1 = 0., prb2 = 0., prb, slope;
@@ -1447,10 +1448,15 @@ struct ComputeDistances
       do {
         j = i--;
         if (i->idx < j->idx) {
+          prb = .5 * (i->prb + j->prb);
           if (i->min) {
             slope = MaximumValue(g, i->idx, j->idx);
             if (slope > _MinGradient) {
+              #if 0
               if (i->prb > .8 || f[j->idx] > _GlobalWhiteMatterMean + 2. * _GlobalWhiteMatterSigma) {
+              #else
+              if (prb > .8 || (f[j->idx] > _GlobalWhiteMatterMean + 2. * _GlobalWhiteMatterSigma && slope > _GlobalWhiteMatterSigma)) {
+              #endif
                 if (f[j->idx] > _GlobalWhiteMatterMean + 3. * _GlobalWhiteMatterSigma) {
                   prb1 = 0.;
                 }
@@ -1464,16 +1470,16 @@ struct ComputeDistances
               }
             }
           } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
-            prb = .5 * (i->prb + j->prb);
             // When T1-weighted MR intensities are available, use these to
             // discard/downgrade WM->dGM edges within the white surface
             // which have a lower T1 value compared to cortical GM
-            prb *= T1GreyMatterScore(extrema, i, j, p, dp, f1, k);
+            double tmp = T1GreyMatterScore(extrema, i, j, p, dp, f1, k);
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
-                cout << "\n\tPr([" << i->idx << ", " << j->idx << "]) = " << prb;
+                cout << "\n\tPr([" << i->idx << ", " << j->idx << "]) = " << prb << ", T1 weight = " << tmp;
               }
             #endif
+            prb *= tmp;
             if (prb > prb1 + .1) {
               pos1 = i;
               prb1 = prb;
@@ -1489,11 +1495,16 @@ struct ComputeDistances
     while (j != extrema.end()) {
       i = j - 1;
       if (i->idx < j->idx) {
+        prb = .5 * (i->prb + j->prb);
         if (i->min) {
           if (i->idx >= i0) {
             slope = MaximumValue(g, i->idx, j->idx);
             if (slope > _MinGradient) {
+              #if 0
               if (i->prb > .8 || f[j->idx] > _GlobalWhiteMatterMean + 2. * _GlobalWhiteMatterSigma) {
+              #else
+              if (prb > .8) {
+              #endif
                 #if BUILD_WITH_DEBUG_CODE
                   if (dbg) {
                     cout << "\n\topposite WM/GM edge [" << i->idx << ", " << j->idx << "] encountered, look no further outwards";
@@ -1512,7 +1523,6 @@ struct ComputeDistances
             }
           }
         } else if (IsNeonatalWhiteSurfaceEdge(i, j, f, g, k)) {
-          prb = .5 * (i->prb + j->prb);
           if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, j, j + 1, f, g, k)) {
             // Close to the superior of corpus callosum and the lateral ventricles,
             // there are small sulci where the cortex begins, keep this edge even

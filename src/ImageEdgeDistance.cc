@@ -1389,12 +1389,16 @@ struct ComputeDistances
     }
 
     // Avoid mistakes when right next to ventricles
+    //
+    // Note however that some brigth CSF in sulci close to the lateral
+    // ventricles may be mislabed as venctricles. Thus, allow the surface
+    // to propagate through small clusters of so mislabeled CSF.
     if (_VentriclesDistance != nullptr) {
       Voxel v(iround(p.x), iround(p.y), iround(p.z));
       const double ventricles_distance = _VentriclesDistance->Get(v.x, v.y, v.z);
       // When inside a ventricle, move outwards until the surface no longer
       // intersects the ventricles
-      if (ventricles_distance < .1) {
+      if (ventricles_distance < -.5) {
         #if BUILD_WITH_DEBUG_CODE
           if (dbg) cout << "\n\tinside ventricles, move outwards" << endl;
         #endif
@@ -1405,14 +1409,17 @@ struct ComputeDistances
         }
         if (IsNaN(g[idx])) return i0;
         return idx;
+      }
       // When right next to a ventricle, the following assumptions of valid
       // image edges may be incorrect; thus better stay and rely on the segmentation.
-      } else if (ventricles_distance < 1.) {
-        #if BUILD_WITH_DEBUG_CODE
-          if (dbg) cout << "\n\tnext to ventricles, don't move" << endl;
-        #endif
-        return i0;
-      }
+      #if 0
+        if (ventricles_distance < 1.) {
+          #if BUILD_WITH_DEBUG_CODE
+            if (dbg) cout << "\n\tnext to ventricles, don't move" << endl;
+          #endif
+          return i0;
+        }
+      #endif
     }
 
     // Whether correction of found WM->dGM edge near the ventricles is allowed

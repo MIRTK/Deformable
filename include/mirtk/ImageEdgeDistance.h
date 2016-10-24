@@ -78,6 +78,22 @@ private:
   /// Maximum image edge gradient magnitude to consider a point non-stationary
   mirtkPublicAttributeMacro(double, MaxGradient);
 
+  /// Minimum T1-weighted image edge gradient magnitude
+  ///
+  /// An image edge in the T2-weighted image with negative gradient must have
+  /// a corresponding positive gradient in the T1-weighted image. The minimum
+  /// gradient magnitude for a T1-weighted edge to be considered is given by
+  /// this parameter.
+  mirtkPublicAttributeMacro(double, MinT1Gradient);
+
+  /// Maximum T1-weighted image edge gradient magnitude
+  ///
+  /// An image edge in the T2-weighted image with negative gradient may not
+  /// have a corresponding negative gradient in the T1-weighted image. The
+  /// minimum magnitude of these negative T1-weighted intensity gradients
+  /// to discard such T2-weighted edge is specified by this parameter.
+  mirtkPublicAttributeMacro(double, MaxT1Gradient);
+
   /// Maximum edge point distance
   mirtkPublicAttributeMacro(double, MaxDistance);
 

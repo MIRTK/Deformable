@@ -295,7 +295,7 @@ public:
     const int zstride = (ny - (j2 - j1 + 1)) * nx;
     const int offset  = _Domain->LatticeToIndex(i1, j1, k1) - _Domain->LatticeToIndex(ci, cj, ck);
 
-    in -= offset, mask -= offset;
+    in += offset, mask += offset;
     for (int k = k1; k <= k2; ++k, in += zstride, mask += zstride)
     for (int j = j1; j <= j2; ++j, in += ystride, mask += ystride)
     for (int i = i1; i <= i2; ++i, in += xstride, mask += xstride) {

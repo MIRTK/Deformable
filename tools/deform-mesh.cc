@@ -992,7 +992,7 @@ int main(int argc, char *argv[])
     else if (OPTION("-edge-distance-type")) {
       PARSE_ARGUMENT(dedges.EdgeType());
     }
-    else if (OPTION("-edge-distance-threshold")) {
+    else if (OPTION("-edge-distance-padding")) {
       PARSE_ARGUMENT(dedges.Padding());
     }
     else if (OPTION("-edge-distance-white-matter-window") ||
@@ -1015,14 +1015,14 @@ int main(int argc, char *argv[])
     else if (OPTION("-edge-distance-max-depth") || OPTION("-edge-distance-maximum")) {
       PARSE_ARGUMENT(dedges.MaxDistance());
     }
+    else if (OPTION("-edge-distance-threshold")) {
+      PARSE_ARGUMENT(dedges.DistanceThreshold());
+    }
     else if (OPTION("-edge-distance-median")) {
       PARSE_ARGUMENT(dedges.MedianFilterRadius());
     }
     else if (OPTION("-edge-distance-smoothing")) {
       PARSE_ARGUMENT(dedges.DistanceSmoothing());
-    }
-    else if (OPTION("-edge-distance-magnitude-averaging")) {
-      PARSE_ARGUMENT(dedges.MagnitudeSmoothing());
     }
     else if (OPTION("-edge-distance-averaging")) {
       PARSE_ARGUMENTS(int, dedges_navgs);

@@ -48,9 +48,9 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 #define BUILD_WITH_DEBUG_CODE 0
 
 #if BUILD_WITH_DEBUG_CODE
-  const double dbg_dist = 5.;
+  const double dbg_dist = 2.;
 
-  const Point dbg_voxel(92, 12, 85);
+  const Point dbg_voxel(48, 132, 61);
   //const Point dbg_voxel(111, 177, 155);
 
   // dHCP CC00050XX01
@@ -428,7 +428,6 @@ struct ComputeDistances
 
   vtkDataArray *_ImageGradient;
   vtkDataArray *_Distances;
-  vtkDataArray *_Magnitude;
 
   const ContinuousImage *_T1WeightedImage;
   const ContinuousImage *_T2WeightedImage;
@@ -453,7 +452,6 @@ struct ComputeDistances
   double _MaxT1Gradient;
   double _StepLength;
   int    _NumberOfSamples;
-  int    _MaxBackgroundSnapDepth;
   double _MinCorticalHullDistance;
   double _GlobalWhiteMatterMean;
   double _GlobalWhiteMatterSigma;
@@ -1477,9 +1475,6 @@ struct ComputeDistances
         cout << "];";
       }
     #endif
-    if (ptId == 31442) {
-      dbg = true;
-    }
     CleanExtrema(extrema, f1, g1, f, g, k);
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
@@ -1491,13 +1486,6 @@ struct ComputeDistances
         cout << "];";
       }
     #endif
-
-    // Find edges given gradient of T1 intensities
-//    Array<int> t1edges;
-//    if (!g1.empty()) {
-//      t1edges.reserve(10);
-//      FindEdges(t1edges, g1, k, _MinT1Gradient);
-//    }
 
     // Evaluate tissue probabilities and initialize search using next minimum inside
     Extrema::iterator m = CentralExtremum(extrema, k, true);
@@ -2043,7 +2031,6 @@ struct ComputeDistances
     for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
         _Distances->SetComponent(ptId, 0, 0.);
-        _Magnitude->SetComponent(ptId, 0, 0.);
         continue;
       }
       // Get point position and scaled normal
@@ -2203,7 +2190,6 @@ struct ComputeDistances
       }
       // Set point distance to found edge and edge strength
       _Distances->SetComponent(ptId, 0, static_cast<double>(j - r) * _StepLength);
-      _Magnitude->SetComponent(ptId, 0, IsNaN(g[j]) ? 0. : abs(g[j]));
       #if BUILD_WITH_DEBUG_CODE
         if (dbg) cout << endl;
       #endif
@@ -2217,26 +2203,19 @@ struct ComputeMagnitude
 {
   vtkDataArray *_Status;
   vtkDataArray *_Distances;
-  double        _DistanceScale;
-  double        _MaxMagnitude;
+  double        _MaxDistance;
   vtkDataArray *_Magnitude;
 
   void operator ()(const blocked_range<int> &ptIds) const
   {
-    double d, d2, m1 = 1., m2;
+    double d, m;
     for (auto ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
       if (_Status && _Status->GetComponent(ptId, 0) == 0.) {
         _Magnitude->SetComponent(ptId, 0, 0.);
       } else {
-        // Edge magnitude factor
-        //m1 = _Magnitude->GetComponent(ptId, 0);
-        //m1 = SShapedMembershipFunction(m1, 0., _MaxMagnitude);
-        // Edge distance factor
-        d  = _Distances->GetComponent(ptId, 0);
-        d2 = _DistanceScale * d, d2 *= d2;
-        m2 = d2 / (1. + d2);
-        // Force magnitude
-        _Magnitude->SetComponent(ptId, 0, m1 * copysign(m2, d));
+        d = _Distances->GetComponent(ptId, 0);
+        m = SShapedMembershipFunction(abs(d), 0., _MaxDistance);
+        _Magnitude->SetComponent(ptId, 0, copysign(m, d));
       }
     }
   }
@@ -2368,9 +2347,9 @@ void ImageEdgeDistance::CopyAttributes(const ImageEdgeDistance &other)
   _MinT1Gradient      = other._MinT1Gradient;
   _MaxT1Gradient      = other._MaxT1Gradient;
   _MaxDistance        = other._MaxDistance;
+  _DistanceThreshold  = other._DistanceThreshold;
   _MedianFilterRadius = other._MedianFilterRadius;
   _DistanceSmoothing  = other._DistanceSmoothing;
-  _MagnitudeSmoothing = other._MagnitudeSmoothing;
   _StepLength         = other._StepLength;
 
   _T1WeightedImage           = other._T1WeightedImage;
@@ -2409,9 +2388,9 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _MinT1Gradient(NaN),
   _MaxT1Gradient(NaN),
   _MaxDistance(0.),
+  _DistanceThreshold(0.),
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
-  _MagnitudeSmoothing(2),
   _StepLength(1.),
   _WhiteMatterMask(nullptr),
   _GreyMatterMask(nullptr),
@@ -2467,6 +2446,9 @@ bool ImageEdgeDistance::SetWithoutPrefix(const char *param, const char *value)
   if (strcmp(param, "Maximum") == 0 || strcmp(param, "Maximum distance") == 0) {
     return FromString(value, _MaxDistance);
   }
+  if (strcmp(param, "Threshold") == 0 || strcmp(param, "Distance threshold") == 0) {
+    return FromString(value, _DistanceThreshold);
+  }
   if (strcmp(param, "Intensity threshold") == 0 || strcmp(param, "Padding") == 0) {
     return FromString(value, _Padding);
   }
@@ -2486,10 +2468,6 @@ bool ImageEdgeDistance::SetWithoutPrefix(const char *param, const char *value)
       strcmp(param, "Distance smoothing")            == 0 ||
       strcmp(param, "Distance smoothing iterations") == 0) {
     return FromString(value, _DistanceSmoothing);
-  }
-  if (strcmp(param, "Magnitude smoothing")            == 0 ||
-      strcmp(param, "Magnitude smoothing iterations") == 0) {
-    return FromString(value, _MagnitudeSmoothing);
   }
   if (strcmp(param, "Local white matter window width") == 0) {
     return FromString(value, _WhiteMatterWindowWidth);
@@ -2530,13 +2508,13 @@ ParameterList ImageEdgeDistance::Parameter() const
   ParameterList params = SurfaceForce::Parameter();
   InsertWithPrefix(params, "Type",                 _EdgeType);
   InsertWithPrefix(params, "Maximum",              _MaxDistance);
+  InsertWithPrefix(params, "Threshold",            _DistanceThreshold);
   InsertWithPrefix(params, "Intensity threshold",  _Padding);
   InsertWithPrefix(params, "Lower intensity",      _MinIntensity);
   InsertWithPrefix(params, "Upper intensity",      _MaxIntensity);
   InsertWithPrefix(params, "Minimum gradient magnitude", _MinGradient);
   InsertWithPrefix(params, "Median filter radius", _MedianFilterRadius);
   InsertWithPrefix(params, "Smoothing iterations", _DistanceSmoothing);
-  InsertWithPrefix(params, "Magnitude smoothing",  _MagnitudeSmoothing);
   InsertWithPrefix(params, "Local white matter window width", _WhiteMatterWindowWidth);
   InsertWithPrefix(params, "Local grey matter window width", _GreyMatterWindowWidth);
   return params;
@@ -2687,8 +2665,8 @@ void ImageEdgeDistance::Initialize()
       cout << "]";
     #endif
   }
-  if (IsNaN(_MinGradient)) _MinGradient = 0.;
-  if (IsNaN(_MaxGradient)) _MaxGradient = 4. * _MinGradient;
+  if (IsNaN(_MinGradient))   _MinGradient   = 0.;
+  if (IsNaN(_MaxGradient))   _MaxGradient   = 4. * _MinGradient;
   if (IsNaN(_MinT1Gradient)) _MinT1Gradient = 0.;
   if (IsNaN(_MaxT1Gradient)) _MaxT1Gradient = 4. * _MinT1Gradient;
   #if BUILD_WITH_DEBUG_CODE
@@ -2706,10 +2684,11 @@ void ImageEdgeDistance::Update(bool gradient)
   // Update base class
   SurfaceForce::Update(gradient);
 
-  vtkPolyData  * const surface   = DeformedSurface();
-  vtkDataArray * const distances = PointData("Distance");
-  vtkDataArray * const magnitude = PointData("Magnitude");
-  vtkDataArray * const status    = Status();
+  vtkPolyData  * const surface        = DeformedSurface();
+  vtkDataArray * const distances      = PointData("Distance");
+  vtkDataArray * const magnitude      = PointData("Magnitude");
+  vtkDataArray * const status         = Status();
+  vtkDataArray * const initial_status = InitialStatus();
 
   if (distances->GetMTime() >= surface->GetMTime()) return;
 
@@ -2736,12 +2715,11 @@ void ImageEdgeDistance::Update(bool gradient)
   MIRTK_START_TIMING();
   ComputeDistances eval;
   eval._Points          = Points();
-  eval._Status          = InitialStatus();
+  eval._Status          = initial_status;
   eval._Normals         = Normals();
   eval._T1WeightedImage = (_T1WeightedImage ? &t1image : nullptr);
   eval._T2WeightedImage = &t2image;
   eval._Distances       = distances;
-  eval._Magnitude       = magnitude;
   eval._Padding         = _Padding;
   eval._MinIntensity    = _MinIntensity;
   eval._MaxIntensity    = _MaxIntensity;
@@ -2771,12 +2749,6 @@ void ImageEdgeDistance::Update(bool gradient)
     eval._SurfaceMask = &surface_mask;
   } else {
     eval._SurfaceMask = nullptr;
-  }
-
-  if (_EdgeType == NeonatalWhiteSurface) {
-    eval._MaxBackgroundSnapDepth = max(1, iceil(1. / _StepLength));
-  } else {
-    eval._MaxBackgroundSnapDepth = 0.;
   }
 
   eval._GlobalWhiteMatterMean      = _GlobalWhiteMatterMean;
@@ -2878,47 +2850,25 @@ void ImageEdgeDistance::Update(bool gradient)
     distances->DeepCopy(smoother.Output()->GetPointData()->GetArray(distances->GetName()));
     MIRTK_DEBUG_TIMING(5, "edge distance smoothing");
   }
-  if (_MagnitudeSmoothing > 0) {
-    MIRTK_RESET_TIMING();
-    MeshSmoothing smoother;
-    smoother.Input(surface);
-    smoother.EdgeTable(SharedEdgeTable());
-    smoother.SmoothPointsOff();
-    smoother.SmoothArray(magnitude->GetName());
-    smoother.Weighting(MeshSmoothing::Combinatorial);
-    smoother.NumberOfIterations(_MagnitudeSmoothing);
-    smoother.Run();
-    magnitude->DeepCopy(smoother.Output()->GetPointData()->GetArray(magnitude->GetName()));
-    MIRTK_DEBUG_TIMING(5, "edge magnitude smoothing");
-  }
 
-  // Make force magnitude proportional to both edge distance and strength
-  using mirtk::data::statistic::Mean;
-  using mirtk::data::statistic::AbsPercentile;
-
+  // Make force magnitude proportional to edge distance
   MIRTK_RESET_TIMING();
-  bool * const mask = new bool[_NumberOfPoints];
-  for (int ptId = 0; ptId < _NumberOfPoints; ++ptId) {
-    mask[ptId] = (status->GetComponent(ptId, 0) != 0.);
+  ComputeMagnitude calcmag;
+  calcmag._Status      = status;
+  calcmag._Distances   = distances;
+  calcmag._MaxDistance = _DistanceThreshold;
+  calcmag._Magnitude   = magnitude;
+  if (!(calcmag._MaxDistance > 0.)) { // including NaN
+    bool * const mask = new bool[_NumberOfPoints];
+    for (int ptId = 0; ptId < _NumberOfPoints; ++ptId) {
+      mask[ptId] = (initial_status->GetComponent(ptId, 0) != 0.);
+    }
+    using mirtk::data::statistic::AbsPercentile;
+    calcmag._MaxDistance = max(.1 * _MaxDistance, AbsPercentile::Calculate(95, distances, mask));
+    delete[] mask;
   }
-  const auto dmax = AbsPercentile::Calculate(95, distances, mask);
-  const auto mavg = Mean::Calculate(magnitude, mask);
-  delete[] mask;
-  MIRTK_DEBUG_TIMING(5, "calculating edge distance statistics");
-
-  if (dmax > 0. && mavg > 0.) {
-    MIRTK_RESET_TIMING();
-    ComputeMagnitude eval;
-    eval._Status        = status;
-    eval._Distances     = distances;
-    eval._DistanceScale = 1. / max(.1, dmax);
-    eval._MaxMagnitude  = mavg;
-    eval._Magnitude     = magnitude;
-    parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
-    MIRTK_DEBUG_TIMING(5, "computing edge force magnitude");
-  } else {
-    magnitude->FillComponent(0, 0.);
-  }
+  parallel_for(blocked_range<int>(0, _NumberOfPoints), calcmag);
+  MIRTK_DEBUG_TIMING(5, "computing edge force magnitude");
 
   distances->Modified();
   magnitude->Modified();

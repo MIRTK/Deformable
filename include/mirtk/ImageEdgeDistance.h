@@ -97,14 +97,17 @@ private:
   /// Maximum edge point distance
   mirtkPublicAttributeMacro(double, MaxDistance);
 
+  /// When positive, the force magnitude corresponds to a S-shaped map of
+  /// estimated image edge distances, where points further than the specified
+  /// threshold have constant force magnitude of one. Otherwise, the 95th
+  /// percentile of point distances is used at each iteration.
+  mirtkPublicAttributeMacro(double, DistanceThreshold);
+
   /// Radius of distance median filter
   mirtkPublicAttributeMacro(int, MedianFilterRadius);
 
   /// Number of edge distance smoothing iterations
   mirtkPublicAttributeMacro(int, DistanceSmoothing);
-
-  /// Number of edge magnitude smoothing iterations
-  mirtkPublicAttributeMacro(int, MagnitudeSmoothing);
 
   /// Step length used for ray casting
   mirtkPublicAttributeMacro(double, StepLength);

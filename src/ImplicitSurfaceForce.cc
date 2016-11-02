@@ -563,7 +563,12 @@ vtkDataArray *ImplicitSurfaceForce::NormalDistances() const
 void ImplicitSurfaceForce::InitializeNormalDistances()
 {
   vtkDataArray *d = AddPointData("NormalImplicitSurfaceDistance", 1, VTK_FLOAT, true);
-  if (_FillInHoles) AddPointData("ImplicitSurfaceHoleMask", 1, VTK_CHAR, true);
+  if (_FillInHoles) {
+    AddPointData("ImplicitSurfaceHoleMask", 1, VTK_CHAR, true);
+  }
+  if (debug && (_FillInHoles || _DistanceSmoothing > 0)) {
+    AddPointData("OriginalNormalImplicitSurfaceDistance", 1, VTK_FLOAT, true);
+  }
   d->FillComponent(0, _MaxDistance);
 }
 
@@ -584,17 +589,9 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
     eval._Distances = distances;
     parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
 
-    if (_DistanceSmoothing > 0) {
-      MeshSmoothing smoother;
-      smoother.Input(surface);
-      smoother.Mask(status);
-      smoother.SmoothPointsOff();
-      smoother.SmoothArray(distances->GetName());
-      smoother.Weighting(MeshSmoothing::NormalDeviation);
-      smoother.NumberOfIterations(_DistanceSmoothing);
-      smoother.Run();
-      vtkPointData *outputPD = smoother.Output()->GetPointData();
-      distances->DeepCopy(outputPD->GetArray(distances->GetName()));
+    if (debug) {
+      vtkDataArray * const orig = PointData("OriginalNormalImplicitSurfaceDistance", true);
+      if (orig) orig->CopyComponent(0, distances, 0);
     }
     if (_FillInHoles) {
       int    num = 0;
@@ -625,6 +622,18 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
           }
         }
       }
+    }
+    if (_DistanceSmoothing > 0) {
+      MeshSmoothing smoother;
+      smoother.Input(surface);
+      smoother.Mask(status);
+      smoother.SmoothPointsOff();
+      smoother.SmoothArray(distances->GetName());
+      smoother.Weighting(MeshSmoothing::NormalDeviation);
+      smoother.NumberOfIterations(_DistanceSmoothing);
+      smoother.Run();
+      vtkPointData *outputPD = smoother.Output()->GetPointData();
+      distances->DeepCopy(outputPD->GetArray(distances->GetName()));
     }
 
     distances->Modified();

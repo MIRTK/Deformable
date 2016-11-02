@@ -2392,6 +2392,7 @@ ImageEdgeDistance::ImageEdgeDistance(const char *name, double weight)
   _MedianFilterRadius(0),
   _DistanceSmoothing(0),
   _StepLength(1.),
+  _T1WeightedImage(nullptr),
   _WhiteMatterMask(nullptr),
   _GreyMatterMask(nullptr),
   _CorticalHullDistance(nullptr),

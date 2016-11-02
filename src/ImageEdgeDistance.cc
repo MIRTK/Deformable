@@ -48,10 +48,16 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 #define BUILD_WITH_DEBUG_CODE 0
 
 #if BUILD_WITH_DEBUG_CODE
-  const double dbg_dist = 2.;
+  const double dbg_dist    = 1.;
+  const bool   dbg_patches = true;
 
-  const Point dbg_voxel(48, 132, 61);
-  //const Point dbg_voxel(111, 177, 155);
+  // dHCP CC00050XX01
+  // ----------------
+
+  // * used to create example intensity profiles for ISBI paper
+  //const Point dbg_voxel(148, 97, 58);
+  //const Point dbg_voxel(41, 129, 67);
+  const Point dbg_voxel(155, 130, 61);
 
   // dHCP CC00050XX01
   // ----------------
@@ -200,6 +206,33 @@ double IntersectionOfNormalDistributions(double mean1, double var1, double mean2
   if (mean1 > mean2) swap(mean1, mean2);
   return (mean1 <= x1 && x1 <= mean2 ? x1 : x2);
 }
+
+// -----------------------------------------------------------------------------
+#if BUILD_WITH_DEBUG_CODE
+void WriteTangentImagePatch(const char *fname, const ContinuousImage *image, vtkPoints *points, vtkDataArray *normals, vtkIdType ptId, double ds, double dmax)
+{
+  Point p;
+  ImageAttributes attr;
+  attr._x  = attr._y  = attr._z  = iceil(2. * dmax / ds), attr._t  = 1;
+  attr._dx = attr._dy = attr._dz = ds,                    attr._dt = 1.;
+  normals->GetTuple(ptId, attr._xaxis);
+  ComputeTangents(attr._xaxis, attr._yaxis, attr._zaxis);
+  points->GetPoint(ptId, p);
+  attr._xorigin = p._x;
+  attr._yorigin = p._y;
+  attr._zorigin = p._z;
+  RealImage patch(attr);
+  for (int k = 0; k < attr._z; ++k)
+  for (int j = 0; j < attr._y; ++j)
+  for (int i = 0; i < attr._x; ++i) {
+    p = Point(i, j, k);
+    patch. ImageToWorld(p);
+    image->WorldToImage(p);
+    patch(i, j, k) = image->Evaluate(p);
+  }
+  patch.Write(fname);
+}
+#endif // BUILD_WITH_DEBUG_CODE
 
 // -----------------------------------------------------------------------------
 /// Compute global intensity statistics
@@ -498,6 +531,35 @@ struct ComputeDistances
 
   /// Sequence of function minima/maxima
   typedef Array<Extremum> Extrema;
+
+  #if BUILD_WITH_DEBUG_CODE
+  void WriteRayPoints(const char *fname, Point p, const Vector3 &dp, int k) const
+  {
+    vtkSmartPointer<vtkPoints> points;
+    vtkSmartPointer<vtkCellArray> lines;
+    points = vtkSmartPointer<vtkPoints>::New();
+    lines  = vtkSmartPointer<vtkCellArray>::New();
+    points->SetNumberOfPoints(k+1);
+    lines->Allocate(lines->EstimateSize(k, 2));
+    Point q;
+    p -= double(k/2) * dp;
+    for (int i = 0; i <= k; ++i, p += dp) {
+      q = p;
+      _T2WeightedImage->ImageToWorld(q);
+      points->SetPoint(i, q);
+      lines->InsertNextCell(2);
+      if (i > 0) {
+        lines->InsertCellPoint(i-1);
+        lines->InsertCellPoint(i);
+      }
+    }
+    vtkSmartPointer<vtkPolyData> ray;
+    ray = vtkSmartPointer<vtkPolyData>::New();
+    ray->SetPoints(points);
+    ray->SetLines(lines);
+    WritePolyData(fname, ray);
+  }
+  #endif
 
   // ---------------------------------------------------------------------------
   /// Image coordinates of i-th point of the ray in dp centered at p
@@ -2101,24 +2163,33 @@ struct ComputeDistances
             cout << g[i];
           }
           cout << "];";
-          #if BUILD_WITH_DEBUG_CODE
-            if (!f1.empty()) {
-              cout << "\n\tf1=[";
-              for (size_t i = 0; i < f1.size(); ++i) {
-                if (i > 0) cout << ", ";
-                cout << f1[i];
-              }
-              cout << "];";
+          if (!f1.empty()) {
+            cout << "\n\tf1=[";
+            for (size_t i = 0; i < f1.size(); ++i) {
+              if (i > 0) cout << ", ";
+              cout << f1[i];
             }
-            if (!g1.empty()) {
-              cout << "\n\tg1=[";
-              for (size_t i = 0; i < g1.size(); ++i) {
-                if (i > 0) cout << ", ";
-                cout << g1[i];
-              }
-              cout << "];";
+            cout << "];";
+          }
+          if (!g1.empty()) {
+            cout << "\n\tg1=[";
+            for (size_t i = 0; i < g1.size(); ++i) {
+              if (i > 0) cout << ", ";
+              cout << g1[i];
             }
-          #endif
+            cout << "];";
+          }
+          if (dbg_patches) {
+            char fname[64];
+            snprintf(fname, 64, "debug_t2w_patch_%06d.nii.gz", ptId);
+            WriteTangentImagePatch(fname, _T2WeightedImage, _Points, _Normals, ptId, _StepLength, _MaxDistance);
+            if (_T1WeightedImage) {
+              snprintf(fname, 64, "debug_t1w_patch_%06d.nii.gz", ptId);
+              WriteTangentImagePatch(fname, _T1WeightedImage, _Points, _Normals, ptId, _StepLength, _MaxDistance);
+            }
+            snprintf(fname, 64, "debug_ray_%06d.vtp", ptId);
+            WriteRayPoints(fname, p, n, k);
+          }
         }
       #endif
       // Find edge in normal direction

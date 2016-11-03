@@ -1314,7 +1314,7 @@ bool DeformableSurfaceModel::Remesh()
 
   // Compute local edge length intervals
   SurfaceRemeshing remesher;
-  if (_IsSurfaceMesh && _RemeshAdaptively) {
+  if (_RemeshAdaptively) {
     vtkSmartPointer<vtkDataArray> adaptive_edge_length;
     if (false && _ImplicitSurface) {
       // FIXME: Experimental code that is not ready for use
@@ -1332,6 +1332,32 @@ bool DeformableSurfaceModel::Remesh()
     } else {
       remesher.MinCellEdgeLengthArray(input->GetCellData()->GetArray("MinEdgeLength"));
       remesher.MaxCellEdgeLengthArray(input->GetCellData()->GetArray("MaxEdgeLength"));
+    }
+  } else {
+    vtkDataArray * const status = _PointSet.InitialSurfaceStatus();
+    if (status) {
+      vtkSmartPointer<vtkDataArray> min_edge_length;
+      vtkSmartPointer<vtkDataArray> max_edge_length;
+      const vtkIdType ncells = input->GetNumberOfCells();
+      min_edge_length = NewVtkDataArray(VTK_FLOAT, ncells, 1, "MinEdgeLength");
+      max_edge_length = NewVtkDataArray(VTK_FLOAT, ncells, 1, "MaxEdgeLength");
+      for (vtkIdType cellId = 0, npts, *pts, i; cellId < ncells; ++cellId) {
+        input->GetCellPoints(cellId, npts, pts);
+        for (i = 0; i < npts; ++i) {
+          if (status->GetComponent(pts[i], 0) == 0.) {
+            break;
+          }
+        }
+        if (i == npts) {
+          min_edge_length->SetComponent(cellId, 0, _MinEdgeLength);
+          max_edge_length->SetComponent(cellId, 0, _MaxEdgeLength);
+        } else {
+          min_edge_length->SetComponent(cellId, 0, 0.);
+          max_edge_length->SetComponent(cellId, 0, inf);
+        }
+      }
+      remesher.MinCellEdgeLengthArray(min_edge_length);
+      remesher.MaxCellEdgeLengthArray(max_edge_length);
     }
   }
 

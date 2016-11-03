@@ -1336,28 +1336,27 @@ bool DeformableSurfaceModel::Remesh()
   } else {
     vtkDataArray * const status = _PointSet.InitialSurfaceStatus();
     if (status) {
-      vtkSmartPointer<vtkDataArray> min_edge_length;
-      vtkSmartPointer<vtkDataArray> max_edge_length;
-      const vtkIdType ncells = input->GetNumberOfCells();
-      min_edge_length = NewVtkDataArray(VTK_FLOAT, ncells, 1, "MinEdgeLength");
-      max_edge_length = NewVtkDataArray(VTK_FLOAT, ncells, 1, "MaxEdgeLength");
-      for (vtkIdType cellId = 0, npts, *pts, i; cellId < ncells; ++cellId) {
-        input->GetCellPoints(cellId, npts, pts);
-        for (i = 0; i < npts; ++i) {
-          if (status->GetComponent(pts[i], 0) == 0.) {
-            break;
-          }
-        }
-        if (i == npts) {
-          min_edge_length->SetComponent(cellId, 0, _MinEdgeLength);
-          max_edge_length->SetComponent(cellId, 0, _MaxEdgeLength);
+      const vtkIdType npoints = input->GetNumberOfPoints();
+      vtkSmartPointer<vtkDataArray> min_edge_length, max_edge_length;
+      min_edge_length = input->GetPointData()->GetArray(SurfaceRemeshing::MIN_EDGE_LENGTH);
+      max_edge_length = input->GetPointData()->GetArray(SurfaceRemeshing::MAX_EDGE_LENGTH);
+      if (!min_edge_length) {
+        min_edge_length = NewVtkDataArray(VTK_FLOAT, npoints, 1, SurfaceRemeshing::MIN_EDGE_LENGTH);
+        input->GetPointData()->AddArray(min_edge_length);
+      }
+      if (!max_edge_length) {
+        max_edge_length = NewVtkDataArray(VTK_FLOAT, npoints, 1, SurfaceRemeshing::MAX_EDGE_LENGTH);
+        input->GetPointData()->AddArray(max_edge_length);
+      }
+      for (vtkIdType ptId = 0; ptId < npoints; ++ptId) {
+        if (status->GetComponent(ptId, 0) == 0.) {
+          min_edge_length->SetComponent(ptId, 0, 0.);
+          max_edge_length->SetComponent(ptId, 0, inf);
         } else {
-          min_edge_length->SetComponent(cellId, 0, 0.);
-          max_edge_length->SetComponent(cellId, 0, inf);
+          min_edge_length->SetComponent(ptId, 0, _MinEdgeLength);
+          max_edge_length->SetComponent(ptId, 0, _MaxEdgeLength);
         }
       }
-      remesher.MinCellEdgeLengthArray(min_edge_length);
-      remesher.MaxCellEdgeLengthArray(max_edge_length);
     }
   }
 

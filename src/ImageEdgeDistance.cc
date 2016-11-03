@@ -1516,7 +1516,7 @@ struct ComputeDistances
   /// obtained by deforming a sphere/convex hull towards the white matter
   /// tissue segmentation mask. The surface thus is close to the target boundary
   /// and should only be refined using this force.
-  inline int NeonatalWhiteSurface(int ptId, const Point &p, const Vector3 &dp,
+  inline int NeonatalWhiteSurface(const Point &p, const Vector3 &dp,
                                   const Array<double> &f1, const Array<double> &g1,
                                   const Array<double> &f,  const Array<double> &g,
                                   Extrema &extrema, Extrema::iterator &i,
@@ -2037,22 +2037,22 @@ struct ComputeDistances
   /// Find image edge of cGM/CSF boundary in T2-weighted MRI of neonatal brain
   inline int NeonatalPialSurface(const Point &p, const Vector3 &dp,
                                  const Array<double> &f1, const Array<double> &g1,
-                                 const Array<double> &f2, const Array<double> &g,
+                                 const Array<double> &f2, const Array<double> &g2,
                                  Extrema &extrema, Extrema::iterator &i,
                                  Extrema::iterator &j, bool dbg = false) const
   {
     const int k = static_cast<int>(f2.size()) - 1;
 
     int edge = -1;
-    NeonatalWhiteSurface(0, p, dp, f1, g1, f2, g, extrema, i, j, dbg);
+    NeonatalWhiteSurface(p, dp, f1, g1, f2, g2, extrema, i, j, dbg);
     if (i != extrema.end() && j != extrema.end() && j->min) {
       i = j, j = i + 1;
       if (j != extrema.end()) {
-        edge = FindNeonatalPialSurface(i, j, g, k, _MinGradient);
+        edge = FindNeonatalPialSurface(i, j, g2, k, _MinGradient);
       }
     }
     if (edge == -1) {
-      edge = ClosestMaximum(g);
+      edge = ClosestMaximum(g2);
     }
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
@@ -2222,7 +2222,7 @@ struct ComputeDistances
           j  = (abs(g[j1]) > abs(g[j2]) ? j1 : j2);
         } break;
         case ImageEdgeDistance::NeonatalWhiteSurface: {
-          j = NeonatalWhiteSurface(ptId, p, n, f1, g1, f, g, extrema, a, b, dbg);
+          j = NeonatalWhiteSurface(p, n, f1, g1, f, g, extrema, a, b, dbg);
         } break;
         case ImageEdgeDistance::NeonatalPialSurface: {
           j = NeonatalPialSurface(p, n, f1, g1, f, g, extrema, a, b, dbg);

@@ -26,7 +26,6 @@
 #include "mirtk/UnorderedSet.h"
 #include "mirtk/ImplicitSurfaceUtils.h"
 #include "mirtk/MeshSmoothing.h"
-#include "mirtk/MedianMeshFilter.h"
 #include "mirtk/DataStatistics.h"
 
 #include "vtkType.h"

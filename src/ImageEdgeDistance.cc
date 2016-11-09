@@ -24,7 +24,7 @@
 #include "mirtk/Profiling.h"
 #include "mirtk/DataStatistics.h"
 #include "mirtk/MeshSmoothing.h"
-#include "mirtk/MedianMeshFilter.h"
+#include "mirtk/MedianPointData.h"
 #include "mirtk/FastCubicBSplineInterpolateImageFunction.h"
 
 #include "mirtk/PointSetIO.h"
@@ -2895,13 +2895,13 @@ void ImageEdgeDistance::Update(bool gradient)
   // Smooth measurements
   if (_MedianFilterRadius > 0) {
     MIRTK_RESET_TIMING();
-    MedianMeshFilter median;
+    MedianPointData median;
     median.Input(surface);
+    median.InputData(distances);
     median.EdgeTable(SharedEdgeTable());
     median.Connectivity(_MedianFilterRadius);
-    median.DataArray(distances);
     median.Run();
-    distances->DeepCopy(median.Output()->GetPointData()->GetArray(distances->GetName()));
+    distances->DeepCopy(median.OutputData());
     MIRTK_DEBUG_TIMING(5, "edge distance median filtering");
   }
   if (_DistanceSmoothing > 0) {

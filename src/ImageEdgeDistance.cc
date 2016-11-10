@@ -2852,7 +2852,7 @@ void ImageEdgeDistance::Update(bool gradient)
   if (_EdgeType == NeonatalWhiteSurface) {
     surface_mask.Initialize(_Image->Attributes(), 1);
     vtkSmartPointer<vtkPointSet> pointset = WorldToImage(surface, &surface_mask);
-    vtkSmartPointer<vtkPolyData> polydata = vtkPolyData::SafeDownCast(pointset);
+    vtkPolyData * const polydata = vtkPolyData::SafeDownCast(pointset);
     vtkSmartPointer<vtkImageData> vtkmask = NewVtkMask(_Image->X(), _Image->Y(), _Image->Z());
     vtkSmartPointer<vtkImageStencilData> stencil = ImageStencil(vtkmask, polydata);
     ImageStencilToMask(stencil, vtkmask);

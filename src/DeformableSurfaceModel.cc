@@ -1333,35 +1333,11 @@ bool DeformableSurfaceModel::Remesh()
       remesher.MinCellEdgeLengthArray(input->GetCellData()->GetArray("MinEdgeLength"));
       remesher.MaxCellEdgeLengthArray(input->GetCellData()->GetArray("MaxEdgeLength"));
     }
-  } else {
-    vtkDataArray * const status = _PointSet.InitialSurfaceStatus();
-    if (status) {
-      const vtkIdType npoints = input->GetNumberOfPoints();
-      vtkSmartPointer<vtkDataArray> min_edge_length, max_edge_length;
-      min_edge_length = input->GetPointData()->GetArray(SurfaceRemeshing::MIN_EDGE_LENGTH);
-      max_edge_length = input->GetPointData()->GetArray(SurfaceRemeshing::MAX_EDGE_LENGTH);
-      if (!min_edge_length) {
-        min_edge_length = NewVtkDataArray(VTK_FLOAT, npoints, 1, SurfaceRemeshing::MIN_EDGE_LENGTH);
-        input->GetPointData()->AddArray(min_edge_length);
-      }
-      if (!max_edge_length) {
-        max_edge_length = NewVtkDataArray(VTK_FLOAT, npoints, 1, SurfaceRemeshing::MAX_EDGE_LENGTH);
-        input->GetPointData()->AddArray(max_edge_length);
-      }
-      for (vtkIdType ptId = 0; ptId < npoints; ++ptId) {
-        if (status->GetComponent(ptId, 0) == 0.) {
-          min_edge_length->SetComponent(ptId, 0, 0.);
-          max_edge_length->SetComponent(ptId, 0, inf);
-        } else {
-          min_edge_length->SetComponent(ptId, 0, _MinEdgeLength);
-          max_edge_length->SetComponent(ptId, 0, _MaxEdgeLength);
-        }
-      }
-    }
   }
 
   // Remesh surface
   remesher.Input(input);
+  remesher.PointMask(_PointSet.InitialSurfaceStatus());
   remesher.MeltingOrder(SurfaceRemeshing::AREA);
   remesher.MeltNodesOn();
   remesher.MeltTrianglesOff();

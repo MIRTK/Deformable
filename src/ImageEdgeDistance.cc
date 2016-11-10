@@ -2805,6 +2805,7 @@ void ImageEdgeDistance::Update(bool gradient)
   vtkDataArray * const initial_status = InitialStatus();
 
   if (distances->GetMTime() >= surface->GetMTime()) return;
+  MIRTK_START_TIMING();
 
   // Compute distance to closest image edge
   const int radius   = ifloor(_MaxDistance / _StepLength);
@@ -2814,7 +2815,6 @@ void ImageEdgeDistance::Update(bool gradient)
                                   _GlobalWhiteMatterMean, _GlobalWhiteMatterVariance,
                                   _GlobalGreyMatterMean,  _GlobalGreyMatterVariance);
 
-  MIRTK_START_TIMING();
   ComputeDistances eval;
   eval._Points          = Points();
   eval._Status          = initial_status;
@@ -2901,7 +2901,7 @@ void ImageEdgeDistance::Update(bool gradient)
     median.EdgeTable(SharedEdgeTable());
     median.Connectivity(_MedianFilterRadius);
     median.Run();
-    distances->DeepCopy(median.OutputData());
+    distances->CopyComponent(0, median.OutputData(), 0);
     MIRTK_DEBUG_TIMING(5, "edge distance median filtering");
   }
   if (_DistanceSmoothing > 0) {
@@ -2914,7 +2914,7 @@ void ImageEdgeDistance::Update(bool gradient)
     smoother.Weighting(MeshSmoothing::Gaussian);
     smoother.NumberOfIterations(_DistanceSmoothing);
     smoother.Run();
-    distances->DeepCopy(smoother.Output()->GetPointData()->GetArray(distances->GetName()));
+    distances->CopyComponent(0, smoother.Output()->GetPointData()->GetArray(distances->GetName()), 0);
     MIRTK_DEBUG_TIMING(5, "edge distance smoothing");
   }
 

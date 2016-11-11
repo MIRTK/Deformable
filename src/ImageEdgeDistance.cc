@@ -577,7 +577,7 @@ struct ComputeDistances
   inline Voxel RayVoxel(const Point &p, const Vector3 &dp, int i, int k) const
   {
     const Point q = RayPoint(p, dp, i, k);
-    return Voxel(iround(q.x), iround(q.y), iround(q.z));
+    return Voxel(iround(q._x), iround(q._y), iround(q._z));
   }
 
   // ---------------------------------------------------------------------------
@@ -603,19 +603,19 @@ struct ComputeDistances
 
     q = p;
     for (i = i0; i <= k; ++i, q += dp) {
-      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-      if (!_T2WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
-      _T2WeightedImage->Jacobian3D(jac, q.x, q.y, q.z);
-      g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+      v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+      if (!_T2WeightedImage->Input()->IsInsideForeground(v._x, v._y, v._z)) break;
+      _T2WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
+      g[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
     }
     while (i <= k) g[i++] = NaN;
 
     q = p, q -= dp;
     for (i = i0 - 1; i >= 0; --i, q -= dp) {
-      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-      if (!_T2WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) break;
-      _T2WeightedImage->Jacobian3D(jac, q.x, q.y, q.z);
-      g[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+      v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+      if (!_T2WeightedImage->Input()->IsInsideForeground(v._x, v._y, v._z)) break;
+      _T2WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
+      g[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
     }
     while (i >= 0) g[i--] = NaN;
   }
@@ -644,9 +644,9 @@ struct ComputeDistances
     i = i0, q = p;
     if (_SurfaceMask) {
       while (i <= k && !IsNaN(g[i])) {
-        f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
-        v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-        if (_SurfaceMask->Get(v.x, v.y, v.z) == 0) {
+        f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
+        v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+        if (_SurfaceMask->Get(v._x, v._y, v._z) == 0) {
           ++i, q += dp;
           break;
         }
@@ -654,9 +654,9 @@ struct ComputeDistances
       }
     }
     while (i <= k && !IsNaN(g[i])) {
-      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-      if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) != 0) break;
-      f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
+      v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+      if (_SurfaceMask && _SurfaceMask->Get(v._x, v._y, v._z) != 0) break;
+      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
       ++i, q += dp;
     }
     while (i <= k) f[i++] = NaN;
@@ -664,9 +664,9 @@ struct ComputeDistances
     i = i0, q = p;
     if (_SurfaceMask) {
       while (i >= 0 && !IsNaN(g[i])) {
-        if (i != i0) f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
-        v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-        if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) != 0) {
+        if (i != i0) f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
+        v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+        if (_SurfaceMask && _SurfaceMask->Get(v._x, v._y, v._z) != 0) {
           --i, q -= dp;
           break;
         }
@@ -674,11 +674,11 @@ struct ComputeDistances
       }
     }
     while (i >= 0 && !IsNaN(g[i])) {
-      v.x = iround(q.x), v.y = iround(q.y), v.z = iround(q.z);
-      if (_SurfaceMask && _SurfaceMask->Get(v.x, v.y, v.z) == 0) break;
-      f[i] = _T2WeightedImage->Evaluate(q.x, q.y, q.z);
+      v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+      if (_SurfaceMask && _SurfaceMask->Get(v._x, v._y, v._z) == 0) break;
+      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
       if (_VentriclesDistance) {
-        const double d = _VentriclesDistance->Get(v.x, v.y, v.z);
+        const double d = _VentriclesDistance->Get(v._x, v._y, v._z);
         if (d < _StepLength || (d < 2. && f[i] > _GlobalWhiteMatterMean)) {
           if (f[i] > _GlobalWhiteMatterMean && i0 - i > iceil(1. / _StepLength)) {
             --i;
@@ -697,9 +697,9 @@ struct ComputeDistances
   inline double SampleIntensity(Point p, const Vector3 &dp, int i, int k) const
   {
     p += static_cast<double>(i - k/2) * dp;
-    const Voxel v(iround(p.x), iround(p.y), iround(p.z));
-    if (_T2WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) {
-      return _T2WeightedImage->Evaluate(p.x, p.y, p.z);
+    const Voxel v(iround(p._x), iround(p._y), iround(p._z));
+    if (_T2WeightedImage->Input()->IsInsideForeground(v._x, v._y, v._z)) {
+      return _T2WeightedImage->Evaluate(p._x, p._y, p._z);
     } else {
       return NaN;
     }
@@ -709,9 +709,9 @@ struct ComputeDistances
   inline double SampleT1Intensity(Point p, const Vector3 &dp, int i, int k) const
   {
     p += static_cast<double>(i - k/2) * dp;
-    const Voxel v(iround(p.x), iround(p.y), iround(p.z));
-    if (_T1WeightedImage->Input()->IsInsideForeground(v.x, v.y, v.z)) {
-      return _T1WeightedImage->Evaluate(p.x, p.y, p.z);
+    const Voxel v(iround(p._x), iround(p._y), iround(p._z));
+    if (_T1WeightedImage->Input()->IsInsideForeground(v._x, v._y, v._z)) {
+      return _T1WeightedImage->Evaluate(p._x, p._y, p._z);
     } else {
       return NaN;
     }
@@ -725,7 +725,7 @@ struct ComputeDistances
       if (IsNaN(f2[i])) {
         f1[i] = NaN;
       } else {
-        f1[i] = _T1WeightedImage->Evaluate(q.x, q.y, q.z);
+        f1[i] = _T1WeightedImage->Evaluate(q._x, q._y, q._z);
       }
     }
   }
@@ -741,8 +741,8 @@ struct ComputeDistances
       if (IsNaN(g2[i])) {
         g1[i] = NaN;
       } else {
-        _T1WeightedImage->Jacobian3D(jac, q.x, q.y, q.z);
-        g1[i] = n.x * jac(0, 0) + n.y * jac(0, 1) + n.z * jac(0, 2);
+        _T1WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
+        g1[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
       }
     }
   }
@@ -1229,8 +1229,8 @@ struct ComputeDistances
   {
     if (local_mean != nullptr && local_var != nullptr) {
       const Voxel v = RayVoxel(p, dp, i, k);
-      mean = local_mean->Get(v.x, v.y, v.z);
-      var  = local_var ->Get(v.x, v.y, v.z);
+      mean = local_mean->Get(v._x, v._y, v._z);
+      var  = local_var ->Get(v._x, v._y, v._z);
       std  = sqrt(var);
     } else {
       mean = global_mean;
@@ -1297,10 +1297,10 @@ struct ComputeDistances
         limit = extremum.mean - 3. * extremum.std;
         if (_VentriclesDistance != nullptr) {
           const Voxel v = RayVoxel(p, dp, extremum.idx, k);
-          if (_VentriclesDistance->Get(v.x, v.y, v.z) < .5) {
+          if (_VentriclesDistance->Get(v._x, v._y, v._z) < .5) {
             extremum.prb = 0.;
             upper = lower = NaN;
-          } else if (_VentriclesDistance->Get(v.x, v.y, v.z) < 2.) {
+          } else if (_VentriclesDistance->Get(v._x, v._y, v._z) < 2.) {
             upper = extremum.mean - 1. * extremum.std;
             lower = extremum.mean - 3. * extremum.std;
             limit = extremum.mean - 5. * extremum.std;
@@ -1362,9 +1362,9 @@ struct ComputeDistances
                                   const Array<double> &f1, const Array<double> &g1, int k) const
   {
     if (_T1WeightedImage && _LocalGreyMatterT1Mean && _LocalGreyMatterT1Variance) {
-      const Voxel v(iround(p.x), iround(p.y), iround(p.z));
-      double mean  = _LocalGreyMatterT1Mean->Get(v.x, v.y, v.z);
-      double sigma = sqrt(_LocalGreyMatterT1Variance->Get(v.x, v.y, v.z));
+      const Voxel v(iround(p._x), iround(p._y), iround(p._z));
+      double mean  = _LocalGreyMatterT1Mean->Get(v._x, v._y, v._z);
+      double sigma = sqrt(_LocalGreyMatterT1Variance->Get(v._x, v._y, v._z));
       double limit = mean - 3. * sigma;
       double lower = mean + 1. * sigma;
 
@@ -1473,7 +1473,7 @@ struct ComputeDistances
     if (idx != -1 && idx <= k && IsNaN(f[idx]) && !IsNaN(g[idx])) {
       if (_CerebellumDistance != nullptr) {
         const Voxel v = RayVoxel(p, dp, idx, k);
-        if (_CerebellumDistance->Get(v.x, v.y, v.z) < .5) return false;
+        if (_CerebellumDistance->Get(v._x, v._y, v._z) < .5) return false;
       }
       return true;
     }
@@ -1533,8 +1533,8 @@ struct ComputeDistances
     // ventricles may be mislabed as venctricles. Thus, allow the surface
     // to propagate through small clusters of so mislabeled CSF.
     if (_VentriclesDistance != nullptr) {
-      Voxel v(iround(p.x), iround(p.y), iround(p.z));
-      const double ventricles_distance = _VentriclesDistance->Get(v.x, v.y, v.z);
+      Voxel v(iround(p._x), iround(p._y), iround(p._z));
+      const double ventricles_distance = _VentriclesDistance->Get(v._x, v._y, v._z);
       // When inside a ventricle, move outwards until the surface no longer
       // intersects the ventricles
       if (ventricles_distance < -.5) {
@@ -1544,7 +1544,7 @@ struct ComputeDistances
         int idx;
         for (idx = i0; idx < k && !IsNaN(g[idx]); ++idx) {
           v = RayVoxel(p, dp, idx, k);
-          if (_VentriclesDistance->Get(v.x, v.y, v.z) > .1) break;
+          if (_VentriclesDistance->Get(v._x, v._y, v._z) > .1) break;
         }
         if (IsNaN(g[idx])) return i0;
         return idx;
@@ -1668,7 +1668,7 @@ struct ComputeDistances
             // when close to another
             if (_VentriclesDistance && f[j->idx] > _GlobalGreyMatterMean - 1.5 * _GlobalGreyMatterSigma) {
               const Voxel v = RayVoxel(p, dp, i->idx, k);
-              if (_VentriclesDistance->Get(v.x, v.y, v.z) < 5.) {
+              if (_VentriclesDistance->Get(v._x, v._y, v._z) < 5.) {
                 pos2 = i;
                 prb2 = prb;
               }
@@ -1813,9 +1813,9 @@ struct ComputeDistances
     const Voxel v = RayVoxel(p, dp, edge, k);
     if (_CorticalDeepGreyMatterBoundingBox) {
       const int * const &bounds = _CorticalDeepGreyMatterBoundingBox;
-      if (v.x < bounds[0] || v.x > bounds[1] ||
-          v.y < bounds[2] || v.y > bounds[3] ||
-          v.z < bounds[4] || v.z > bounds[5]) {
+      if (v._x < bounds[0] || v._x > bounds[1] ||
+          v._y < bounds[2] || v._y > bounds[3] ||
+          v._z < bounds[4] || v._z > bounds[5]) {
         allow_deep_matter_correction = false;
         #if BUILD_WITH_DEBUG_CODE
           if (dbg) {
@@ -1853,7 +1853,7 @@ struct ComputeDistances
             // Use approximate distance maps to outer cortical surface
             // (boundary of union of GM and WM tissue segmentation) and distance
             // to ventricles to decide when to perform this correction
-            double cortex_distance = _CorticalHullDistance->Get(v.x, v.y, v.z);
+            double cortex_distance = _CorticalHullDistance->Get(v._x, v._y, v._z);
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
                 cout << "\n\tf[i=" << i->idx << "]=" << f[i->idx] << ", f[j=" << j->idx << "]=" << f[j->idx]
@@ -1864,7 +1864,7 @@ struct ComputeDistances
             if (cortex_distance > 5.) {
               double vents_distance = NaN;
               if (_VentriclesDistance != nullptr) {
-                vents_distance = _VentriclesDistance->Get(v.x, v.y, v.z);
+                vents_distance = _VentriclesDistance->Get(v._x, v._y, v._z);
               }
               #if BUILD_WITH_DEBUG_CODE
                 if (dbg) {

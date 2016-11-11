@@ -184,9 +184,9 @@ struct EvaluateGradient
             }
             if (m > 0.) {
               mag += m;
-              gradient._x += m * f.x;
-              gradient._y += m * f.y;
-              gradient._z += m * f.z;
+              gradient._x += m * f._x;
+              gradient._y += m * f._y;
+              gradient._z += m * f._z;
               ++num;
             }
           }

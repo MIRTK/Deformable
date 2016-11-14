@@ -94,7 +94,7 @@ struct ComputeNormalDistances
 // -----------------------------------------------------------------------------
 /// Find holes in implicit surface
 int FindHoles(vtkPoints *points, const EdgeTable *edges, vtkDataArray *normals,
-              vtkDataArray *distances, vtkDataArray *labels,
+              vtkDataArray *mask, vtkDataArray *distances, vtkDataArray *labels,
               double d_min, double d_threshold, double max_radius, int max_size)
 {
   const int    npoints     = points->GetNumberOfPoints();
@@ -151,8 +151,20 @@ int FindHoles(vtkPoints *points, const EdgeTable *edges, vtkDataArray *normals,
         }
       }
     }
+    // Discard clusters containing masked points
+    discard = false;
+    if (mask) {
+      for (auto ptId : cluster) {
+        if (mask->GetComponent(ptId, 0) == 0.) {
+          discard = true;
+          break;
+        }
+      }
+    }
     // Discard large clusters of distant points
-    discard = (cluster.size() > static_cast<size_t>(max_size) || boundary.empty());
+    if (!discard) {
+      discard = (cluster.size() > static_cast<size_t>(max_size) || boundary.empty());
+    }
     if (!discard) {
       c = 0.;
       for (auto ptId : boundary) {
@@ -614,8 +626,10 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
           const double edge_length = _PointSet->AverageInputSurfaceEdgeLength();
           const double max_radius  = 5. * edge_length;
           const size_t max_size    = 100;
+          const bool   optional    = true;
+          vtkDataArray * const mask  = PointData("ImplicitSurfaceFillMask", optional);
           vtkDataArray * const holes = PointData("ImplicitSurfaceHoleMask");
-          if (FindHoles(Points(), Edges(), Normals(), distances, holes, d_min, d_threshold, max_radius, max_size) > 0) {
+          if (FindHoles(Points(), Edges(), Normals(), mask, distances, holes, d_min, d_threshold, max_radius, max_size) > 0) {
             DilateHoles(Edges(), distances, holes, 2);
             FixHoles(Points(), Edges(), Normals(), distances, holes, distances, 3);
           }

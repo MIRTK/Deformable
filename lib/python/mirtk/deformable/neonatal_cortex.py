@@ -42,16 +42,16 @@ Note: The merge-surfaces tool failed when MIRTK was built with VTK 6.2.
 import os
 import re
 import sys
-import mirtk
 
 from contextlib import contextmanager
 
 try:
-    # Python 3
-    from contextlib import ExitStack
+    from contextlib import ExitStack # Python 3
 except:
-    # Python 2 backport of ExitStack
-    from contextlib2 import ExitStack
+    from contextlib2 import ExitStack # Python 2 backport
+
+from mirtk.subprocess import flatten, check_call, check_output
+from mirtk.subprocess import run as _run
 
 # ==============================================================================
 # global settings
@@ -145,7 +145,7 @@ def try_remove(name):
 # ------------------------------------------------------------------------------
 def run(tool, args=[], opts={}):
     """Run MIRTK command with global `showcmd` flag and maximum allowed number of `threads`."""
-    mirtk.run(tool, args=args, opts=opts, verbose=showcmd, threads=threads)
+    _run(tool, args=args, opts=opts, verbose=showcmd, threads=threads)
 
 # ------------------------------------------------------------------------------
 @contextmanager
@@ -195,7 +195,7 @@ def push_output(stack, name_or_func, delete=True):
 # ------------------------------------------------------------------------------
 def get_voxel_size(image):
     """Get voxel size of image file."""
-    info  = mirtk.check_output(['info', image])
+    info  = check_output(['info', image])
     match = re.search(r'Spacing:\s+([0-9][0-9.]*)\s*x\s*([0-9][0-9.]*)\s*x\s*([0-9][0-9.]*)', info)
     try:
         dx = float(match.group(1))
@@ -289,7 +289,6 @@ def evaluate_surface(name, oname=None, mesh=False, topology=False, intersections
     if collisions > 0 or intersections:
         argv.extend(['-collisions', collisions])
     if len(opts) > 0:
-        from mirtk.subprocess import flatten
         if isinstance(opts, list):
             for item in opts:
                 if isinstance(item, (tuple, list)):
@@ -310,7 +309,7 @@ def evaluate_surface(name, oname=None, mesh=False, topology=False, intersections
                 argv.append(opt)
                 if not arg is None:
                     argv.extend(flatten(arg))
-    return mirtk.check_output(argv, verbose=showcmd)
+    return check_output(argv, verbose=showcmd)
 
 # ------------------------------------------------------------------------------
 def smooth_surface(iname, oname=None, iterations=1, lambda_value=1, mu=None, mask=None, weighting='combinatorial', excl_node=False):
@@ -321,7 +320,7 @@ def smooth_surface(iname, oname=None, iterations=1, lambda_value=1, mu=None, mas
     else:         argv.append('-inclnode')
     argv.extend(['-lambda', lambda_value])
     if mu: argv.extend(['-mu', mu])
-    mirtk.check_call(argv, verbose=showcmd)
+    check_call(argv, verbose=showcmd)
     return oname
 
 # ------------------------------------------------------------------------------
@@ -331,7 +330,7 @@ def check_intersections(iname, oname=None):
     if oname:
         cmd.append(oname)
     cmd.extend(['-threads', threads, '-collisions', 0, '-v'])
-    info  = mirtk.check_output(cmd)
+    info  = check_output(cmd)
     match = re.search(r'No\. of self-intersections\s*=\s*(\d+)', info)
     return int(match.group(1))
 

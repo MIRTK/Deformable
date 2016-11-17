@@ -48,7 +48,7 @@ sys.path.insert(0, '/homes/as12312/opt/lib/python')
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import neonatal_cortex as neoctx
+import mirtk.deformable.neonatal_cortex as neoctx
 
 
 # ==============================================================================

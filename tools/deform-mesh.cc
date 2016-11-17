@@ -1326,10 +1326,10 @@ int main(int argc, char *argv[])
   if (spring.Weight() == .0) { // no -spring, but -nspring and/or -tspring
     spring.Weight(nspring + spring.TangentialWeight());
   } else if (nspring + spring.TangentialWeight() == .0) {
-      // no -nspring and -tspring, but -spring
-      spring.InwardNormalWeight(.5);
-      spring.OutwardNormalWeight(.5);
-      spring.TangentialWeight(.5);
+    // no -nspring and -tspring, but -spring
+    spring.InwardNormalWeight(.5);
+    spring.OutwardNormalWeight(.5);
+    spring.TangentialWeight(.5);
   }
   if (nspring + spring.TangentialWeight() <= .0) {
     spring.Weight(.0);
@@ -1533,7 +1533,7 @@ int main(int argc, char *argv[])
 
   // Rename spring terms (after setting of parameters!)
   if (spring.Weight()) {
-    if (nspring == .0) {
+    if (spring.InwardNormalWeight() + spring.OutwardNormalWeight() == .0) {
       spring.Name("Tang. spring");
     }
     if (spring.TangentialWeight() == .0) {

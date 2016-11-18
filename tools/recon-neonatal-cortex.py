@@ -241,22 +241,20 @@ def sbatch(job_name, log_dir, session, args):
         'script':  __file__,
         'config': args.config,
         'section': args.section,
-        'input':   args.subdir,
-        'output':  args.outdir,
+        'work_dir':  args.work_dir,
         'session': session,
         'threads': args.threads,
         'verbose': ' '.join(['-v'] * args.verbose),
         'debug':   ' '.join(['-d'] * args.debug)
       }
-    script  = "#!/bin/bash\npython {script} -threads={threads} {verbose} {debug}"
-    script += " -config={config} -section={section}"
-    script += " -input={input} -output={output} -session={session}"
-    if args.brain:   script += ' -brain'
-    if args.white:   script += ' -white'
-    if args.pial:    script += ' -pial'
-    if args.check:   script += ' -check'
-    if args.force:   script += ' -force'
-    if not args.cut: script += ' -nocut'
+    script  = "#!/bin/bash\npython {script} --threads={threads} {verbose} {debug}"
+    script += " --work-dir={work_dir} --config={config} --section={section} --session={session}"
+    if args.brain:   script += ' --brain'
+    if args.white:   script += ' --white'
+    if args.pial:    script += ' --pial'
+    if args.check:   script += ' --check'
+    if args.force:   script += ' --force'
+    if not args.cut: script += ' --nocut'
     script.format(**args_map)
     (out, err) = p.communicate(input=script)
     if p.returncode != 0:
@@ -271,9 +269,8 @@ def sbatch(job_name, log_dir, session, args):
 
 # parse arguments
 parser = argparse.ArgumentParser(description='Reconstruct neonatal cortex from MR brain scan and Draw-EM segmentation')
-parser.add_argument('-i', '-input', '--input',  dest='subdir', default='', help='Name of input directory', required=True)
-parser.add_argument('-o', '-output', '--output', dest='outdir', default='', help='Name of output directory (excl. subject session folder)', required=True)
-parser.add_argument('-c', '-config', '--config', default='', help='Configuration file path')
+parser.add_argument('-w', '-work-dir', '--work-dir',  dest='work_dir', default=os.getcwd(), help='Working directory')
+parser.add_argument('-c', '-config', '--config', default='recon-neonatal-cortex.cfg', help='Optional custom configuration file')
 parser.add_argument('-section', '--section', default='recon-neonatal-cortex', help='Configuration section name')
 parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+', help="Either list of '{SubjectID}-{SessionID}' strings or path of CSF file")
 parser.add_argument('-b', '-brain', '--brain', action='store_true', help='Reconstruct surface of brain mask')
@@ -283,13 +280,12 @@ parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', ac
 parser.add_argument('-check', '--check', action='store_true', help='Check surface meshes for consistency')
 parser.add_argument('-f', '-force', '--force', action='store_true', help='Overwrite existing output files')
 parser.add_argument('-v', '-verbose', '--verbose', action='count', default=0, help='Increase verbosity of output messages')
-parser.add_argument('-d', '-debug', '--debug', action='count', default=0, help='Keep/write debug output in temp subdirectory')
+parser.add_argument('-d', '-debug', '--debug', action='count', default=0, help='Keep/write debug output in temp_dir')
 parser.add_argument('-t', '-threads', '--threads', default=0, help='No. of cores to use for multi-threading')
 parser.add_argument('-q', '-queue', '--queue', default='', help='SLURM partition/queue')
 
 args = parser.parse_args()
-if not args.outdir:
-    args.outdir = args.subdir
+args.work_dir = os.path.abspath(args.work_dir)
 if not args.white and not args.pial:
     args.white = True
     args.pial  = True
@@ -297,8 +293,8 @@ elif args.pial:
     args.white = True
 
 # read configuration
-config = get_default_config(work_dir=args.outdir, section=args.section)
-config.read(os.path.join(args.subdir, 'recon-neonatal-cortex.cfg'))
+config = get_default_config(work_dir=args.work_dir, section=args.section)
+config.read(os.path.join(args.work_dir, 'recon-neonatal-cortex.cfg'))
 if args.config:
     with open(args.config, 'r') as config_file:
         config.readfp(config_file)
@@ -310,7 +306,7 @@ neoctx.force   = args.force
 
 # use default CSV file if no sessions specified
 if len(args.sessions) == 0:
-    csv_name = os.path.join(args.subdir, 'subjects.csv')
+    csv_name = os.path.join(args.work_dir, 'subjects.csv')
     if not os.path.isfile(csv_name):
         sys.stderr.write("Neither --sessions specified nor default CSV file found: {}".format(csv_name))
         sys.exit(1)
@@ -352,14 +348,14 @@ for session in sessions:
       'sessionid':  session_id,
       'SessionID':  session_id,
       'SessionId':  session_id,
-      'WorkDir':    args.outdir,
-      'work_dir':   args.outdir
+      'WorkDir':    args.work_dir,
+      'work_dir':   args.work_dir.
     }
     try:
         if args.queue:
             sys.stdout.write("Submitting SLURM job for {SubjectID} session {SessionID}: ".format(**info))
             job_name = 'rec-{SubjectID}-{SessionID}'.format(**info)
-            log_dir  = os.path.join(args.outdir, session, 'logs')
+            log_dir  = os.path.join(args.work_dir, session, 'logs')
             job_id   = sbatch(job_name, log_dir, session, args)
             sys.stdout.write('Job ID = {}\n'.format(job_id))
         else:

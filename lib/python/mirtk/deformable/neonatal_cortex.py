@@ -64,6 +64,9 @@ threads = 0    # maximum number of allowed threads for subprocess execution
 debug   = 0    # debug level, keep intermediate files when >0
 force   = True # whether to overwrite existing output files
 
+_cortex_mask_array = 'CortexMask'
+_region_id_array   = 'RegionId'
+
 # ==============================================================================
 # enumerations
 # ==============================================================================
@@ -127,6 +130,12 @@ def makedirs(name):
     path = os.path.dirname(name)
     if not os.path.isdir(path):
         os.makedirs(path)
+
+# ------------------------------------------------------------------------------
+def rename(src, dst):
+    """Rename file."""
+    makedirs(dst)
+    os.rename(src, dst)
 
 # ------------------------------------------------------------------------------
 def try_remove(name):
@@ -363,6 +372,7 @@ def remove_intersections(iname, oname=None, max_attempt=10, smooth_iter=5, smoot
 # ------------------------------------------------------------------------------
 def project_mask(iname, oname, mask, name, dilation=0, invert=False, fill=False):
     """Project binary mask onto surface."""
+    makedirs(oname)
     run('project-onto-surface', args=[iname, oname],
         opts={'labels': mask, 'fill': fill, 'dilation-radius': dilation, 'name': name})
     if invert:
@@ -438,7 +448,7 @@ def get_convex_hull(iname, oname=None, temp=None, remeshing=10, edge_length=1, s
                 if debug < 2:
                     try_remove(hull)
                 hull = name
-            os.rename(hull, oname)
+            rename(hull, oname)
     return oname
 
 # ------------------------------------------------------------------------------
@@ -454,6 +464,7 @@ def extract_convex_hull(iname, oname=None, temp=None, isoval=0, blur=0):
     if force:
         try_remove(oname)
     if not os.path.isfile(oname):
+        makedirs(oname)
         with output(extract_isosurface(iname, temp=temp, isoval=isoval, blur=blur), delete=True) as iso:
             get_convex_hull(iso, oname, temp=temp)
     return oname
@@ -472,6 +483,7 @@ def add_corpus_callosum_mask(iname, mask, oname=None):
     if force:
         try_remove(oname)
     if not os.path.isfile(oname):
+        makedirs(oname)
         with output(oname):
             project_mask(iname, oname, mask, name='ImplicitSurfaceFillMask', dilation=20, invert=True)
     return oname
@@ -484,17 +496,19 @@ def del_corpus_callosum_mask(iname, oname=None):
     if force:
         try_remove(oname)
     if not os.path.isfile(oname):
+        makedirs(oname)
         del_mesh_attr(iname, oname, pointdata='ImplicitSurfaceFillMask')
     return oname
 
 # ------------------------------------------------------------------------------
-def add_cortex_mask(iname, mask, name='CortexMask', region_id_array='RegionId', oname=None):
+def add_cortex_mask(iname, mask, name=_cortex_mask_array, region_id_array=_region_id_array, oname=None):
     """Add a CortexMask cell data array to the surface file."""
     if not oname:
         oname = nextname(iname)
     if debug > 0:
         assert os.path.realpath(iname) != os.path.realpath(oname), "iname != oname"
     if force or not os.path.isfile(oname):
+        makedirs(oname)
         with output(oname):
             run('project-onto-surface', args=[iname, oname],
                 opts={'labels': mask, 'name': name, 'dilation-radius': .5,
@@ -509,7 +523,7 @@ def add_cortex_mask(iname, mask, name='CortexMask', region_id_array='RegionId', 
             run('calculate-element-wise', args=[oname],
                 opts=[('cell-data', 'RegionBorder'),
                       ('threshold', 1), ('set', 0), ('pad', 1), 'reset-mask',
-                      ('mul', 'RegionId'), ('mul', name), ('binarize', 1),
+                      ('mul', region_id_array), ('mul', name), ('binarize', 1),
                       ('out', oname, 'char', name)])
             run('evaluate-surface-mesh', args=[oname, oname], opts={'where': name, 'gt': 0})
             run('calculate-element-wise', args=[oname],
@@ -546,6 +560,7 @@ def append_surfaces(name, surfaces, merge=True, tol=1e-6):
 
     """
     name = os.path.abspath(name)
+    makedirs(name)
     args = surfaces
     args.append(name)
     opts = {}
@@ -581,12 +596,14 @@ def deform_mesh(iname, oname=None, temp=None, opts={}):
         for fname in os.listdir(temp):
             if fname.startswith(fname_prefix):
                 try_remove(os.path.join(temp, fname))
+        makedirs(oname)
         run('deform-mesh', args=[iname, oname], opts=opts)
     return oname
 
 # ------------------------------------------------------------------------------
-def extract_surface(iname, oname, labels, array='RegionId'):
+def extract_surface(iname, oname, labels, array=_region_id_array):
     """Extract sub-surface from combined surface mesh."""
+    makedirs(oname)
     opts = [('normals', True), ('where', array), 'or']
     opts.extend([('eq', label) for label in labels])
     run('extract-pointset-cells', args=[iname, oname], opts=opts)
@@ -614,8 +631,9 @@ def binarize(name, segmentation, labels=[]):
         Absolute path of output image file.
 
     """
-    if not name: raise Exception("Invalid 'name' argument")
-    if not segmentation: raise Exception("Invalid 'segmentation' argument")
+    if debug > 0:
+        assert name, "Invalid 'name' argument"
+        assert segmentation, "Invalid 'segmentation' argument"
     mask = os.path.abspath(name)
     makedirs(mask)
     if not isinstance(labels, int) and len(labels) == 0:
@@ -629,11 +647,13 @@ def binarize(name, segmentation, labels=[]):
 # ------------------------------------------------------------------------------
 def binarize_cortex(regions, name=None, temp=None):
     """Make binary cortex mask from regions label image."""
-    if not regions:
-        raise Exception("Invalid 'regions' argument")
+    if debug > 0:
+        assert regions, "Invalid 'regions' argument"
     if not name:
-        if not temp: temp = os.path.dirname(regions)
-        name = os.path.join(temp, 'cortex-mask.nii.gz')
+        name = 'cortex-mask.nii.gz'
+    if not temp:
+        temp = os.path.dirname(regions)
+    name = os.path.join(temp, name)
     return binarize(name=name, segmentation=regions, labels=1)
 
 # ------------------------------------------------------------------------------
@@ -655,14 +675,16 @@ def binarize_white_matter(regions, hemisphere=Hemisphere.Unspecified, name=None,
         Absolute path of binary white matter mask.
 
     """
-    if not regions:
-        raise Exception("Invalid 'regions' argument")
+    if debug > 0:
+        assert regions, "Invalid 'regions' argument"
     if not name:
-        if not temp: temp = os.path.dirname(regions)
         suffix = hemi2str(hemisphere)
         if suffix != '':
             suffix = '-' + suffix
-        name = os.path.join(temp, 'white{}-mask.nii.gz'.format(suffix))
+        name = 'white{}-mask.nii.gz'.format(suffix)
+    if not temp:
+        temp = os.path.dirname(regions)
+    name = os.path.join(temp, name)
     if   hemisphere == Hemisphere.Right: labels = 2
     elif hemisphere == Hemisphere.Left:  labels = 3
     else:                                labels = [2, 3]
@@ -671,11 +693,14 @@ def binarize_white_matter(regions, hemisphere=Hemisphere.Unspecified, name=None,
 # ------------------------------------------------------------------------------
 def binarize_brainstem_plus_cerebellum(regions, name=None, temp=None):
     """Make binary brainstem plus cerebellum mask from regions label image."""
-    if not regions:
-        raise Exception("Invalid 'regions' argument")
+    if debug > 0:
+        assert regions, "Invalid 'regions' argument"
     if not name:
-        if not temp: temp = os.path.dirname(regions)
-        name = os.path.join(temp, 'brainstem+cerebellum-mask.nii.gz')
+        name = 'brainstem+cerebellum-mask.nii.gz'
+    if not temp:
+        temp = os.path.dirname(regions)
+    name = os.path.join(temp, name)
+    makedirs(name)
     return binarize(name=name, segmentation=regions, labels=[4, 5])
 
 # ==============================================================================
@@ -686,8 +711,8 @@ def binarize_brainstem_plus_cerebellum(regions, name=None, temp=None):
 def recon_boundary(name, mask, blur=1, edge_length=1, temp=None):
     """Reconstruct surface of mask."""
     if debug > 0:
-        assert name, "Output file 'name' required"
-        assert mask, "Binary 'mask' image required"
+        assert name, "Invalid 'name' argument"
+        assert mask, "Invalid 'mask' argument"
     makedirs(name)
     with ExitStack() as stack:
         dmap = push_output(stack, calculate_distance_map(mask, temp=temp))
@@ -701,12 +726,12 @@ def recon_brain_surface(name, mask, temp=None):
 
 # ------------------------------------------------------------------------------
 def recon_brainstem_plus_cerebellum_surface(name, mask=None, regions=None,
-                                            region_id_array='RegionId',
-                                            cortex_mask_array='CortexMask',
+                                            region_id_array=_region_id_array,
+                                            cortex_mask_array=_cortex_mask_array,
                                             temp=None):
     """Reconstruct surface of merged brainstem plus cerebellum region."""
     if debug > 0:
-        assert mask or region, "Either 'regions' or 'mask' image required"
+        assert mask or regions, "Either 'regions' or 'mask' argument required"
     name = os.path.abspath(name)
     if temp:
         temp = os.path.abspath(temp)
@@ -725,7 +750,7 @@ def recon_brainstem_plus_cerebellum_surface(name, mask=None, regions=None,
             run('project-onto-surface', args=[mesh, mesh],
                 opts={'constant': 0, 'name': cortex_mask_array, 'type': 'uchar',
                       'point-data': False, 'cell-data': True})
-        os.rename(mesh, name)
+        rename(mesh, name)
     return name
 
 # ------------------------------------------------------------------------------
@@ -775,8 +800,8 @@ def recon_cortical_surface(name, mask=None, regions=None,
 
     """
     if debug > 0:
-        assert name, "Output file 'name' required"
-        assert mask or region, "Either 'regions' or 'mask' image required"
+        assert name, "Invalid 'name' argument"
+        assert mask or regions, "Either 'regions' or 'mask' argument required"
     name = os.path.abspath(name)
     (base, ext) = splitext(name)
     if not ext:
@@ -869,7 +894,7 @@ def recon_cortical_surface(name, mask=None, regions=None,
 
 # ------------------------------------------------------------------------------
 def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None,
-                           region_id_array='RegionId', cortex_mask_array='CortexMask',
+                           region_id_array=_region_id_array, cortex_mask_array=_cortex_mask_array,
                            internal_mesh=None, temp=None, check=True):
     """Join cortical surfaces of right and left hemisphere at medial cut.
 
@@ -939,9 +964,9 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
         temp = os.path.abspath(temp)
 
     if region_id_array:
-        _region_id_array = region_id_array
+        region_id_array_name = region_id_array
     else:
-        _region_id_array = 'RegionId'
+        region_id_array_name = _region_id_array
 
     with ExitStack() as stack:
         # merge surface meshes
@@ -950,13 +975,13 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
             surfaces = [right_mesh, left_mesh]
             if bs_cb_mesh: surfaces.append(bs_cb_mesh)
             run('merge-surfaces',
-                opts={'input': surfaces, 'output': joined, 'labels': regions, 'source-array': _region_id_array,
+                opts={'input': surfaces, 'output': joined, 'labels': regions, 'source-array': region_id_array_name,
                       'tolerance': 1, 'largest': True, 'dividers': (internal_mesh != None), 'snap-tolerance': .1,
                       'smoothing-iterations': 100, 'smoothing-lambda': 1})
             if bs_cb_mesh:
                 region_id_map = {-1: -3, -2: -1, -3: -2, 3: 7}
-                run('calculate-element-wise', args=[joined], opts=[('cell-data', _region_id_array), ('map', region_id_map.items()), ('out', joined)])
-            del_mesh_attr(joined, pointdata=_region_id_array)
+                run('calculate-element-wise', args=[joined], opts=[('cell-data', region_id_array_name), ('map', region_id_map.items()), ('out', joined)])
+            del_mesh_attr(joined, pointdata=region_id_array_name)
         # check topology of joined surface mesh
         if check:
             info = evaluate_surface(joined, mesh=True, topology=True)
@@ -982,12 +1007,12 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
             joined_with_bscb = push_output(stack, nextname(joined))
             run('merge-surfaces',
                 opts={'input': [joined, bs_cb_mesh], 'output': joined_with_bscb, 'labels': regions,
-                      'source-array': _region_id_array, 'tolerance': .5, 'join': False})
-            run('calculate-element-wise', args=[joined_with_bscb], opts=[('cell-data', _region_id_array), ('map', (3, 7)), ('out', joined_with_bscb)])
+                      'source-array': region_id_array_name, 'tolerance': .5, 'join': False})
+            run('calculate-element-wise', args=[joined_with_bscb], opts=[('cell-data', region_id_array_name), ('map', (3, 7)), ('out', joined_with_bscb)])
             modified_bscb = push_output(stack, nextname(joined_with_bscb))
             check_intersections(joined_with_bscb, modified_bscb)
             run('calculate-element-wise', args=[modified_bscb],
-                opts=[('cell-data', _region_id_array), ('label', 7), ('set', 1), ('pad', 0),
+                opts=[('cell-data', region_id_array_name), ('label', 7), ('set', 1), ('pad', 0),
                       ('mul', 'CollisionType'), ('binarize', 0, 0), ('out', modified_bscb, 'binary', 'SelectionMask')])
             run('extract-pointset-cells', args=[modified_bscb, modified_bscb], opts=[('where', 'SelectionMask'), ('eq', 0)])
             del_mesh_attr(modified_bscb, pointdata='CollisionMask', celldata=['SelectionMask', 'CollisionType'])
@@ -998,7 +1023,7 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
         # this mask contains exactly two components, a right and a left cortex
         if cortex_mask_array:
             with output(binarize_cortex(regions, temp=temp), delete=True) as mask:
-                joined = push_output(stack, add_cortex_mask(joined, mask, name=cortex_mask_array, region_id_array=_region_id_array))
+                joined = push_output(stack, add_cortex_mask(joined, mask, name=cortex_mask_array, region_id_array=region_id_array_name))
             if check:
                 info = evaluate_surface(joined, mesh=True, opts=[('where', cortex_mask_array), ('gt', 0)])
                 num_components = get_num_components(info)
@@ -1010,15 +1035,15 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
         if internal_mesh:
             joined_without_dividers = push_output(stack, nextname(joined))
             internal_mesh = os.path.abspath(internal_mesh)
-            run('extract-pointset-cells', args=[joined, internal_mesh],           opts=[('where', _region_id_array), ('lt', 0)])
-            run('extract-pointset-cells', args=[joined, joined_without_dividers], opts=[('where', _region_id_array), ('gt', 0)])
+            run('extract-pointset-cells', args=[joined, internal_mesh],           opts=[('where', region_id_array_name), ('lt', 0)])
+            run('extract-pointset-cells', args=[joined, joined_without_dividers], opts=[('where', region_id_array_name), ('gt', 0)])
             joined = joined_without_dividers
         # remove RegionId array if not desired by caller
         if not region_id_array:
             if internal_mesh:
-                del_mesh_attr(internal_mesh, celldata=_region_id_array)
-            del_mesh_attr(joined, celldata=_region_id_array)
-        os.rename(joined, name)
+                del_mesh_attr(internal_mesh, celldata=region_id_array_name)
+            del_mesh_attr(joined, celldata=region_id_array_name)
+        rename(joined, name)
     if internal_mesh:
         return (name, internal_mesh)
     return name
@@ -1026,8 +1051,8 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
 # ------------------------------------------------------------------------------
 def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
                         bs_cb_mesh=None,
-                        cortex_mask_array='CortexMask',
-                        region_id_array='RegionId',
+                        cortex_mask_array=_cortex_mask_array,
+                        region_id_array=_region_id_array,
                         subcortex_mask=None,
                         cortical_hull_dmap=None,
                         ventricles_dmap=None,
@@ -1125,7 +1150,7 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
 
         # initialize node status
         run('copy-pointset-attributes', args=[cortex_mesh, cortex_mesh, init_mesh],
-            opts={'celldata-as-pointdata': ['CortexMask', 'Status', 'other', 'binary'], 'unanimous': None})
+            opts={'celldata-as-pointdata': [cortex_mask_array, 'Status', 'other', 'binary'], 'unanimous': None})
         run('erode-scalars', args=[init_mesh, init_mesh], opts={'array': 'Status', 'iterations': 8})
 
         # deform surface towards WM/cGM image edges
@@ -1181,14 +1206,14 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
         if check:
             remove_intersections(smooth, oname=name)
         else:
-            os.rename(smooth, name)
+            rename(smooth, name)
 
     return name
 
 # ------------------------------------------------------------------------------
 def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
                        bs_cb_mesh=None, remesh=0, brain_mask=None,
-                       region_id_array='RegionId', cortex_mask_array='CortexMask',
+                       region_id_array=_region_id_array, cortex_mask_array=_cortex_mask_array,
                        temp=None, check=True):
     """Reconstruct pial surface based on cGM/CSF image edge distance forces.
 

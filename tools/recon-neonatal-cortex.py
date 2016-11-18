@@ -41,14 +41,6 @@ try:
 except:
     from ConfigParser import SafeConfigParser
 
-sys.path.insert(0, '/Users/as12312/Software/MIRTK/Maintenance/Build/Clang_x86_64/Release/lib/python')
-#sys.path.insert(0, '/Users/as12312/Software/MIRTK/Maintenance/Xcode/lib/python')
-
-sys.path.insert(0, '/homes/as12312/opt/lib/python')
-#sys.path.insert(0, '/homes/as12312/Build/mirtk-release/lib/python')
-
-sys.path.insert(0, os.path.dirname(__file__))
-
 import mirtk.deformable.neonatal_cortex as neoctx
 
 

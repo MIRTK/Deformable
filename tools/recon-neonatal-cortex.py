@@ -34,6 +34,7 @@ import re
 import sys
 import csv
 import argparse
+import traceback
 
 try:
     from configparser import SafeConfigParser
@@ -78,18 +79,18 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
     config.set(section, 'regions_mask',         os.path.join(mask_dir,  'regions.nii.gz'))
     config.set(section, 'cortical_hull_dmap',   os.path.join(temp_dir,  'cortical-hull-dmap.nii.gz'))
     config.set(section, 'ventricles_dmap',      os.path.join(temp_dir,  'ventricles-dmap.nii.gz'))
-    config.set(section, 'brain_mesh',           os.path.join(mesh_dir, 'brain.vtp'))
-    config.set(section, 'bs_cb_mesh',           os.path.join(mesh_dir, 'bs+cb.vtp'))
-    config.set(section, 'internal_mesh',        os.path.join(mesh_dir, 'internal.vtp'))
-    config.set(section, 'cerebrum_mesh',        os.path.join(temp_dir, 'cerebrum.vtp'))
-    config.set(section, 'right_cerebrum_mesh',  os.path.join(temp_dir, 'cerebrum-rh.vtp'))
-    config.set(section, 'left_cerebrum_mesh',   os.path.join(temp_dir, 'cerebrum-lh.vtp'))
-    config.set(section, 'white_mesh',           os.path.join(mesh_dir, 'white.vtp'))
-    config.set(section, 'right_white_mesh',     os.path.join(mesh_dir, 'white-rh.vtp'))
-    config.set(section, 'left_white_mesh',      os.path.join(mesh_dir, 'white-lh.vtp'))
-    config.set(section, 'pial_mesh',            os.path.join(mesh_dir, 'pial.vtp'))
-    config.set(section, 'right_pial_mesh',      os.path.join(mesh_dir, 'pial-rh.vtp'))
-    config.set(section, 'left_pial_mesh',       os.path.join(mesh_dir, 'pial-lh.vtp'))
+    config.set(section, 'brain_mesh',           os.path.join(mesh_dir,  'brain.vtp'))
+    config.set(section, 'bs_cb_mesh',           os.path.join(mesh_dir,  'bs+cb.vtp'))
+    config.set(section, 'internal_mesh',        os.path.join(mesh_dir,  'internal.vtp'))
+    config.set(section, 'cerebrum_mesh',        os.path.join(temp_dir,  'cerebrum.vtp'))
+    config.set(section, 'right_cerebrum_mesh',  os.path.join(temp_dir,  'cerebrum-rh.vtp'))
+    config.set(section, 'left_cerebrum_mesh',   os.path.join(temp_dir,  'cerebrum-lh.vtp'))
+    config.set(section, 'white_mesh',           os.path.join(mesh_dir,  'white.vtp'))
+    config.set(section, 'right_white_mesh',     os.path.join(mesh_dir,  'white-rh.vtp'))
+    config.set(section, 'left_white_mesh',      os.path.join(mesh_dir,  'white-lh.vtp'))
+    config.set(section, 'pial_mesh',            os.path.join(mesh_dir,  'pial.vtp'))
+    config.set(section, 'right_pial_mesh',      os.path.join(mesh_dir,  'pial-rh.vtp'))
+    config.set(section, 'left_pial_mesh',       os.path.join(mesh_dir,  'pial-lh.vtp'))
     return config
 
 # ------------------------------------------------------------------------------
@@ -378,9 +379,14 @@ for session in sessions:
                                   verbose=args.verbose,
                                   check=args.check)
     except Exception as e:
+        failed += 1
         if args.queue:
             sys.stdout.write("failed\n")
-        failed += 1
-        sys.stderr.write('Exception: {}\n'.format(str(e)))
+        sys.stdout.write("\n")
+        if args.verbose > 0 or args.debug > 0:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_traceback)
+        else:
+            sys.stderr.write('Exception: {}\n'.format(str(e)))
 if failed > 0:
     sys.exit(1)

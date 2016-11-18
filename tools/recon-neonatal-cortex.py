@@ -93,29 +93,29 @@ def recon_neonatal_cortex(config, section, config_vars,
     """Reconstruct surfaces of neonatal cortex."""
 
     # input/output file paths
-    temp_dir             = config.get(section, 'temp_dir',             False, config_vars)
-    t1w_image            = config.get(section, 't1w_image',            False, config_vars)
-    t2w_image            = config.get(section, 't2w_image',            False, config_vars)
-    brain_mask           = config.get(section, 'brain_mask',           False, config_vars)
-    wm_mask              = config.get(section, 'white_matter_mask',    False, config_vars) 
-    gm_mask              = config.get(section, 'gray_matter_mask',     False, config_vars) 
-    regions_mask         = config.get(section, 'regions_mask',         False, config_vars) 
-    corpus_callosum_mask = config.get(section, 'corpus_callosum_mask', False, config_vars) 
-    subcortex_mask       = config.get(section, 'subcortex_mask',       False, config_vars) 
-    cortical_hull_dmap   = config.get(section, 'cortical_hull_dmap',   False, config_vars) 
-    ventricles_dmap      = config.get(section, 'ventricles_dmap',      False, config_vars) 
-    brain_mesh           = config.get(section, 'brain_mesh',           False, config_vars) 
-    bs_cb_mesh           = config.get(section, 'bs_cb_mesh',           False, config_vars) 
-    internal_mesh        = config.get(section, 'internal_mesh',        False, config_vars) 
-    cerebrum_mesh        = config.get(section, 'cerebrum_mesh',        False, config_vars) 
-    right_cerebrum_mesh  = config.get(section, 'right_cerebrum_mesh',  False, config_vars) 
-    left_cerebrum_mesh   = config.get(section, 'left_cerebrum_mesh',   False, config_vars) 
-    white_mesh           = config.get(section, 'white_mesh',           False, config_vars) 
-    right_white_mesh     = config.get(section, 'right_white_mesh',     False, config_vars) 
-    left_white_mesh      = config.get(section, 'left_white_mesh',      False, config_vars) 
-    pial_mesh            = config.get(section, 'pial_mesh',            False, config_vars) 
-    right_pial_mesh      = config.get(section, 'right_pial_mesh',      False, config_vars) 
-    left_pial_mesh       = config.get(section, 'left_pial_mesh',       False, config_vars) 
+    temp_dir             = config.get(section, 'temp_dir',             vars=config_vars)
+    t1w_image            = config.get(section, 't1w_image',            vars=config_vars)
+    t2w_image            = config.get(section, 't2w_image',            vars=config_vars)
+    brain_mask           = config.get(section, 'brain_mask',           vars=config_vars)
+    wm_mask              = config.get(section, 'white_matter_mask',    vars=config_vars) 
+    gm_mask              = config.get(section, 'gray_matter_mask',     vars=config_vars) 
+    regions_mask         = config.get(section, 'regions_mask',         vars=config_vars) 
+    corpus_callosum_mask = config.get(section, 'corpus_callosum_mask', vars=config_vars) 
+    subcortex_mask       = config.get(section, 'subcortex_mask',       vars=config_vars) 
+    cortical_hull_dmap   = config.get(section, 'cortical_hull_dmap',   vars=config_vars) 
+    ventricles_dmap      = config.get(section, 'ventricles_dmap',      vars=config_vars) 
+    brain_mesh           = config.get(section, 'brain_mesh',           vars=config_vars) 
+    bs_cb_mesh           = config.get(section, 'bs_cb_mesh',           vars=config_vars) 
+    internal_mesh        = config.get(section, 'internal_mesh',        vars=config_vars) 
+    cerebrum_mesh        = config.get(section, 'cerebrum_mesh',        vars=config_vars) 
+    right_cerebrum_mesh  = config.get(section, 'right_cerebrum_mesh',  vars=config_vars) 
+    left_cerebrum_mesh   = config.get(section, 'left_cerebrum_mesh',   vars=config_vars) 
+    white_mesh           = config.get(section, 'white_mesh',           vars=config_vars) 
+    right_white_mesh     = config.get(section, 'right_white_mesh',     vars=config_vars) 
+    left_white_mesh      = config.get(section, 'left_white_mesh',      vars=config_vars) 
+    pial_mesh            = config.get(section, 'pial_mesh',            vars=config_vars) 
+    right_pial_mesh      = config.get(section, 'right_pial_mesh',      vars=config_vars) 
+    left_pial_mesh       = config.get(section, 'left_pial_mesh',       vars=config_vars) 
 
     if not with_brain_mesh:
         brain_mesh = None
@@ -259,7 +259,7 @@ def sbatch(job_name, log_dir, session, args):
     (out, err) = p.communicate(input=script)
     if p.returncode != 0:
         raise Exception(err)
-    m = re.match(r'Submitted batch job ([0-9]+)', out)
+    m = re.match('Submitted batch job ([0-9]+)', out)
     if m: return int(m.group(1))
     return out
 
@@ -329,7 +329,7 @@ else:
 # for each session...
 failed = 0
 for session in sessions:
-    match = re.match(r'^(.*)-([^-]+)$', session)
+    match = re.match('^(.*)-([^-]+)$', session)
     if match:
         subject_id = match.group(1)
         session_id = match.group(2)
@@ -359,7 +359,7 @@ for session in sessions:
             job_id   = sbatch(job_name, log_dir, session, args)
             sys.stdout.write('Job ID = {}\n'.format(job_id))
         else:
-            print("\nReconstructing cortical surfaces of {SubjectID} session {SessionID}\n".format(**info))
+            sys.stdout.write("\nReconstructing cortical surfaces of {SubjectID} session {SessionID}\n".format(**info))
             recon_neonatal_cortex(config=config, section=args.section, config_vars=info,
                                   with_brain_mesh=args.brain,
                                   with_white_mesh=args.white,

@@ -103,7 +103,7 @@ def splitext(name):
 def splitname(name):
     """Split temporary output file name into base name, incremental output ID, and extension."""
     (base, ext) = splitext(name)
-    m = re.match(r'^(.*)-([0-9]+)$', base)
+    m = re.match('^(.*)-([0-9]+)$', base)
     if m:
         base = m.group(1)
         num  = int(m.group(2))
@@ -183,8 +183,8 @@ def output(name_or_func, delete=False):
         Absolute path of output file.
  
     """
-    if isinstance(name_or_func, basestring): path = name_or_func
-    else:                                    path = name_or_func()
+    if isinstance(name_or_func, str): path = name_or_func
+    else:                             path = name_or_func()
     if path:
         try:
             yield os.path.abspath(path)
@@ -205,7 +205,7 @@ def push_output(stack, name_or_func, delete=True):
 def get_voxel_size(image):
     """Get voxel size of image file."""
     info  = check_output(['info', image])
-    match = re.search(r'Spacing:\s+([0-9][0-9.]*)\s*x\s*([0-9][0-9.]*)\s*x\s*([0-9][0-9.]*)', info)
+    match = re.search('Spacing:\s+([0-9][0-9.]*)\s*x\s*([0-9][0-9.]*)\s*x\s*([0-9][0-9.]*)', info)
     try:
         dx = float(match.group(1))
         dy = float(match.group(2))
@@ -222,10 +222,10 @@ def get_surface_property(name_or_info, props, mesh=False, topology=False, opts={
         info = evaluate_surface(name_or_info, mesh=mesh, topology=topology, opts=opts)
     else:
         info = name_or_info
-    if isinstance(props, basestring):
+    if isinstance(props, str):
         props = [props]
     for prop in props:
-        regex = re.compile(r'^\s*' + re.escape(prop) + r'\s*=\s*(.+)\s*$', re.MULTILINE)
+        regex = re.compile('^\s*' + re.escape(prop) + r'\s*=\s*(.+)\s*$', re.MULTILINE)
         match = regex.search(info)
         if not match:
             if debug > 0:
@@ -340,7 +340,7 @@ def check_intersections(iname, oname=None):
         cmd.append(oname)
     cmd.extend(['-threads', threads, '-collisions', 0, '-v'])
     info  = check_output(cmd)
-    match = re.search(r'No\. of self-intersections\s*=\s*(\d+)', info)
+    match = re.search('No\. of self-intersections\s*=\s*(\d+)', info)
     return int(match.group(1))
 
 # ------------------------------------------------------------------------------
@@ -357,7 +357,7 @@ def remove_intersections(iname, oname=None, max_attempt=10, smooth_iter=5, smoot
         while cur > 0:
             itr += 1
             if itr == 1 and verbose > 0:
-                print("Trying to resolve {} remaining self-intersections of {}".format(cur, iname))
+                print(("Trying to resolve {} remaining self-intersections of {}".format(cur, iname)))
             if itr > max_attempt:
                 raise Exception("Failed to resolve self-intersections of {}".format(iname))
             run('dilate-scalars', args=[oname, oname], opts={'array': 'CollisionMask', 'iterations': nbr})
@@ -979,8 +979,9 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
                       'tolerance': 1, 'largest': True, 'dividers': (internal_mesh != None), 'snap-tolerance': .1,
                       'smoothing-iterations': 100, 'smoothing-lambda': 1})
             if bs_cb_mesh:
-                region_id_map = {-1: -3, -2: -1, -3: -2, 3: 7}
-                run('calculate-element-wise', args=[joined], opts=[('cell-data', region_id_array_name), ('map', region_id_map.items()), ('out', joined)])
+                run('calculate-element-wise', args=[joined], opts=[('cell-data', region_id_array_name),
+                                                                   ('map', (-1, -3), (-2, -1), (-3, -2), (3, 7)),
+                                                                   ('out', joined)])
             del_mesh_attr(joined, pointdata=region_id_array_name)
         # check topology of joined surface mesh
         if check:
@@ -1321,7 +1322,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
         blended = push_output(stack, nextname(offset))
         run('copy-pointset-attributes', args=[offset, offset, blended], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
         run('blend-surface', args=[white_mesh, blended, blended], opts={'where': cortex_mask_array, 'gt': 0, 'smooth-iterations': 3})
-        run('calculate-element-wise', args=[blended], opts=[('cell-data', region_id_array), ('map', {1: 3, 2: 4}.items()), ('out', blended)])
+        run('calculate-element-wise', args=[blended], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', blended)])
         if debug == 0: try_remove(offset)
 
         # merge white surface mesh with initial pial surface mesh

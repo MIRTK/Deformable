@@ -66,8 +66,11 @@ basis_project (
     }"
     #<dependency>
   OPTIONAL_DEPENDS
+    Python{Interp}
     TBB{tbb}
     #<optional-dependency>
+  TOOLS_DEPENDS
+    Python{Interp}
   TEST_DEPENDS
     #<test-dependency>
   OPTIONAL_TEST_DEPENDS

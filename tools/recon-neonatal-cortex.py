@@ -269,10 +269,10 @@ def sbatch(job_name, log_dir, session, args):
 
 # parse arguments
 parser = argparse.ArgumentParser(description='Reconstruct neonatal cortex from MR brain scan and Draw-EM segmentation')
-parser.add_argument('-w', '-work-dir', '--work-dir',  dest='work_dir', default=os.getcwd(), help='Working directory')
-parser.add_argument('-c', '-config', '--config', default='recon-neonatal-cortex.cfg', help='Optional custom configuration file')
+parser.add_argument('-r', '-root', '--root', '-work-dir', '--work-dir', dest='work_dir', default=os.getcwd(), help='Root working directory')
+parser.add_argument('-c', '-config', '--config', default='', help='Optional custom configuration file')
 parser.add_argument('-section', '--section', default='recon-neonatal-cortex', help='Configuration section name')
-parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+', help="Either list of '{SubjectID}-{SessionID}' strings or path of CSF file")
+parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+', help="Either list of '{SubjectID}-{SessionID}' strings or path of CSV file")
 parser.add_argument('-b', '-brain', '--brain', action='store_true', help='Reconstruct surface of brain mask')
 parser.add_argument('-w', '-white', '--white', action='store_true', help='Reconstruct white surface')
 parser.add_argument('-p', '-pial', '--pial', action='store_true', help='Reconstruct pial surface')
@@ -349,7 +349,7 @@ for session in sessions:
       'SessionID':  session_id,
       'SessionId':  session_id,
       'WorkDir':    args.work_dir,
-      'work_dir':   args.work_dir.
+      'work_dir':   args.work_dir
     }
     try:
         if args.queue:

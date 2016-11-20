@@ -189,7 +189,8 @@ def output(name_or_func, delete=False):
         try:
             yield os.path.abspath(path)
         except BaseException as e:
-            try_remove(path)
+            if debug < 1:
+                try_remove(path)
             raise e
         if debug == 0 and path and delete:
             try_remove(path)
@@ -344,7 +345,7 @@ def check_intersections(iname, oname=None):
     return int(match.group(1))
 
 # ------------------------------------------------------------------------------
-def remove_intersections(iname, oname=None, max_attempt=10, smooth_iter=5, smooth_lambda=1):
+def remove_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_iter=5, smooth_lambda=1):
     """Remove intersections of surface mesh triangles.
     
     .. seealso:: MRISremoveIntersections function of FreeSurfer (dev/utils/mrisurf.c)
@@ -352,6 +353,8 @@ def remove_intersections(iname, oname=None, max_attempt=10, smooth_iter=5, smoot
     if not oname:
         oname = nextname(iname)
     with output(oname):
+        collision_mask_array = 'CollisionMask'
+        collision_type_array = 'CollisionType'
         itr = nbr = 1
         cur = check_intersections(iname, oname)
         while cur > 0:
@@ -360,13 +363,15 @@ def remove_intersections(iname, oname=None, max_attempt=10, smooth_iter=5, smoot
                 print(("Trying to resolve {} remaining self-intersections of {}".format(cur, iname)))
             if itr > max_attempt:
                 raise Exception("Failed to resolve self-intersections of {}".format(iname))
-            run('dilate-scalars', args=[oname, oname], opts={'array': 'CollisionMask', 'iterations': nbr})
+            run('dilate-scalars', args=[oname, oname], opts={'array': collision_mask_array, 'iterations': nbr})
+            if mask:
+                run('calculate-element-wise', args=[oname], opts=[('scalars', collision_mask_array), ('mul', mask), ('out', oname)])
             smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
-                           weighting='combinatorial', mask='CollisionMask', excl_node=False)
+                           weighting='combinatorial', mask=collision_mask_array, excl_node=False)
             pre = cur
             cur = check_intersections(oname, oname)
             if cur >= pre: nbr += 1
-        del_mesh_attr(oname, oname, pointdata='CollisionMask', celldata='CollisionType')
+        del_mesh_attr(oname, oname, pointdata=collision_mask_array, celldata=collision_type_array)
         return oname
 
 # ------------------------------------------------------------------------------
@@ -973,12 +978,13 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
         joined = push_output(stack, nextname(name, temp=temp))
         if force or not os.path.isfile(joined):
             surfaces = [right_mesh, left_mesh]
-            if bs_cb_mesh: surfaces.append(bs_cb_mesh)
+            if bs_cb_mesh and join_bs_cb:
+                surfaces.append(bs_cb_mesh)
             run('merge-surfaces',
                 opts={'input': surfaces, 'output': joined, 'labels': regions, 'source-array': region_id_array_name,
                       'tolerance': 1, 'largest': True, 'dividers': (internal_mesh != None), 'snap-tolerance': .1,
                       'smoothing-iterations': 100, 'smoothing-lambda': 1})
-            if bs_cb_mesh:
+            if bs_cb_mesh and join_bs_cb:
                 run('calculate-element-wise', args=[joined], opts=[('cell-data', region_id_array_name),
                                                                    ('map', (-1, -3), (-2, -1), (-3, -2), (3, 7)),
                                                                    ('out', joined)])
@@ -1050,15 +1056,12 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
     return name
 
 # ------------------------------------------------------------------------------
-def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
-                        bs_cb_mesh=None,
-                        cortex_mask_array=_cortex_mask_array,
-                        region_id_array=_region_id_array,
-                        subcortex_mask=None,
-                        cortical_hull_dmap=None,
-                        ventricles_dmap=None,
-                        cerebellum_dmap=None,
-                        t1w_image=None,
+def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh, bs_cb_mesh=None,
+                        cortex_mask_array=_cortex_mask_array, region_id_array=_region_id_array,
+                        t1w_image=None, cortical_hull_dmap=None, segmentation=None,
+                        subcortex_labels =[], subcortex_mask =None,
+                        ventricles_labels=[], ventricles_mask=None, ventricles_dmap=None,
+                        cerebellum_labels=[], cerebellum_mask=None, cerebellum_dmap=None,
                         temp=None, check=True):
     """Reconstruct white surface based on WM/cGM image edge distance forces.
 
@@ -1083,30 +1086,48 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
     bs_cb_mesh : str, optional
         Path of brainstem plus cerebellum mesh file.
     cortex_mask_array : str
-        Name of cortex mask cell data array.
+        Name of cortex mask cell data array. Only nodes adjacent to only cortical
+        faces are deformed. Non-cortical surface nodes remain unchanged.
 
     t1w_image : str, optional
         Path of T1-weighted intensity image file.
     t2w_image : str
         Path of T2-weighted intensity image file.
-
     wm_mask : str
         Path of binary WM segmentation image file.
     gm_mask : str
         Path of binary cGM segmentation image file.
 
+    segmentation : str, optional
+        Structural brain segmentation label image used to extract subcortical
+        structures, ventricles, and cerebellum when structure labels instead
+        of a pre-computed binary mask or structure distance image, respectively,
+        is given. Otherwise, this image path is unused.
+    subcortex_labels : int, list, optional
+        Labels of `segmentation` labels corresponding to subcortical structures.
+        Used to create a binary mask image when no `subcortex_mask` is given.
     subcortex_mask : str, optional
         Path of subcortical structures mask file. These structures are excluded
         from the image foreground such that the image-based edge distance
         force is not mislead by a WM/dGM edge of a subcortical structure.
+    ventricles_labels : int, list, optional
+        Labels of `segmentation` labels corresponding to lateral ventricles.
+        Used to create a binary mask image when no `ventricles_mask` is given.
+    ventricles_mask : str, optional
+        Path of binary mask image file of lateral ventricles.
+    ventricles_dmap : str, optional
+        Path of distance map computed from lateral ventricles segment.
+    cerebellum_labels : int, list, optional
+        Labels of `segmentation` labels corresponding to cerebellum.
+        Used to create a binary mask image when no `cerebellum_mask` is given.
+    cerebellum_mask : str, optional
+        Path of binary mask image file of cerebellum.
+    cerebellum_dmap : str, optional
+        Path of distance map computed from cerebellum segment.
     cortical_hull_dmap : str, optional
         Path of distance image from each voxel to the cortical hull with
         positive values inside the cortical hull. This image is an optional
         output of the `subdivide-brain-image` tool.
-    ventricles_dmap : str, optional
-        Path of distance map computed from ventricles segment.
-    cerebellum_dmap : str, optional
-        Path of distance map computed from cerebellum segment.
 
     temp : str
         Path of temporary working directory. Intermediate files are written to
@@ -1150,9 +1171,10 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
             cortex_mesh = init_mesh
 
         # initialize node status
+        status_array = 'InitialStatus'
         run('copy-pointset-attributes', args=[cortex_mesh, cortex_mesh, init_mesh],
-            opts={'celldata-as-pointdata': [cortex_mask_array, 'Status', 'other', 'binary'], 'unanimous': None})
-        run('erode-scalars', args=[init_mesh, init_mesh], opts={'array': 'Status', 'iterations': 8})
+            opts={'celldata-as-pointdata': [cortex_mask_array, status_array, 'other', 'binary'], 'unanimous': None})
+        run('erode-scalars', args=[init_mesh, init_mesh], opts={'array': status_array, 'iterations': 8})
 
         # deform surface towards WM/cGM image edges
         opts={'image': t2w_image,
@@ -1189,25 +1211,40 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh,
             opts['t1w-image'] = t1w_image
         if cortical_hull_dmap:
             opts['inner-cortical-distance-image'] = cortical_hull_dmap
-        if ventricles_dmap:
+        if (segmentation and ventricles_labels) or ventricles_mask or ventricles_dmap:
+            if not ventricles_dmap:
+                if not ventricles_mask:
+                    ventricles_mask = os.path.join(temp, 'ventricles-mask.nii.gz')
+                    ventricles_mask = push_output(stack, binarize(name=ventricles_mask, segmentation=segmentation, labels=ventricles_labels))
+                ventricles_dmap = push_output(stack, calculate_distance_map(ventricles_mask, temp=temp))
             opts['ventricles-distance-image'] = ventricles_dmap
-        if cerebellum_dmap:
+        if (segmentation and cerebellum_labels) or cerebellum_mask or cerebellum_dmap:
+            if not cerebellum_dmap:
+                if not cerebellum_mask:
+                    cerebellum_mask = os.path.join(temp, 'cerebellum-mask.nii.gz')
+                    cerebellum_mask = push_output(stack, binarize(name=cerebellum_mask, segmentation=segmentation, labels=cerebellum_labels))
+                cerebellum_dmap = push_output(stack, calculate_distance_map(cerebellum_mask, temp=temp))
             opts['cerebellum-distance-image'] = cerebellum_dmap
-        if subcortex_mask:
+        if (segmentation and subcortex_labels) or subcortex_mask:
+            if not subcortex_mask:
+                subcortex_mask = os.path.join(temp, 'subcortex-mask.nii.gz')
+                subcortex_mask = push_output(stack, binarize(name=subcortex_mask, segmentation=segmentation, labels=subcortex_labels))
             mask = os.path.join(temp, os.path.basename(base) + '-foreground.nii.gz')
             opts['mask'] = push_output(stack, white_refinement_mask(mask, subcortex_mask))
         mesh = push_output(stack, deform_mesh(init_mesh, opts=opts))
         if bs_cb_mesh:
-            extract_surface(mesh, mesh, array=region_id_array, labels=[1, 2, 5, 6])
+            run('extract-pointset-cells', args=[mesh, mesh], opts=[('where', region_id_array), ('ne', 7)])
 
         # smooth white surface mesh
-        smooth = push_output(stack, smooth_surface(mesh, iterations=100, lambda_value=.33, mu=-.34, weighting='combinatorial', excl_node=True))
+        smooth = push_output(stack, smooth_surface(mesh, iterations=100, lambda_value=.33, mu=-.34, weighting='combinatorial', excl_node=True, mask=status_array))
 
         # remove intersections if any
         if check:
-            remove_intersections(smooth, oname=name)
-        else:
-            rename(smooth, name)
+            remove_intersections(smooth, oname=name, mask=status_array)
+
+        # write output mesh
+        del_mesh_attr(smooth, pointdata=status_array)
+        rename(smooth, name)
 
     return name
 
@@ -1297,9 +1334,10 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
             run('calculate-element-wise', args=[mask], opts=[('mul', brain_mask), ('out', mask)])
 
         # initialize node status
+        status_array = 'Status'
         init = push_output(stack, nextname(name, temp=temp))
-        run('copy-pointset-attributes', args=[white_mesh, white_mesh, init], opts={'celldata-as-pointdata': [region_id_array, 'Status'], 'unanimous': None})
-        run('calculate-element-wise', args=[init], opts=[('point-data', 'Status'), ('label', 7), ('set', 0), ('pad', 1), ('out', init, 'binary')])
+        run('copy-pointset-attributes', args=[white_mesh, white_mesh, init], opts={'celldata-as-pointdata': [region_id_array, status_array], 'unanimous': None})
+        run('calculate-element-wise', args=[init], opts=[('point-data', status_array), ('label', 7), ('set', 0), ('pad', 1), ('out', init, 'binary')])
 
         # deform pial surface outwards a few millimeters
         opts={'normal-force': 1,
@@ -1342,7 +1380,10 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
                 raise Exception("No. of cortex mask components: {} (expected 2)".format(num_components))
 
         # resolve intersections between white and pial surface if any
-        init = push_output(stack, remove_intersections(merged))
+        init = push_output(stack, nextname(merged))
+        run('copy-pointset-attributes', args=[merged, merged, init], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
+        remove_intersections(init, mask=cortex_mask_array)
+        del_mesh_attr(init, pointdata=cortex_mask_array)
         if debug == 0: try_remove(merged)
 
         # optionally, append brainstem plus cerebellum surface
@@ -1350,8 +1391,8 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
             append_surfaces(init, surfaces=[init, bs_cb_mesh], merge=False)
 
         # initialize node status for pial surface reconstruction
-        run('copy-pointset-attributes', args=[init, init], opts={'celldata-as-pointdata': [region_id_array, 'Status'], 'unanimous': None})
-        run('calculate-element-wise', args=[init], opts=[('point-data', 'Status'), ('label', 3, 4), ('set', 1), ('pad', 0), ('out', init, 'binary')])
+        run('copy-pointset-attributes', args=[init, init], opts={'celldata-as-pointdata': [region_id_array, status_array], 'unanimous': None})
+        run('calculate-element-wise', args=[init], opts=[('point-data', status_array), ('label', 3, 4), ('set', 1), ('pad', 0), ('out', init, 'binary')])
 
         # deform pial surface towards cGM/CSF image edges
         opts={'image': t2w_image,
@@ -1392,7 +1433,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
                   # contributes to smoothing out the sulci which should actually be preserved.
                   'triangle-inversion': False}
         mesh = push_output(stack, deform_mesh(init, opts=opts))
-        extract_surface(mesh, name, array=region_id_array, labels=[3, 4, 5, 6])
+        extract_surface(mesh, name, array=region_id_array, labels=[-1, -2, -3, 3, 4, 5, 6])
 
     return name
 

@@ -89,7 +89,8 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
 def recon_neonatal_cortex(config, section, config_vars,
                           with_brain_mesh=False, with_bs_cb_mesh=True,
                           with_white_mesh=True, with_pial_mesh=True,
-                          cut=True, force=False, check=True, verbose=0):
+                          join_bs_cb_mesh=False, cut=True,
+                          force=False, check=True, verbose=0):
     """Reconstruct surfaces of neonatal cortex."""
 
     # input/output file paths
@@ -127,6 +128,13 @@ def recon_neonatal_cortex(config, section, config_vars,
         t1w_image = None
     if not os.path.isfile(corpus_callosum_mask):
         corpus_callosum_mask = None
+
+    if bs_cb_mesh and join_bs_cb_mesh:
+        bs_cb_mesh_1 = bs_cb_mesh
+        bs_cb_mesh_2 = None
+    else:
+        bs_cb_mesh_1 = None
+        bs_cb_mesh_2 = bs_cb_mesh
 
     # reconstruct boundary of brain mask
     if brain_mesh and (force or not os.path.isfile(brain_mesh)):
@@ -168,7 +176,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                 neoctx.join_cortical_surfaces(name=cerebrum_mesh, regions=regions_mask,
                                               right_mesh=right_cerebrum_mesh,
                                               left_mesh=left_cerebrum_mesh,
-                                              bs_cb_mesh=bs_cb_mesh,
+                                              bs_cb_mesh=bs_cb_mesh_1,
                                               internal_mesh=internal_mesh,
                                               temp=temp_dir, check=check)
 
@@ -184,7 +192,7 @@ def recon_neonatal_cortex(config, section, config_vars,
             neoctx.recon_white_surface(name=white_mesh,
                                        t1w_image=t1w_image, t2w_image=t2w_image,
                                        wm_mask=wm_mask, gm_mask=gm_mask,
-                                       cortex_mesh=cerebrum_mesh, bs_cb_mesh=bs_cb_mesh,
+                                       cortex_mesh=cerebrum_mesh, bs_cb_mesh=bs_cb_mesh_2,
                                        subcortex_mask=subcortex_mask,
                                        cortical_hull_dmap=cortical_hull_dmap,
                                        ventricles_dmap=ventricles_dmap,
@@ -210,7 +218,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                 print("Reconstructing outer-cortical surface")
             neoctx.recon_pial_surface(name=pial_mesh, t2w_image=t2w_image,
                                       wm_mask=wm_mask, gm_mask=gm_mask, brain_mask=brain_mask,
-                                      white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh,
+                                      white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh_2,
                                       temp=temp_dir, check=check)
 
         # cut pial surface at medial plane
@@ -300,8 +308,9 @@ if args.config:
         config.readfp(config_file)
 
 # set global flags
-neoctx.verbose = args.verbose - 1
-neoctx.debug   = args.debug
+neoctx.verbose = max(0, args.verbose - 1)
+neoctx.showcmd = max(0, args.verbose - 1)
+neoctx.debug   = max(0, args.debug)
 neoctx.force   = args.force
 
 # use default CSV file if no sessions specified

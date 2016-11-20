@@ -152,6 +152,14 @@ def try_remove(name):
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
+def iterable_or_int_to_list(arg):
+    """Given either an int or an iterable, returns list of items."""
+    if isinstance(arg, int):
+        return [arg]
+    else:
+        return list(arg)
+
+# ------------------------------------------------------------------------------
 def run(tool, args=[], opts={}):
     """Run MIRTK command with global `showcmd` flag and maximum allowed number of `threads`."""
     _run(tool, args=args, opts=opts, verbose=showcmd, threads=threads)
@@ -618,7 +626,7 @@ def extract_surface(iname, oname, labels, array=_region_id_array):
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-def binarize(name, segmentation, labels=[]):
+def binarize(name, segmentation, labels=[], image=None, interp='linear', threshold=.5, temp=None):
     """Make binary mask from label image.
 
     Parameters
@@ -629,6 +637,14 @@ def binarize(name, segmentation, labels=[]):
         Path of segmentation label image file.
     labels : list
         List of segmentation labels.
+    image : str, optional
+        Path of reference image file. When specified, the binary image is
+        resampled on this reference image grid using the specified
+        interpolation followed by thresholding using the given `threshold`
+        value unless `interp='nn'`.
+    threshold : float
+        Threshold used to binarize a non-nearest neighbor interpolated
+        resampled binary image when reference `image` is given.
 
     Returns
     -------
@@ -639,15 +655,33 @@ def binarize(name, segmentation, labels=[]):
     if debug > 0:
         assert name, "Invalid 'name' argument"
         assert segmentation, "Invalid 'segmentation' argument"
-    mask = os.path.abspath(name)
-    makedirs(mask)
-    if not isinstance(labels, int) and len(labels) == 0:
-        opts=[('mask', 0)]
+    name = os.path.abspath(name)
+    if temp:
+        temp = os.path.abspath(temp)
     else:
-        opts=[('label', labels)]
-    opts.extend([('set', 1), ('pad', 0), ('out', mask, 'binary')])
-    run('calculate-element-wise', args=[segmentation], opts=opts)
-    return mask
+        temp = os.path.dirname(name)
+    with ExitStack() as stack:
+        if image:
+            mask = push_output(stack, nextname(name))
+        else:
+            mask = name
+        makedirs(mask)
+        # write binary image
+        if not isinstance(labels, int) and len(labels) == 0:
+            opts=[('mask', 0)]
+        else:
+            opts=[('label', labels)]
+        opts.extend([('set', 1), ('pad', 0), ('out', name, 'binary')])
+        run('calculate-element-wise', args=[segmentation], opts=opts)
+        # resample mask on target image grid
+        if image:
+            if interp == 'nn':
+                run('transform-image', args=[mask, name], opts={'target': image, 'dofin': 'Id', 'interp': interp, 'type': 'binary'})
+            else:
+                resampled_mask = push_output(stack, nextname(mask))
+                run('transform-image', args=[mask, resampled_mask], opts={'target': image, 'dofin': 'Id', 'interp': interp, 'type': 'float'})
+                run('calculate-element-wise', args=[resampled_mask], opts=[('threshold-le', threshold), ('set', 1), ('out', [name, 'binary'])])
+    return name
 
 # ------------------------------------------------------------------------------
 def binarize_cortex(regions, name=None, temp=None):
@@ -707,6 +741,96 @@ def binarize_brainstem_plus_cerebellum(regions, name=None, temp=None):
     name = os.path.join(temp, name)
     makedirs(name)
     return binarize(name=name, segmentation=regions, labels=[4, 5])
+
+# ------------------------------------------------------------------------------
+def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_labels, left_labels,
+                    subcortex_labels=[], subcortex_closing=5,
+                    brainstem_labels=[], brainstem_closing=5,
+                    cerebellum_labels=[], cerebellum_closing=5,
+                    tissues=None, brain_mask=None, merge_bs_cb=True,
+                    cortical_hull_dmap=None, temp=None):
+    """Subdivide brain into major building blocks, nicely cut disjoint regions.
+    
+    Parameters
+    ----------
+    name : str
+        Path of output brain regions image file.
+    segmentation : str
+        Path of brain segmentation label image file. May be a structural or tissue
+        segmentation. If a separate tissue segmentation label image should be used
+        for delineating white matter and gray matter, provide also a `tissues` image.
+    white_labels : int, list
+        Label(s) of `segmentation` corresponding to interior of white surface.
+        When a `tissues` image is specified, these labels are considered to
+        corresponding to the white matter tissue label instead.
+    cortex_labels : int, list
+        Label(s) of `segmentation` corresponding to cortical gray matter.
+        When a `tissues` image is specified, these labels are considered to
+        corresponding to the gray matter tissue label instead.
+    right_labels : int, list
+        Label(s) of `segmentation` corresponding to structures of right hemisphere.
+    left_labels : int, list
+        Label(s) of `segmentation` corresponding to structures of left hemisphere.
+    subcortex_labels : int, list, optional
+        Label(s) of `segmentation` corresponding to subcortical structures.
+    subcortex_closing : int
+        Number of iterations of morphological closing applied to subcortical structures mask.
+    brainstem_labels : int, list, optional
+        Label(s) of `segmentation` corresponding to brainstem.
+    brainstem_closing : int
+        Number of iterations of morphological closing applied to brainstem mask.
+    cerebellum_labels : int, list, optional
+        Label(s) of `segmentation` corresponding to cerebellum.
+    cerebellum_closing : int
+        Number of iterations of morphological closing applied to cerebellum mask.
+    tissues : str
+        Path of tissue segmentation used for white and gray matter
+        instead of the (structural) brain `segmentation`.
+    brain_mask : str
+        Path of brain extraction mask used to ensure that the resampled
+        image grid contains the whole of the brain.
+    merge_bs_cb : bool
+        Whether to merge brainstem and cerebellum labels into a single output region.
+    cortical_hull_dmap : str, optional
+        Path of output cortical hull distance map image file.
+    temp : str
+        Path of temporary directory for segmentation masks of white or matter
+        tissue, respectively, when `tissues` segmentation provided.
+    
+    """
+    name = os.path.abspath(name)
+    if temp:
+        temp = os.path.abspath(temp)
+    else:
+        temp = os.path.dirname(name)
+    white_labels      = iterable_or_int_to_list(white_labels)
+    cortex_labels     = iterable_or_int_to_list(cortex_labels)
+    right_labels      = iterable_or_int_to_list(right_labels)
+    left_labels       = iterable_or_int_to_list(left_labels)
+    subcortex_labels  = iterable_or_int_to_list(subcortex_labels)
+    brainstem_labels  = iterable_or_int_to_list(brainstem_labels)
+    cerebellum_labels = iterable_or_int_to_list(cerebellum_labels)
+    with ExitStack() as stack:
+        if tissues:
+            white_mask  = os.path.join(temp, 'inner-surface-mask.nii.gz')
+            cortex_mask = os.path.join(temp, 'outer-surface-mask.nii.gz')
+            white_labels  = push_output(stack, binarize(name=white_mask,  segmentation=tissues, labels=white_labels))
+            cortex_labels = push_output(stack, binarize(name=cortex_mask, segmentation=tissues, labels=cortex_labels))
+        opts={'rh': right_labels, 'lh': left_labels,
+              'wm': white_labels, 'gm': cortex_labels,
+              'sb': sb_labels, 'bs': bs_labels, 'cb': cb_labels, 'bs+cb': merge_bs_cb,
+              'subcortical-closing': subcortex_closing,
+              'brainstem-closing': brainstem_closing,
+              'cerebellum-closing': cerebellum_closing}
+        if brain_mask: opts['fg'] = os.path.abspath(brain_mask)
+        if len(subcortex_labels)  > 0: opts['sb'] = subcortex_labels
+        if len(brainstem_labels)  > 0: opts['bs'] = brainstem_labels
+        if len(cerebellum_labels) > 0: opts['cb'] = cerebellum_labels
+        if cortical_hull_dmap:
+            opt['output-inner-cortical-distance'] = os.path.abspath(cortical_hull_dmap)
+        makedirs(name)
+        run('subdivide-brain-image', args=[segmentation, name], opts=opts)
+    return name
 
 # ==============================================================================
 # surface reconstruction

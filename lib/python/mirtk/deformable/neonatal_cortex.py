@@ -1497,11 +1497,15 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
         if debug == 0: try_remove(blended)
 
         # ensure that cortex mask still separates the two hemispheres as exactly two connected surfaces
-        if check:
-            info = evaluate_surface(merged, mesh=True, opts=[('where', cortex_mask_array), ('gt', 0)])
-            num_components = get_num_components(info)
-            if num_components != 2:
-                raise Exception("No. of cortex mask components: {} (expected 2)".format(num_components))
+        info = evaluate_surface(merged, merged, mesh=True, opts=[('where', cortex_mask_array), ('gt', 0)])
+        num_components = get_num_components(info)
+        if num_components < 2:
+            raise Exception("No. of cortex mask components: {} (expected 2)".format(num_components))
+        elif num_components > 2:
+            run('calculate-element-wise', args=[merged], opts=[('cell-data', 'ComponentId'), ('threshold-gt', 2), ('pad', 0),
+                                                               ('mul', cortex_mask_array), ('clamp-above', 1),
+                                                               ('out', merged, 'binary', cortex_mask_array)])
+        del_mesh_attr(merged, name=['ComponentId', 'BoundaryMask'], celldata='DuplicatedMask')
 
         # resolve intersections between white and pial surface if any
         init = push_output(stack, nextname(merged))

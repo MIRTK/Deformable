@@ -1535,15 +1535,13 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
 
             # deform pial surface outwards a few millimeters
             opts={'normal-force': 1,
-                  'spring': .8,
-                  'stretching': 10,
-                  'stretching-rest-length': 'avg',
+                  'curvature': 1,
                   'optimizer': 'EulerMethod',
                       'step': .1,
                       'steps': 100,
-                      'max-displacement': 1.5 * max(get_voxel_size(t2w_image)),
+                      'max-displacement': max(get_voxel_size(t2w_image)),
                       'non-self-intersection': True,
-                      'fast-collision-test': False,
+                      'fast-collision-test': True,
                       'min-distance': .1,
                       'min-active': '10%',
                       'delta': .0001}

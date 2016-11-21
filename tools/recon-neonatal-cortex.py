@@ -264,8 +264,8 @@ def sbatch(job_name, log_dir, session, args):
     if args.check:   script += ' --check'
     if args.force:   script += ' --force'
     if not args.cut: script += ' --nocut'
-    if not args.pial_outside_white:
-        script += ' --nopial-outside-white'
+    if args.pial_outside_white:
+        script += ' --ensure-pial-is-outside-white-surface'
     script.format(**args_map)
     (out, err) = p.communicate(input=script)
     if p.returncode != 0:
@@ -287,7 +287,8 @@ parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+', help
 parser.add_argument('-b', '-brain', '--brain', action='store_true', help='Reconstruct surface of brain mask')
 parser.add_argument('-w', '-white', '--white', action='store_true', help='Reconstruct white surface')
 parser.add_argument('-p', '-pial', '--pial', action='store_true', help='Reconstruct pial surface')
-parser.add_argument('-nopial-outside-white', '--nopial-outside-white', dest='pial_outside_white', action='store_false', help='Do not require pial surface to be strictly outside white surface')
+parser.add_argument('-ensure-pial-is-outside-white-surface', '--ensure-pial-is-outside-white-surface',
+                    dest='pial_outside_white', action='store_true', help='Ensure that pial surface is strictly outside the white surface')
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false', help='Save individual (closed) genus-0 surfaces for each hemisphere')
 parser.add_argument('-check', '--check', action='store_true', help='Check surface meshes for consistency')
 parser.add_argument('-f', '-force', '--force', action='store_true', help='Overwrite existing output files')

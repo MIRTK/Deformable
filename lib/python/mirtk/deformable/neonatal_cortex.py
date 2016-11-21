@@ -64,8 +64,10 @@ threads = 0    # maximum number of allowed threads for subprocess execution
 debug   = 0    # debug level, keep intermediate files when >0
 force   = True # whether to overwrite existing output files
 
-_cortex_mask_array = 'CortexMask'
-_region_id_array   = 'RegionId'
+_cortex_mask_array    = 'CortexMask'
+_region_id_array      = 'RegionId'
+_collision_mask_array = 'CollisionMask'
+_collision_type_array = 'CollisionType'
 
 # ==============================================================================
 # enumerations
@@ -300,7 +302,8 @@ def del_mesh_attr(iname, oname=None, **opts):
 def evaluate_surface(name, oname=None, mesh=False, topology=False, intersections=False, collisions=0, opts={}):
     """Evaluate properties of surface mesh"""
     argv = ['evaluate-surface-mesh', name]
-    if oname: argv.append(oname)
+    if oname:
+        argv.extend([oname, '-v'])
     argv.extend(['-threads', str(threads)])
     if mesh:     argv.append('-attr')
     if topology: argv.append('-topology')
@@ -344,25 +347,23 @@ def smooth_surface(iname, oname=None, iterations=1, lambda_value=1, mu=None, mas
 # ------------------------------------------------------------------------------
 def check_intersections(iname, oname=None):
     """Check surface mesh for triangle/triangle intersections."""
-    cmd = ['evaluate-surface-mesh', iname]
+    argv = ['evaluate-surface-mesh', iname]
     if oname:
-        cmd.append(oname)
-    cmd.extend(['-threads', threads, '-collisions', 0, '-v'])
-    info  = check_output(cmd)
+        argv.extend([oname, '-v'])
+    argv.extend(['-threads', threads, '-collisions', 0])
+    info  = check_output(argv, verbose=showcmd)
     match = re.search('No\. of self-intersections\s*=\s*(\d+)', info)
     return int(match.group(1))
 
 # ------------------------------------------------------------------------------
 def remove_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_iter=5, smooth_lambda=1):
     """Remove intersections of surface mesh triangles.
-    
+
     .. seealso:: MRISremoveIntersections function of FreeSurfer (dev/utils/mrisurf.c)
     """
     if not oname:
         oname = nextname(iname)
     with output(oname):
-        collision_mask_array = 'CollisionMask'
-        collision_type_array = 'CollisionType'
         itr = nbr = 1
         cur = check_intersections(iname, oname)
         while cur > 0:
@@ -371,16 +372,70 @@ def remove_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_it
                 print(("Trying to resolve {} remaining self-intersections of {}".format(cur, iname)))
             if itr > max_attempt:
                 raise Exception("Failed to resolve self-intersections of {}".format(iname))
-            run('dilate-scalars', args=[oname, oname], opts={'array': collision_mask_array, 'iterations': nbr})
+            run('dilate-scalars', args=[oname, oname], opts={'array': _collision_mask_array, 'iterations': nbr})
             if mask:
-                run('calculate-element-wise', args=[oname], opts=[('scalars', collision_mask_array), ('mul', mask), ('out', oname)])
+                run('calculate-element-wise', args=[oname], opts=[('scalars', _collision_mask_array), ('mul', mask), ('out', oname)])
             smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
-                           weighting='combinatorial', mask=collision_mask_array, excl_node=False)
+                           weighting='combinatorial', mask=_collision_mask_array, excl_node=False)
             pre = cur
             cur = check_intersections(oname, oname)
             if cur >= pre: nbr += 1
-        del_mesh_attr(oname, oname, pointdata=collision_mask_array, celldata=collision_type_array)
-        return oname
+        del_mesh_attr(oname, oname, pointdata=_collision_mask_array, celldata=_collision_type_array)
+    return oname
+
+# ------------------------------------------------------------------------------
+def remove_white_pial_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_iter=5, smooth_lambda=1, region_id_array=_region_id_array):
+    """Smooth white and pial surfaces in an attempt to remove intersections between triangles of white and pial surface."""
+    iname = os.path.abspath(iname)
+    if oname:
+        oname = os.path.abspath(oname)
+    else:
+        oname = nextname(iname)
+    with output(oname):
+        # constants
+        weighting         = 'combinatorial'
+        smooth_mask_array = 'SmoothMask'
+        curvature_array   = 'Curvature'
+        # check if triangles intersect
+        cur = check_intersections(iname, oname)
+        if cur > 0:
+            # compute surface curvature
+            run('calculate-surface-attributes', args=[oname, oname], opts={'H': curvature_array, 'vtk-curvatures': None})
+            run('copy-pointset-attributes', args=[oname, oname], opts={'celldata-as-pointdata': region_id_array, 'unanimous': None})
+        itr = nbr = 1
+        while cur > 0:
+            itr += 1
+            if itr == 1 and verbose > 0:
+                print(("Trying to resolve {} remaining self-intersections of {}".format(cur, iname)))
+            if itr > max_attempt:
+                raise Exception("Failed to resolve self-intersections of {}".format(iname))
+            # smooth intersected convex regions (sulci) of pial surface
+            run('calculate-element-wise', args=[oname], opts=[('point-data', region_id_array), ('label', 3, 4),
+                                                              ('mask', _collision_mask_array), ('set', 1), ('pad', 0),
+                                                              ('mul', curvature_array), ('threshold-ge', 0), ('pad', 0),
+                                                              ('out', oname, 'binary', smooth_mask_array)])
+            run('dilate-scalars', args=[oname, oname], opts={'array': smooth_mask_array, 'iterations': nbr})
+            if mask:
+                run('calculate-element-wise', args=[oname], opts=[('scalars', smooth_mask_array), ('mul', mask), ('out', oname)])
+            smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
+                           weighting=weighting, mask=smooth_mask_array, excl_node=False)
+            # smooth intersected concave regions (gyri) of white surface
+            run('calculate-element-wise', args=[oname], opts=[('point-data', region_id_array), ('label', 1, 2),
+                                                              ('mask', _collision_mask_array), ('set', 1), ('pad', 0),
+                                                              ('mul', curvature_array), ('threshold-le', 0), ('pad', 0),
+                                                              ('out', oname, 'binary', smooth_mask_array)])
+            run('dilate-scalars', args=[oname, oname], opts={'array': smooth_mask_array, 'iterations': nbr})
+            if mask:
+                run('calculate-element-wise', args=[oname], opts=[('scalars', smooth_mask_array), ('mul', mask), ('out', oname)])
+            smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
+                           weighting=weighting, mask=smooth_mask_array, excl_node=False)
+            # re-evaluate intersections
+            pre = cur
+            cur = check_intersections(oname, oname)
+            if cur >= pre: nbr += 1
+        # remove auxiliary attributes
+        del_mesh_attr(oname, pointdata=[region_id_array, curvature_array, smooth_mask_array, _collision_mask_array], celldata=_collision_type_array)
+    return oname
 
 # ------------------------------------------------------------------------------
 def project_mask(iname, oname, mask, name, dilation=0, invert=False, fill=False):
@@ -514,6 +569,7 @@ def del_corpus_callosum_mask(iname, oname=None):
     return oname
 
 # ------------------------------------------------------------------------------
+# TODO: Option to require minimum distance from medial cutting plane.
 def add_cortex_mask(iname, mask, name=_cortex_mask_array, region_id_array=_region_id_array, oname=None):
     """Add a CortexMask cell data array to the surface file."""
     if not oname:
@@ -1498,7 +1554,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
             blended_mesh = push_output(stack, nextname(offset_mesh))
             run('copy-pointset-attributes', args=[offset_mesh, offset_mesh, blended_mesh], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
             run('blend-surface', args=[white_mesh, blended_mesh, blended_mesh], opts={'where': cortex_mask_array, 'gt': 0, 'smooth-iterations': 3})
-            run('calculate-element-wise', args=[offset_mesh], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', offset_mesh)])
+            run('calculate-element-wise', args=[blended_mesh], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', blended_mesh)])
             if debug == 0: try_remove(offset_mesh)
 
             # merge white surface mesh with initial pial surface mesh
@@ -1519,9 +1575,10 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
 
             # resolve intersections between white and pial surface if any
             init_mesh = push_output(stack, nextname(cortex_mesh))
-            run('copy-pointset-attributes', args=[cortex_mesh, cortex_mesh, init_mesh], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
-            remove_intersections(init_mesh, init_mesh, mask=cortex_mask_array)
-            del_mesh_attr(init_mesh, pointdata=cortex_mask_array)
+            remove_white_pial_intersections(cortex_mesh, init_mesh, region_id_array=region_id_array)
+            #run('copy-pointset-attributes', args=[cortex_mesh, cortex_mesh, init_mesh], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
+            #remove_intersections(init_mesh, init_mesh, mask=cortex_mask_array)
+            #del_mesh_attr(init_mesh, pointdata=cortex_mask_array)
             if debug == 0: try_remove(cortex_mesh)
         else:
             run('calculate-element-wise', args=[white_mesh], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', init_mesh)])

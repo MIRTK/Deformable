@@ -1374,12 +1374,14 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh, bs_cb_me
 
 # ------------------------------------------------------------------------------
 def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
-                       bs_cb_mesh=None, remesh=0, brain_mask=None,
+                       bs_cb_mesh=None, brain_mask=None, remesh=0, outside_white_mesh=True,
                        region_id_array=_region_id_array, cortex_mask_array=_cortex_mask_array,
                        temp=None, check=True):
     """Reconstruct pial surface based on cGM/CSF image edge distance forces.
 
-    Given the white surface mesh, the pial reconstruction proceeds as follows:
+    When the pial surface is now allowed to intersect the white surface mesh
+    (i.e., `strictly_outside_white_surface=True`), the pial reconstruction
+    consists of the following steps:
     1. Deform cortical nodes outside up to a maximum distance from the white surface
        - Hard non-self-intersection constraint disabled
     2. Blend between initial and outside white surface node position
@@ -1389,6 +1391,11 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
     4. Deform pial surface nodes towards cGM/CSF image edges
        - Hard non-self-intersection constraint enabled
     5. Remove white surface mesh from output mesh file
+
+    Otherwise, only step 4 is performed to deform the input white surface mesh
+    towards the outer cortical surface based on image edge forces. In this case,
+    the resulting pial surface mesh may potentially intersect the input white
+    surface mesh.
 
     Attention: Order of arguments may differ from the order of parameter help below!
                Pass parameter values as keyword argument, e.g., wm_mask='wm.nii.gz'.
@@ -1415,6 +1422,10 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
         Generally, it is better to not remesh (`remesh=0`) such that ID based
         one-to-one vertex correspondences between white and pial surface meshes
         are preserved. These vertex correspondences simplify further analysis.
+    outside_white_mesh : bool
+        Whether pial surface mesh is required to be strictly outside the white
+        surface mesh, i.e., the pial surface may not intersect the `white_mesh`.
+        This is recommended, but may currently fail for some cases.
     brain_mask : str, optional
         Path of brain extraction mask file.
     temp : str, optional
@@ -1457,70 +1468,71 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
         if brain_mask:
             run('calculate-element-wise', args=[mask], opts=[('mul', brain_mask), ('out', mask)])
 
-        # initialize node status
+        # initialize deformable surface mesh
+        init_mesh = push_output(stack, nextname(name, temp=temp))
         status_array = 'Status'
-        init = push_output(stack, nextname(name, temp=temp))
-        run('copy-pointset-attributes', args=[white_mesh, white_mesh, init], opts={'celldata-as-pointdata': [region_id_array, status_array], 'unanimous': None})
-        run('calculate-element-wise', args=[init], opts=[('point-data', status_array), ('label', 7), ('set', 0), ('pad', 1), ('out', init, 'binary')])
+        if outside_white_mesh:
 
-        # deform pial surface outwards a few millimeters
-        opts={'normal-force': 1,
-              'spring': .8,
-              'stretching': 10,
-              'stretching-rest-length': 'avg',
-              'optimizer': 'EulerMethod',
-                  'step': .1,
-                  'steps': 100,
-                  'max-displacement': 1.5 * max(get_voxel_size(t2w_image)),
-                  'non-self-intersection': True,
-                  'fast-collision-test': False,
-                  'min-distance': .1,
-                  'min-active': '10%',
-                  'delta': .0001}
-        offset = push_output(stack, deform_mesh(init, opts=opts))
-        if debug == 0: try_remove(init)
+            # initialize node status
+            run('copy-pointset-attributes', args=[white_mesh, white_mesh, init_mesh], opts={'celldata-as-pointdata': [region_id_array, status_array], 'unanimous': None})
+            run('calculate-element-wise', args=[init_mesh], opts=[('point-data', status_array), ('label', 7), ('set', 0), ('pad', 1), ('out', init_mesh, 'binary')])
 
-        # blend between original position of non-cortical points and offset surface points
-        blended = push_output(stack, nextname(offset))
-        run('copy-pointset-attributes', args=[offset, offset, blended], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
-        run('blend-surface', args=[white_mesh, blended, blended], opts={'where': cortex_mask_array, 'gt': 0, 'smooth-iterations': 3})
-        run('calculate-element-wise', args=[blended], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', blended)])
-        if debug == 0: try_remove(offset)
+            # deform pial surface outwards a few millimeters
+            opts={'normal-force': 1,
+                  'spring': .8,
+                  'stretching': 10,
+                  'stretching-rest-length': 'avg',
+                  'optimizer': 'EulerMethod',
+                      'step': .1,
+                      'steps': 100,
+                      'max-displacement': 1.5 * max(get_voxel_size(t2w_image)),
+                      'non-self-intersection': True,
+                      'fast-collision-test': False,
+                      'min-distance': .1,
+                      'min-active': '10%',
+                      'delta': .0001}
+            offset_mesh = push_output(stack, deform_mesh(init_mesh, opts=opts))
+            if debug == 0: try_remove(init_mesh)
 
-        # merge white surface mesh with initial pial surface mesh
-        merged = push_output(stack, nextname(blended))
-        append_surfaces(merged, surfaces=[white_mesh, blended], merge=True, tol=0)
-        evaluate_surface(merged, merged, mesh=True, opts=[('where', cortex_mask_array), ('gt', 0)])
-        run('calculate-element-wise', args=[merged], opts=[('cell-data', cortex_mask_array), ('mask', 'BoundaryMask'), ('set', 0), ('out', merged)])
-        run('calculate-element-wise', args=[merged], opts=[('cell-data', region_id_array),   ('mask', 'BoundaryMask'), ('add', 4), ('out', merged)])
-        del_mesh_attr(merged, name=['ComponentId', 'BoundaryMask', 'DuplicatedMask'])
-        if debug == 0: try_remove(blended)
+            # blend between original position of non-cortical points and offset surface points
+            blended_mesh = push_output(stack, nextname(offset_mesh))
+            run('copy-pointset-attributes', args=[offset_mesh, offset_mesh, blended_mesh], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
+            run('blend-surface', args=[white_mesh, blended_mesh, blended_mesh], opts={'where': cortex_mask_array, 'gt': 0, 'smooth-iterations': 3})
+            run('calculate-element-wise', args=[offset_mesh], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', offset_mesh)])
+            if debug == 0: try_remove(offset_mesh)
 
-        # ensure that cortex mask still separates the two hemispheres as exactly two connected surfaces
-        info = evaluate_surface(merged, merged, mesh=True, opts=[('where', cortex_mask_array), ('gt', 0)])
-        num_components = get_num_components(info)
-        if num_components < 2:
-            raise Exception("No. of cortex mask components: {} (expected 2)".format(num_components))
-        elif num_components > 2:
-            run('calculate-element-wise', args=[merged], opts=[('cell-data', 'ComponentId'), ('threshold-gt', 2), ('pad', 0),
-                                                               ('mul', cortex_mask_array), ('clamp-above', 1),
-                                                               ('out', merged, 'binary', cortex_mask_array)])
-        del_mesh_attr(merged, name=['ComponentId', 'BoundaryMask'], celldata='DuplicatedMask')
+            # merge white surface mesh with initial pial surface mesh
+            cortex_mesh = push_output(stack, nextname(blended_mesh))
+            append_surfaces(cortex_mesh, surfaces=[white_mesh, blended_mesh], merge=True, tol=0)
+            info = evaluate_surface(cortex_mesh, cortex_mesh, mesh=True, opts=[('where', cortex_mask_array), ('gt', 0)])
+            run('calculate-element-wise', args=[cortex_mesh], opts=[('cell-data', cortex_mask_array), ('mask', 'BoundaryMask'), ('set', 0), ('out', cortex_mesh)])
+            run('calculate-element-wise', args=[cortex_mesh], opts=[('cell-data', region_id_array),   ('mask', 'BoundaryMask'), ('add', 4), ('out', cortex_mesh)])
+            num_components = get_num_components(info)
+            if num_components < 2:
+                raise Exception("No. of cortex mask components: {} (expected 2)".format(num_components))
+            elif num_components > 2:
+                run('calculate-element-wise', args=[cortex_mesh],
+                    opts=[('cell-data', 'ComponentId'), ('threshold-gt', 2), ('pad', 0), ('mul', cortex_mask_array),
+                          ('clamp-above', 1), ('out', cortex_mesh, 'binary', cortex_mask_array)])
+            del_mesh_attr(cortex_mesh, name=['ComponentId', 'BoundaryMask'], celldata='DuplicatedMask')
+            if debug == 0: try_remove(blended_mesh)
 
-        # resolve intersections between white and pial surface if any
-        init = push_output(stack, nextname(merged))
-        run('copy-pointset-attributes', args=[merged, merged, init], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
-        remove_intersections(init, mask=cortex_mask_array)
-        del_mesh_attr(init, pointdata=cortex_mask_array)
-        if debug == 0: try_remove(merged)
+            # resolve intersections between white and pial surface if any
+            init_mesh = push_output(stack, nextname(cortex_mesh))
+            run('copy-pointset-attributes', args=[cortex_mesh, cortex_mesh, init_mesh], opts={'celldata-as-pointdata': cortex_mask_array, 'unanimous': None})
+            remove_intersections(init_mesh, init_mesh, mask=cortex_mask_array)
+            del_mesh_attr(init_mesh, pointdata=cortex_mask_array)
+            if debug == 0: try_remove(cortex_mesh)
+        else:
+            run('calculate-element-wise', args=[white_mesh], opts=[('cell-data', region_id_array), ('map', (1, 3), (2, 4)), ('out', init_mesh)])
 
         # optionally, append brainstem plus cerebellum surface
         if bs_cb_mesh:
-            append_surfaces(init, surfaces=[init, bs_cb_mesh], merge=False)
+            append_surfaces(init_mesh, surfaces=[init_mesh, bs_cb_mesh], merge=False)
 
         # initialize node status for pial surface reconstruction
-        run('copy-pointset-attributes', args=[init, init], opts={'celldata-as-pointdata': [region_id_array, status_array], 'unanimous': None})
-        run('calculate-element-wise', args=[init], opts=[('point-data', status_array), ('label', 3, 4), ('set', 1), ('pad', 0), ('out', init, 'binary')])
+        run('copy-pointset-attributes', args=[init_mesh, init_mesh], opts={'celldata-as-pointdata': [region_id_array, status_array], 'unanimous': None})
+        run('calculate-element-wise', args=[init_mesh], opts=[('point-data', status_array), ('label', 3, 4), ('set', 1), ('pad', 0), ('out', init_mesh, 'binary')])
 
         # deform pial surface towards cGM/CSF image edges
         opts={'image': t2w_image,
@@ -1560,7 +1572,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
                   # go across the sulcus (maximum curvature direction) which iteratively
                   # contributes to smoothing out the sulci which should actually be preserved.
                   'triangle-inversion': False}
-        mesh = push_output(stack, deform_mesh(init, opts=opts))
+        mesh = push_output(stack, deform_mesh(init_mesh, opts=opts))
         extract_surface(mesh, name, array=region_id_array, labels=[-1, -2, -3, 3, 4, 5, 6])
 
     return name

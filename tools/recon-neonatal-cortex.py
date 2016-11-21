@@ -89,6 +89,7 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
 def recon_neonatal_cortex(config, section, config_vars,
                           with_brain_mesh=False, with_bs_cb_mesh=True,
                           with_white_mesh=True, with_pial_mesh=True,
+                          pial_outside_white_surface=False,
                           join_bs_cb_mesh=False, cut=True,
                           force=False, check=True, verbose=0):
     """Reconstruct surfaces of neonatal cortex."""
@@ -152,8 +153,7 @@ def recon_neonatal_cortex(config, section, config_vars,
     if with_white_mesh or with_pial_mesh:
 
         # reconstruct cortical surface from segmentation
-        if (force or (with_white_mesh and not os.path.isfile(white_mesh))
-                  or (with_pial_mesh  and not os.path.isfile(pial_mesh ))):
+        if force or not os.path.isfile(white_mesh):
             if force or not os.path.isfile(cerebrum_mesh):
 
                 # reconstruct cortical surfaces of right and left hemispheres
@@ -219,6 +219,7 @@ def recon_neonatal_cortex(config, section, config_vars,
             neoctx.recon_pial_surface(name=pial_mesh, t2w_image=t2w_image,
                                       wm_mask=wm_mask, gm_mask=gm_mask, brain_mask=brain_mask,
                                       white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh_2,
+                                      outside_white_mesh=pial_outside_white_surface,
                                       temp=temp_dir, check=check)
 
         # cut pial surface at medial plane
@@ -263,6 +264,8 @@ def sbatch(job_name, log_dir, session, args):
     if args.check:   script += ' --check'
     if args.force:   script += ' --force'
     if not args.cut: script += ' --nocut'
+    if not args.pial_outside_white:
+        script += ' --nopial-outside-white'
     script.format(**args_map)
     (out, err) = p.communicate(input=script)
     if p.returncode != 0:
@@ -284,6 +287,7 @@ parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+', help
 parser.add_argument('-b', '-brain', '--brain', action='store_true', help='Reconstruct surface of brain mask')
 parser.add_argument('-w', '-white', '--white', action='store_true', help='Reconstruct white surface')
 parser.add_argument('-p', '-pial', '--pial', action='store_true', help='Reconstruct pial surface')
+parser.add_argument('-nopial-outside-white', '--nopial-outside-white', dest='pial_outside_white', action='store_false', help='Do not require pial surface to be strictly outside white surface')
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false', help='Save individual (closed) genus-0 surfaces for each hemisphere')
 parser.add_argument('-check', '--check', action='store_true', help='Check surface meshes for consistency')
 parser.add_argument('-f', '-force', '--force', action='store_true', help='Overwrite existing output files')
@@ -373,6 +377,7 @@ for session in sessions:
                                   with_brain_mesh=args.brain,
                                   with_white_mesh=args.white,
                                   with_pial_mesh=args.pial,
+                                  pial_outside_white_surface=args.pial_outside_white,
                                   verbose=args.verbose,
                                   check=args.check)
     except Exception as e:

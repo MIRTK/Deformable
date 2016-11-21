@@ -256,7 +256,7 @@ def sbatch(job_name, log_dir, session, args):
         'verbose': ' '.join(['-v'] * args.verbose),
         'debug':   ' '.join(['-d'] * args.debug)
       }
-    script  = "#!/bin/bash\npython {script} --threads={threads} {verbose} {debug}"
+    script  = "#!/bin/sh\nexec python3 {script} --threads={threads} {verbose} {debug}"
     script += " --work-dir={work_dir} --config={config} --section={section} --session={session}"
     if args.brain:   script += ' --brain'
     if args.white:   script += ' --white'
@@ -266,8 +266,7 @@ def sbatch(job_name, log_dir, session, args):
     if not args.cut: script += ' --nocut'
     if args.pial_outside_white:
         script += ' --ensure-pial-is-outside-white-surface'
-    script.format(**args_map)
-    (out, err) = p.communicate(input=script)
+    (out, err) = p.communicate(input=script.format(**args_map).encode('utf-8'))
     if p.returncode != 0:
         raise Exception(err)
     m = re.match('Submitted batch job ([0-9]+)', out)

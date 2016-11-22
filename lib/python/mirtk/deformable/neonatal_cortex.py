@@ -1435,9 +1435,8 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
                        temp=None, check=True):
     """Reconstruct pial surface based on cGM/CSF image edge distance forces.
 
-    When the pial surface is now allowed to intersect the white surface mesh
-    (i.e., `strictly_outside_white_surface=True`), the pial reconstruction
-    consists of the following steps:
+    When the pial surface is not allowed to intersect the white surface mesh
+    (i.e., `outside_white_surface=True`), the following steps are performed:
     1. Deform cortical nodes outside up to a maximum distance from the white surface
        - Hard non-self-intersection constraint disabled
     2. Blend between initial and outside white surface node position
@@ -1450,8 +1449,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
 
     Otherwise, only step 4 is performed to deform the input white surface mesh
     towards the outer cortical surface based on image edge forces. In this case,
-    the resulting pial surface mesh may potentially intersect the input white
-    surface mesh.
+    the resulting pial surface mesh may potentially intersect the `white_mesh`.
 
     Attention: Order of arguments may differ from the order of parameter help below!
                Pass parameter values as keyword argument, e.g., wm_mask='wm.nii.gz'.
@@ -1481,7 +1479,8 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
     outside_white_mesh : bool
         Whether pial surface mesh is required to be strictly outside the white
         surface mesh, i.e., the pial surface may not intersect the `white_mesh`.
-        This is recommended, but may currently fail for some cases.
+        This is recommended, but may currently fail for some cases when the
+        blended offset surface intersects the white surface mesh after step 3.
     brain_mask : str, optional
         Path of brain extraction mask file.
     temp : str, optional

@@ -729,7 +729,13 @@ int main(int argc, char *argv[])
   double farg;
 
   for (ALL_OPTIONS) {
+
+    // Note: Need to split if-else if blocks to not reach compiler limit
+    //       of maximum number of nested blocks.
+    bool unknown_option;
+
     // Input
+    unknown_option = false;
     if (OPTION("-image")) {
       image_name = ARGUMENT;
     }
@@ -772,8 +778,14 @@ int main(int argc, char *argv[])
     else if (OPTION("-padding")) {
       PARSE_ARGUMENT(padding);
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Presets
-    else if (OPTION("-inflate-brain")) { // cf. FreeSurfer's mris_inflate
+    unknown_option = false;
+    if (OPTION("-inflate-brain")) { // cf. FreeSurfer's mris_inflate
       inflate_brain = true;
       nlevels = 6;
       navgs = GradientAveraging(1, 6);
@@ -798,8 +810,14 @@ int main(int argc, char *argv[])
       track_unit_var   = false;
       track_use_median = false;
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Optimization method
-    else if (OPTION("-optimizer") || OPTION("-optimiser")) {
+    unknown_option = false;
+    if (OPTION("-optimizer") || OPTION("-optimiser")) {
       OptimizationMethod m;
       PARSE_ARGUMENT(m);
       optimizer.reset(LocalOptimizer::New(m, &model));
@@ -908,11 +926,14 @@ int main(int argc, char *argv[])
     }
     else HANDLE_BOOLEAN_OPTION("reset-status", reset_status);
     else HANDLE_BOOLEAN_OPTION("fix-boundary", fix_boundary);
-    // Force terms
-    else if (OPTION("-neighborhood") || OPTION("-neighbourhood")) {
-      model.NeighborhoodRadius(atoi(ARGUMENT));
+    else {
+      unknown_option = true;
     }
-    else if (OPTION("-distance")) {
+    if (!unknown_option) continue;
+
+    // External forces
+    unknown_option = false;
+    if (OPTION("-distance")) {
       PARSE_ARGUMENT(distance.Weight());
     }
     else if (OPTION("-distance-maximum") || OPTION("-distance-max") || OPTION("-distance-max-depth")) {
@@ -1032,11 +1053,24 @@ int main(int argc, char *argv[])
       inflation.Name("Inflation");
       inflation.Weight(farg);
     }
-    else if (OPTION("-bending-energy")) {
+    else if (OPTION("-normal") || OPTION("-normal-force") || OPTION("-nforce")) {
+      PARSE_ARGUMENT(nforce.Weight());
+    }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
+    // Internal forces
+    unknown_option = false;
+    if (OPTION("-bending-energy")) {
       PARSE_ARGUMENT(farg);
       dofbending.Weight(farg);
     }
-		else if (OPTION("-spring") || OPTION("-bending")) {
+    else if (OPTION("-neighborhood") || OPTION("-neighbourhood")) {
+      model.NeighborhoodRadius(atoi(ARGUMENT));
+    }
+    else if (OPTION("-spring") || OPTION("-bending")) {
       PARSE_ARGUMENT(farg);
       spring.Weight(farg);
     }
@@ -1160,16 +1194,24 @@ int main(int argc, char *argv[])
     else if (OPTION("-collision-radius")) {
       PARSE_ARGUMENT(collision.MinDistance());
     }
-    else if (OPTION("-normal") || OPTION("-normal-force") || OPTION("-nforce")) {
-      PARSE_ARGUMENT(nforce.Weight());
+    else {
+      unknown_option = true;
     }
+    if (!unknown_option) continue;
+
     // Stopping criteria
-    else if (OPTION("-inflation-error")) {
+    unknown_option = false;
+    if (OPTION("-inflation-error")) {
       PARSE_ARGUMENT(farg);
       inflation_error.Threshold(farg);
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Iterative local remeshing
-    else if (OPTION("-remesh")) {
+    if (OPTION("-remesh")) {
       PARSE_ARGUMENT(iarg);
       model.RemeshInterval(iarg);
     }
@@ -1195,8 +1237,14 @@ int main(int argc, char *argv[])
     else if (OPTION("-notriangle-inversion")) {
       model.AllowTriangleInversion(false);
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Iterative low-pass filtering
-    else if (OPTION("-lowpass")) {
+    unknown_option = false;
+    if (OPTION("-lowpass")) {
       PARSE_ARGUMENT(iarg);
       model.LowPassInterval(iarg);
     }
@@ -1208,8 +1256,14 @@ int main(int argc, char *argv[])
       PARSE_ARGUMENT(farg);
       model.LowPassBand(farg);
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Non-self-intersection / collision detection
-    else if (OPTION("-non-self-intersection")) {
+    unknown_option = false;
+    if (OPTION("-non-self-intersection")) {
       if (HAS_ARGUMENT) PARSE_ARGUMENT(barg);
       else barg = true;
       model.HardNonSelfIntersection(barg);
@@ -1236,8 +1290,14 @@ int main(int argc, char *argv[])
     else if (OPTION("-nofast-collision-test")) {
       model.FastCollisionTest(false);
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Output format
-    else if (OPTION("-center-output"))  center_output  = true;
+    unknown_option = false;
+    if (OPTION("-center-output"))  center_output  = true;
     else if (OPTION("-match-area"))     match_area     = true;
     else if (OPTION("-match-sampling")) match_sampling = true;
     else if (OPTION("-track")) {
@@ -1292,8 +1352,13 @@ int main(int argc, char *argv[])
     else if (OPTION("-nolevel-prefix") || OPTION("-nolevelprefix")) {
       level_prefix = false;
     }
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
     // Debugging and other common/advanced options
-    else if (OPTION("-par")) {
+    if (OPTION("-par")) {
       const char *name  = ARGUMENT;
       const char *value = ARGUMENT;
       Insert(params, name, value);

@@ -384,7 +384,7 @@ def remove_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_it
     return oname
 
 # ------------------------------------------------------------------------------
-def remove_white_pial_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_iter=5, smooth_lambda=1, region_id_array=_region_id_array):
+def remove_white_pial_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_iter=1, smooth_lambda=1, region_id_array=_region_id_array):
     """Smooth white and pial surfaces in an attempt to remove intersections between triangles of white and pial surface."""
     iname = os.path.abspath(iname)
     if oname:
@@ -419,16 +419,17 @@ def remove_white_pial_intersections(iname, oname=None, mask=None, max_attempt=10
                 run('calculate-element-wise', args=[oname], opts=[('scalars', smooth_mask_array), ('mul', mask), ('out', oname)])
             smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
                            weighting=weighting, mask=smooth_mask_array, excl_node=False)
-            # smooth intersected concave regions (gyri) of white surface
-            run('calculate-element-wise', args=[oname], opts=[('point-data', region_id_array), ('label', 1, 2),
-                                                              ('mask', _collision_mask_array), ('set', 1), ('pad', 0),
-                                                              ('mul', curvature_array), ('threshold-le', 0), ('pad', 0),
-                                                              ('out', oname, 'binary', smooth_mask_array)])
-            run('dilate-scalars', args=[oname, oname], opts={'array': smooth_mask_array, 'iterations': nbr})
-            if mask:
-                run('calculate-element-wise', args=[oname], opts=[('scalars', smooth_mask_array), ('mul', mask), ('out', oname)])
-            smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
-                           weighting=weighting, mask=smooth_mask_array, excl_node=False)
+            if check_intersections(oname, oname) > 0:
+                # smooth intersected concave regions (gyri) of white surface
+                run('calculate-element-wise', args=[oname], opts=[('point-data', region_id_array), ('label', 1, 2),
+                                                                  ('mask', _collision_mask_array), ('set', 1), ('pad', 0),
+                                                                  ('mul', curvature_array), ('threshold-le', 0), ('pad', 0),
+                                                                  ('out', oname, 'binary', smooth_mask_array)])
+                run('dilate-scalars', args=[oname, oname], opts={'array': smooth_mask_array, 'iterations': nbr})
+                if mask:
+                    run('calculate-element-wise', args=[oname], opts=[('scalars', smooth_mask_array), ('mul', mask), ('out', oname)])
+                smooth_surface(oname, oname, iterations=smooth_iter, lambda_value=smooth_lambda,
+                               weighting=weighting, mask=smooth_mask_array, excl_node=False)
             # re-evaluate intersections
             pre = cur
             cur = check_intersections(oname, oname)

@@ -261,9 +261,9 @@ def sbatch(job_name, log_dir, session, args):
     if args.brain:   script += ' --brain'
     if args.white:   script += ' --white'
     if args.pial:    script += ' --pial'
-    if args.check:   script += ' --check'
     if args.force:   script += ' --force'
     if not args.cut: script += ' --nocut'
+    if not args.check: script += ' --nocheck'
     if args.pial_outside_white:
         script += ' --ensure-pial-is-outside-white-surface'
     (out, err) = p.communicate(input=script.format(**args_map).encode('utf-8'))
@@ -289,7 +289,7 @@ parser.add_argument('-p', '-pial', '--pial', action='store_true', help='Reconstr
 parser.add_argument('-ensure-pial-is-outside-white-surface', '--ensure-pial-is-outside-white-surface',
                     dest='pial_outside_white', action='store_true', help='Ensure that pial surface is strictly outside the white surface')
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false', help='Save individual (closed) genus-0 surfaces for each hemisphere')
-parser.add_argument('-check', '--check', action='store_true', help='Check surface meshes for consistency')
+parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check', help='Disable consistency and self-intersection checks of (intermediate) surface meshes')
 parser.add_argument('-f', '-force', '--force', action='store_true', help='Overwrite existing output files')
 parser.add_argument('-v', '-verbose', '--verbose', action='count', default=0, help='Increase verbosity of output messages')
 parser.add_argument('-d', '-debug', '--debug', action='count', default=0, help='Keep/write debug output in temp_dir')

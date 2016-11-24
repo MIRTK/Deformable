@@ -1186,7 +1186,7 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
         # ensure there are no self-intersections of the joined surface mesh
         checked = push_output(stack, nextname(joined))
         if force or not os.path.isfile(checked):
-            remove_intersections(joined, checked, max_attempt=3)
+            remove_intersections(joined, checked, max_attempt=10, smooth_iter=10)
         joined = checked
         # when brainstem+cerebellum surface given, but it should not be joined with the
         # cerebrum surface, remove triangles near brainstem cut and any triangles of the

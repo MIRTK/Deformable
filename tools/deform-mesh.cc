@@ -1211,6 +1211,7 @@ int main(int argc, char *argv[])
     if (!unknown_option) continue;
 
     // Iterative local remeshing
+    unknown_option = false;
     if (OPTION("-remesh")) {
       PARSE_ARGUMENT(iarg);
       model.RemeshInterval(iarg);
@@ -1358,6 +1359,7 @@ int main(int argc, char *argv[])
     if (!unknown_option) continue;
 
     // Debugging and other common/advanced options
+    unknown_option = false;
     if (OPTION("-par")) {
       const char *name  = ARGUMENT;
       const char *value = ARGUMENT;
@@ -1371,7 +1373,13 @@ int main(int argc, char *argv[])
       debugger.Interval(iarg);
     }
     else HANDLE_POINTSETIO_OPTION(output_fopt);
-    else HANDLE_COMMON_OR_UNKNOWN_OPTION();
+    else {
+      unknown_option = true;
+    }
+    if (!unknown_option) continue;
+
+    // Common or unknown option
+    HANDLE_COMMON_OR_UNKNOWN_OPTION();
   }
 
   if (debug   < 0) debug   = 0;

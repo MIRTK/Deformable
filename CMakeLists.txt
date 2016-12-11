@@ -24,4 +24,5 @@ if (NOT COMMAND mirtk_configure_module)
   find_package(MIRTK REQUIRED COMPONENTS CMake)
 endif ()
 
+set(BASIS_PYTHON_LIBRARY_TARGET deformable_pythonlib)
 mirtk_configure_module()

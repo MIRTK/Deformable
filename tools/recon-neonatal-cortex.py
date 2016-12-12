@@ -206,7 +206,7 @@ def require_deep_gray_matter_mask(config, section, config_vars, stack, verbose=0
     if os.path.isfile(deep_gray_matter_mask):
         return deep_gray_matter_mask
     if verbose > 0:
-        print("Creating gray matter mask from segmentation image")
+        print("Creating deep gray matter mask from segmentation image")
     segmentation = config.get(section, 'tissues_image', vars=config_vars)
     if not os.path.isfile(segmentation):
         segmentation = config.get(section, 'labels_image', vars=config_vars)

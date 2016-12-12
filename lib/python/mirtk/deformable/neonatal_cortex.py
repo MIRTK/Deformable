@@ -1076,12 +1076,12 @@ def recon_cortical_surface(name, mask=None, regions=None,
         }
 
         if corpus_callosum_mask:
-            out1 = nextname(name)
+            out1 = nextname(name, temp=temp)
             out1 = push_output(stack, add_corpus_callosum_mask(hull, mask=corpus_callosum_mask, oname=out1))
             out2 = nextname(out1)
         else:
             out1 = hull
-            out2 = nextname(name)
+            out2 = nextname(name, temp=temp)
         out2 = push_output(stack, deform_mesh(out1, out2, opts=opts))
         if corpus_callosum_mask:
             out3 = push_output(stack, del_corpus_callosum_mask(out2))

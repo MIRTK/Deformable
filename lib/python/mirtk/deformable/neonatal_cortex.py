@@ -46,9 +46,9 @@ import sys
 from contextlib import contextmanager
 
 try:
-    from contextlib import ExitStack # Python 3
+    from contextlib import ExitStack  # Python 3
 except:
-    from contextlib2 import ExitStack # Python 2 backport
+    from contextlib2 import ExitStack  # Python 2 backport
 
 from mirtk.subprocess import flatten, check_call, check_output
 from mirtk.subprocess import run as _run
@@ -191,7 +191,7 @@ def output(name_or_func, delete=False):
     ------
     aname : str
         Absolute path of output file.
- 
+
     """
     if isinstance(name_or_func, str): path = name_or_func
     else:                             path = name_or_func()
@@ -728,7 +728,7 @@ def binarize(name, segmentation, labels=[], image=None, interp='linear', thresho
             opts=[('mask', 0)]
         else:
             opts=[('label', labels)]
-        opts.extend([('set', 1), ('pad', 0), ('out', name, 'binary')])
+        opts.extend([('set', 1), ('pad', 0), ('out', mask, 'binary')])
         run('calculate-element-wise', args=[segmentation], opts=opts)
         # resample mask on target image grid
         if image:
@@ -815,28 +815,29 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
     segmentation : str
         Path of brain segmentation label image file. May be a structural or tissue
         segmentation. If a separate tissue segmentation label image should be used
-        for delineating white matter and gray matter, provide also a `tissues` image.
-    white_labels : int, list
-        Label(s) of `segmentation` corresponding to interior of white surface.
+        for delineating the white matter and gray matter, provide also a `tissues` image.
+    white_labels : int, str, list
+        Label(s) of `segmentation` corresponding to interior of white matter surface.
         When a `tissues` image is specified, these labels are considered to
-        corresponding to the white matter tissue label instead.
-    cortex_labels : int, list
+        be corresponding to the white matter tissue label instead.
+    cortex_labels : int, str, list
         Label(s) of `segmentation` corresponding to cortical gray matter.
+        Can contain strings of label ranges such as '1..4' instead of int's only.
         When a `tissues` image is specified, these labels are considered to
-        corresponding to the gray matter tissue label instead.
-    right_labels : int, list
+        be corresponding to the gray matter tissue label instead.
+    right_labels : int, str, list
         Label(s) of `segmentation` corresponding to structures of right hemisphere.
-    left_labels : int, list
+    left_labels : int, str, list
         Label(s) of `segmentation` corresponding to structures of left hemisphere.
-    subcortex_labels : int, list, optional
+    subcortex_labels : int, str, list, optional
         Label(s) of `segmentation` corresponding to subcortical structures.
     subcortex_closing : int
         Number of iterations of morphological closing applied to subcortical structures mask.
-    brainstem_labels : int, list, optional
+    brainstem_labels : int, str, list, optional
         Label(s) of `segmentation` corresponding to brainstem.
     brainstem_closing : int
         Number of iterations of morphological closing applied to brainstem mask.
-    cerebellum_labels : int, list, optional
+    cerebellum_labels : int, str, list, optional
         Label(s) of `segmentation` corresponding to cerebellum.
     cerebellum_closing : int
         Number of iterations of morphological closing applied to cerebellum mask.
@@ -851,9 +852,9 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
     cortical_hull_dmap : str, optional
         Path of output cortical hull distance map image file.
     temp : str
-        Path of temporary directory for segmentation masks of white or matter
-        tissue, respectively, when `tissues` segmentation provided.
-    
+        Path of temporary directory for segmentation masks of white or gray
+        matter tissue, respectively, when `tissues` segmentation provided.
+
     """
     name = os.path.abspath(name)
     if temp:
@@ -873,18 +874,27 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
             cortex_mask = os.path.join(temp, 'outer-surface-mask.nii.gz')
             white_labels  = push_output(stack, binarize(name=white_mask,  segmentation=tissues, labels=white_labels))
             cortex_labels = push_output(stack, binarize(name=cortex_mask, segmentation=tissues, labels=cortex_labels))
-        opts={'rh': right_labels, 'lh': left_labels,
-              'wm': white_labels, 'gm': cortex_labels,
-              'sb': sb_labels, 'bs': bs_labels, 'cb': cb_labels, 'bs+cb': merge_bs_cb,
-              'subcortical-closing': subcortex_closing,
-              'brainstem-closing': brainstem_closing,
-              'cerebellum-closing': cerebellum_closing}
-        if brain_mask: opts['fg'] = os.path.abspath(brain_mask)
-        if len(subcortex_labels)  > 0: opts['sb'] = subcortex_labels
-        if len(brainstem_labels)  > 0: opts['bs'] = brainstem_labels
-        if len(cerebellum_labels) > 0: opts['cb'] = cerebellum_labels
+        opts = {
+            'rh': right_labels, 'lh': left_labels,
+            'wm': white_labels, 'gm': cortex_labels,
+            'sb': subcortex_labels,
+            'bs': brainstem_labels,
+            'cb': cerebellum_labels,
+            'bs+cb': merge_bs_cb,
+            'subcortical-closing': subcortex_closing,
+            'brainstem-closing': brainstem_closing,
+            'cerebellum-closing': cerebellum_closing
+        }
+        if brain_mask:
+            opts['fg'] = os.path.abspath(brain_mask)
+        if len(subcortex_labels)  > 0:
+            opts['sb'] = subcortex_labels
+        if len(brainstem_labels)  > 0:
+            opts['bs'] = brainstem_labels
+        if len(cerebellum_labels) > 0:
+            opts['cb'] = cerebellum_labels
         if cortical_hull_dmap:
-            opt['output-inner-cortical-distance'] = os.path.abspath(cortical_hull_dmap)
+            opts['output-inner-cortical-distance'] = os.path.abspath(cortical_hull_dmap)
         makedirs(name)
         run('subdivide-brain-image', args=[segmentation, name], opts=opts)
     return name
@@ -994,9 +1004,9 @@ def recon_cortical_surface(name, mask=None, regions=None,
         ext  = '.vtp'
         name = base + ext
     if temp:
-        temp = os.path.dirname(name)
-    else:
         temp = os.path.abspath(temp)
+    else:
+        temp = os.path.dirname(name)
     if base.endswith('-lh') or base.endswith('.lh') or base.startswith('lh.'):
         if base.startswith('lh.'):
             base = base[3:]
@@ -1016,12 +1026,12 @@ def recon_cortical_surface(name, mask=None, regions=None,
         elif hemisphere == Hemisphere.Unspecified:
             hemisphere = Hemisphere.Right
     if not mask and hemisphere == Hemisphere.Both:
-        rname = recon_initial_surface('{}-{}{}'.format(base, hemi2str(Hemisphere.Right), ext),
-                                      regions=regions, hemisphere=Hemisphere.Right,
-                                      corpus_callosum_mask=corpus_callosum_mask, temp=temp)
-        lname = recon_initial_surface('{}-{}{}'.format(base, hemi2str(Hemisphere.Left), ext),
-                                      regions=regions, hemisphere=Hemisphere.Left,
-                                      corpus_callosum_mask=corpus_callosum_mask, temp=temp)
+        rname = recon_cortical_surface('{}-{}{}'.format(base, hemi2str(Hemisphere.Right), ext),
+                                       regions=regions, hemisphere=Hemisphere.Right,
+                                       corpus_callosum_mask=corpus_callosum_mask, temp=temp)
+        lname = recon_cortical_surface('{}-{}{}'.format(base, hemi2str(Hemisphere.Left), ext),
+                                       regions=regions, hemisphere=Hemisphere.Left,
+                                       corpus_callosum_mask=corpus_callosum_mask, temp=temp)
         return (rname, lname)
     base = os.path.basename(base)
     hemi = hemi2str(hemisphere)
@@ -1032,36 +1042,38 @@ def recon_cortical_surface(name, mask=None, regions=None,
         dmap = push_output(stack, calculate_distance_map(mask, temp=temp))
         hull = push_output(stack, extract_convex_hull(dmap, temp=temp))
 
-        opts={'implicit-surface': dmap,
-              'distance': 1,
-                  'distance-measure': 'normal',
-                  'distance-threshold': 2,
-                  'distance-max-depth': 5,
-                  'distance-hole-filling': True,
-              'curvature': .8,
-              'gauss-curvature': .4,
-                  'gauss-curvature-outside': 1,
-                  'gauss-curvature-minimum': .1,
-                  'gauss-curvature-maximum': .5,
-              'repulsion': 4,
-                  'repulsion-distance': .5,
-                  'repulsion-width': 1,
-              'optimizer': 'EulerMethod',
-                  'step': [.5, .1],
-                  'steps': [300, 200],
-                  'epsilon': 1e-8,
-                  'extrinsic-energy': True,
-                  'delta': 1e-2,
-                  'min-active': '1%',
-                  'min-width': .2,
-                  'min-distance': .5,
-                  'fast-collision-test': True,
-                  'non-self-intersection': True,
-              'remesh': 1,
-                  'min-edge-length': .5,
-                  'max-edge-length': 1,
-                  'triangle-inversion': True,
-                  'reset-status': True}
+        opts = {
+            'implicit-surface': dmap,
+            'distance': 1,
+                'distance-measure': 'normal',
+                'distance-threshold': 2,
+                'distance-max-depth': 5,
+                'distance-hole-filling': True,
+            'curvature': .8,
+            'gauss-curvature': .4,
+                'gauss-curvature-outside': 1,
+                'gauss-curvature-minimum': .1,
+                'gauss-curvature-maximum': .5,
+            'repulsion': 4,
+                'repulsion-distance': .5,
+                'repulsion-width': 1,
+            'optimizer': 'EulerMethod',
+                'step': [.5, .1],
+                'steps': [300, 200],
+                'epsilon': 1e-8,
+                'extrinsic-energy': True,
+                'delta': 1e-2,
+                'min-active': '1%',
+                'min-width': .2,
+                'min-distance': .5,
+                'fast-collision-test': True,
+                'non-self-intersection': True,
+            'remesh': 1,
+                'min-edge-length': .5,
+                'max-edge-length': 1,
+                'triangle-inversion': True,
+                'reset-status': True
+        }
 
         if corpus_callosum_mask:
             out1 = nextname(name)

@@ -341,9 +341,9 @@ void PointSetForce::AddPointData(const char *name, vtkSmartPointer<vtkDataArray>
   if (global) {
     data->SetName(name);
   } else {
-    string prefix    = ParameterNameWithPrefix(name);
-    string unique    = prefix;
-    bool        is_unique = true;
+    string prefix = ParameterNameWithPrefix(name);
+    string unique = prefix;
+    bool is_unique = true;
     for (int i = 0; i < pd->GetNumberOfArrays(); ++i) {
       if (unique == pd->GetArrayName(i)) {
         is_unique = false;

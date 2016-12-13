@@ -58,20 +58,25 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
     """Get default configuration."""
     # directories
     session_dir = os.path.join('%(WorkDir)s', '%(SubjectId)s-%(SessionId)s')
+    input_dir   = os.path.join(session_dir, 'input')
     temp_dir    = os.path.join(session_dir, 'temp')
-    image_dir   = os.path.join(session_dir, 'images')
-    mask_dir    = os.path.join(session_dir, 'masks')
-    labels_dir  = os.path.join(session_dir, 'labels')
     mesh_dir    = os.path.join(session_dir, 'meshes')
+    logs_dir    = os.path.join(session_dir, 'logs')
     # configuration
     config  = SafeConfigParser(defaults={'work_dir': work_dir, 'temp_dir': temp_dir})
     section = args.section
     config.add_section(section)
-    config.set(section, 't1w_image',             os.path.join(image_dir, 't1w.nii.gz'))
-    config.set(section, 't2w_image',             os.path.join(image_dir, 't2w.nii.gz'))
-    config.set(section, 'labels_image',          os.path.join(labels_dir, 'structures.nii.gz'))
-    config.set(section, 'tissues_image',         os.path.join(labels_dir, 'tissues.nii.gz'))
-    config.set(section, 'brain_mask',            os.path.join(mask_dir, 'brain.nii.gz'))
+    config.set(section, 'logs_dir', logs_dir)
+    # input file paths
+    config.set(section, 'input_t1w_image',     os.path.join(input_dir, 't1w-image.nii.gz'))
+    config.set(section, 'input_t2w_image',     os.path.join(input_dir, 't2w-image.nii.gz'))
+    config.set(section, 'input_brain_mask',    os.path.join(input_dir, 'brain-mask.nii.gz'))
+    config.set(section, 'input_labels_image',  os.path.join(input_dir, 'brain-labels.nii.gz'))
+    config.set(section, 'input_tissues_image', os.path.join(input_dir, 'tissue-labels.nii.gz'))
+    # intermediate file paths
+    config.set(section, 't1w_image',             os.path.join(temp_dir, 't1w-image.nii.gz'))
+    config.set(section, 't2w_image',             os.path.join(temp_dir, 't2w-image.nii.gz'))
+    config.set(section, 'brain_mask',            os.path.join(temp_dir, 'brain-mask.nii.gz'))
     config.set(section, 'white_matter_mask',     os.path.join(temp_dir, 'white-matter-mask.nii.gz'))
     config.set(section, 'gray_matter_mask',      os.path.join(temp_dir, 'gray-matter-mask.nii.gz'))
     config.set(section, 'deep_gray_matter_mask', os.path.join(temp_dir, 'deep-gray-matter-mask.nii.gz'))
@@ -80,6 +85,7 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
     config.set(section, 'ventricles_dmap',       os.path.join(temp_dir, 'ventricles-dmap.nii.gz'))
     config.set(section, 'regions_mask',          os.path.join(temp_dir, 'regions.nii.gz'))
     config.set(section, 'cortical_hull_dmap',    os.path.join(temp_dir, 'cortical-hull-dmap.nii.gz'))
+    # output file paths
     config.set(section, 'brain_mesh',            os.path.join(mesh_dir, 'brain.vtp'))
     config.set(section, 'bs_cb_mesh',            os.path.join(mesh_dir, 'bs+cb.vtp'))
     config.set(section, 'internal_mesh',         os.path.join(mesh_dir, 'internal.vtp'))
@@ -127,36 +133,117 @@ def get_labels(config, section, option):
 
 
 # ------------------------------------------------------------------------------
-def require_brain_mask(config, section, config_vars, stack, verbose=0):
+def require_input_brain_mask(config, section, config_vars, stack, verbose=0):
     """Create brain mask from segmentation if none provided."""
-    brain_mask = config.get(section, 'brain_mask', vars=config_vars)
-    if os.path.isfile(brain_mask):
-        return brain_mask
+    input_brain_mask = config.get(section, 'input_brain_mask', vars=config_vars)
+    if os.path.isfile(input_brain_mask):
+        return input_brain_mask
     if verbose > 0:
         print("Creating brain mask from segmentation image")
+    segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+    if not segmentation or not os.path.isfile(segmentation):
+        segmentation = config.get(section, 'input_tissues_image', vars=config_vars)
+    if not segmentation or not os.path.isfile(segmentation):
+        raise Exception("Input brain segmentation required")
     neoctx.binarize(
-        name=brain_mask,
-        segmentation=config.get(section, 'labels_image', vars=config_vars),
+        name=input_brain_mask,
+        segmentation=segmentation,
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
-    return neoctx.push_output(stack, brain_mask)
+    return neoctx.push_output(stack, input_brain_mask)
 
 
 # ------------------------------------------------------------------------------
-def require_corpus_callosum_mask(config, section, config_vars, stack, verbose=0):
+def require_regions_mask(config, section, config_vars, stack, verbose=0):
+    """Create regions label image from segmentations if none provided."""
+    regions_mask = config.get(section, 'regions_mask', vars=config_vars)
+    if os.path.isfile(regions_mask):
+        return regions_mask
+    require_input_brain_mask(config, section, config_vars, stack)
+    if verbose > 0:
+        print("Dividing brain volume into disjoint regions")
+    segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+    if not segmentation or not os.path.isfile(segmentation):
+        raise Exception("Input brain segmentation required")
+    tissues_image = config.get(section, 'input_tissues_image', vars=config_vars)
+    if not os.path.isfile(tissues_image):
+        tissues_image = None
+    white_labels = get_labels(config, section, 'white_matter_labels')
+    white_labels.extend(get_labels(config, section, 'deep_gray_matter_labels'))
+    white_labels.extend(get_labels(config, section, 'corpus_callosum_labels'))
+    white_labels.extend(get_labels(config, section, 'lateral_ventricles_labels'))
+    subcortex_labels = get_labels(config, section, 'inter_hemisphere_labels')
+    subcortex_labels.extend(get_labels(config, section, 'corpus_callosum_labels'))
+    cortical_hull_dmap = config.get(section, 'cortical_hull_dmap', vars=config_vars)
+    if cortical_hull_dmap == '':
+        cortical_hull_dmap = None
+    neoctx.subdivide_brain(
+        name=regions_mask,
+        segmentation=segmentation,
+        tissues=tissues_image,
+        white_labels=white_labels,
+        cortex_labels=get_labels(config, section, 'gray_matter_labels'),
+        right_labels=get_labels(config, section, 'right_hemisphere_labels'),
+        left_labels=get_labels(config, section, 'left_hemisphere_labels'),
+        subcortex_labels=subcortex_labels,
+        subcortex_closing=config.getint(section, 'subcortex_closing'),
+        brainstem_labels=get_labels(config, section, 'brainstem_labels'),
+        brainstem_closing=config.getint(section, 'brainstem_closing'),
+        cerebellum_labels=get_labels(config, section, 'cerebellum_labels'),
+        cerebellum_closing=config.getint(section, 'cerebellum_closing'),
+        brain_mask=config.get(section, 'input_brain_mask', vars=config_vars),
+        cortical_hull_dmap=cortical_hull_dmap,
+        temp=config.get(section, 'temp_dir', vars=config_vars),
+        merge_bs_cb=True
+    )
+    if cortical_hull_dmap:
+        neoctx.push_output(stack, cortical_hull_dmap)
+    return neoctx.push_output(stack, regions_mask)
+
+
+# ------------------------------------------------------------------------------
+def require_brain_mask(config, section, config_vars, stack, verbose=0):
+    """Resample input brain mask to standard RAS space."""
+    brain_mask = config.get(section, 'brain_mask', vars=config_vars)
+    if os.path.isfile(brain_mask):
+        return brain_mask
+    require_input_brain_mask(config, section, config_vars, stack, verbose)
+    require_regions_mask(config, section, config_vars, stack, verbose)
+    if verbose > 0:
+        print("Resampling brain mask to standard RAS space")
+    neoctx.binarize(
+        name=brain_mask,
+        segmentation=config.get(section, 'input_brain_mask', vars=config_vars),
+        image=config.get(section, 'regions_mask', vars=config_vars),
+        threshold=0,
+        temp=config.get(section, 'temp_dir', vars=config_vars)
+    )
+    brain_mask = neoctx.push_output(stack, brain_mask)
+    neoctx.run('close-image', args=[brain_mask, brain_mask], opts={'iterations': 5})
+    return brain_mask
+
+
+# ------------------------------------------------------------------------------
+def optional_corpus_callosum_mask(config, section, config_vars, stack, verbose=0):
     """Create corpus callosum mask from segmentation if none provided."""
     corpus_callosum_mask = config.get(section, 'corpus_callosum_mask', vars=config_vars)
     if os.path.isfile(corpus_callosum_mask):
         return corpus_callosum_mask
     if verbose > 0:
         print("Creating corpus callosum mask from segmentation image")
-    neoctx.binarize(
-        name=corpus_callosum_mask,
-        segmentation=config.get(section, 'labels_image', vars=config_vars),
-        labels=get_labels(config, section, 'corpus_callosum_labels'),
-        temp=config.get(section, 'temp_dir', vars=config_vars)
-    )
-    return neoctx.push_output(stack, corpus_callosum_mask)
+    segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+    if segmentation and os.path.isfile(segmentation):
+        require_brain_mask(config, section, config_vars, stack, verbose)
+        neoctx.binarize(
+            name=corpus_callosum_mask,
+            segmentation=segmentation,
+            labels=get_labels(config, section, 'corpus_callosum_labels'),
+            image=config.get(section, 'brain_mask', vars=config_vars),
+            temp=config.get(section, 'temp_dir', vars=config_vars)
+        )
+        return neoctx.push_output(stack, corpus_callosum_mask)
+    else:
+        return None
 
 
 # ------------------------------------------------------------------------------
@@ -167,13 +254,16 @@ def require_white_matter_mask(config, section, config_vars, stack, verbose=0):
         return white_matter_mask
     if verbose > 0:
         print("Creating white matter mask from segmentation image")
-    segmentation = config.get(section, 'tissues_image', vars=config_vars)
+    segmentation = config.get(section, 'input_tissues_image', vars=config_vars)
     if not os.path.isfile(segmentation):
-        segmentation = config.get(section, 'labels_image', vars=config_vars)
+        segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+        if not segmentation or not os.path.isfile(segmentation):
+            raise Exception("Input brain segmentation required")
     neoctx.binarize(
         name=white_matter_mask,
         segmentation=segmentation,
         labels=get_labels(config, section, 'white_matter_labels'),
+        image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
     return neoctx.push_output(stack, white_matter_mask)
@@ -187,13 +277,16 @@ def require_gray_matter_mask(config, section, config_vars, stack, verbose=0):
         return gray_matter_mask
     if verbose > 0:
         print("Creating gray matter mask from segmentation image")
-    segmentation = config.get(section, 'tissues_image', vars=config_vars)
+    segmentation = config.get(section, 'input_tissues_image', vars=config_vars)
     if not os.path.isfile(segmentation):
-        segmentation = config.get(section, 'labels_image', vars=config_vars)
+        segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+        if not segmentation or not os.path.isfile(segmentation):
+            raise Exception("Input brain segmentation required")
     neoctx.binarize(
         name=gray_matter_mask,
         segmentation=segmentation,
         labels=get_labels(config, section, 'gray_matter_labels'),
+        image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
     return neoctx.push_output(stack, gray_matter_mask)
@@ -207,13 +300,16 @@ def require_deep_gray_matter_mask(config, section, config_vars, stack, verbose=0
         return deep_gray_matter_mask
     if verbose > 0:
         print("Creating deep gray matter mask from segmentation image")
-    segmentation = config.get(section, 'tissues_image', vars=config_vars)
+    segmentation = config.get(section, 'input_tissues_image', vars=config_vars)
     if not os.path.isfile(segmentation):
-        segmentation = config.get(section, 'labels_image', vars=config_vars)
+        segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+        if not segmentation or not os.path.isfile(segmentation):
+            raise Exception("Input brain segmentation required")
     neoctx.binarize(
         name=deep_gray_matter_mask,
         segmentation=segmentation,
         labels=get_labels(config, section, 'deep_gray_matter_labels'),
+        image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
     return neoctx.push_output(stack, deep_gray_matter_mask)
@@ -227,13 +323,16 @@ def require_ventricles_mask(config, section, config_vars, stack, verbose=0):
         return ventricles_mask
     if verbose > 0:
         print("Creating lateral ventricles mask from segmentation image")
-    segmentation = config.get(section, 'tissues_image', vars=config_vars)
+    segmentation = config.get(section, 'input_tissues_image', vars=config_vars)
     if not os.path.isfile(segmentation):
-        segmentation = config.get(section, 'labels_image', vars=config_vars)
+        segmentation = config.get(section, 'input_labels_image', vars=config_vars)
+        if not segmentation or not os.path.isfile(segmentation):
+            raise Exception("Input brain segmentation required")
     neoctx.binarize(
         name=ventricles_mask,
         segmentation=segmentation,
         labels=get_labels(config, section, 'lateral_ventricles_labels'),
+        image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
     return neoctx.push_output(stack, ventricles_mask)
@@ -251,46 +350,6 @@ def require_ventricles_dmap(config, section, config_vars, stack, verbose=0):
     ventricles_mask = config.get(section, 'ventricles_mask', vars=config_vars)
     neoctx.calculate_distance_map(iname=ventricles_mask, oname=ventricles_dmap)
     return neoctx.push_output(stack, ventricles_dmap)
-
-
-# ------------------------------------------------------------------------------
-def require_regions_mask(config, section, config_vars, stack, verbose=0):
-    """Create regions label image from segmentations if none provided."""
-    regions_mask = config.get(section, 'regions_mask', vars=config_vars)
-    if os.path.isfile(regions_mask):
-        return regions_mask
-    require_brain_mask(config, section, config_vars, stack)
-    if verbose > 0:
-        print("Dividing brain volume into disjoint regions")
-    tissues_image = config.get(section, 'tissues_image', vars=config_vars)
-    if not os.path.isfile(tissues_image):
-        tissues_image = None
-    white_labels = get_labels(config, section, 'white_matter_labels')
-    white_labels.extend(get_labels(config, section, 'deep_gray_matter_labels'))
-    white_labels.extend(get_labels(config, section, 'corpus_callosum_labels'))
-    white_labels.extend(get_labels(config, section, 'lateral_ventricles_labels'))
-    subcortex_labels = get_labels(config, section, 'inter_hemisphere_labels')
-    subcortex_labels.extend(get_labels(config, section, 'corpus_callosum_labels'))
-    neoctx.subdivide_brain(
-        name=regions_mask,
-        segmentation=config.get(section, 'labels_image', vars=config_vars),
-        tissues=tissues_image,
-        white_labels=white_labels,
-        cortex_labels=get_labels(config, section, 'gray_matter_labels'),
-        right_labels=get_labels(config, section, 'right_hemisphere_labels'),
-        left_labels=get_labels(config, section, 'left_hemisphere_labels'),
-        subcortex_labels=subcortex_labels,
-        subcortex_closing=config.getint(section, 'subcortex_closing'),
-        brainstem_labels=get_labels(config, section, 'brainstem_labels'),
-        brainstem_closing=config.getint(section, 'brainstem_closing'),
-        cerebellum_labels=get_labels(config, section, 'cerebellum_labels'),
-        cerebellum_closing=config.getint(section, 'cerebellum_closing'),
-        brain_mask=config.get(section, 'brain_mask', vars=config_vars),
-        cortical_hull_dmap=config.get(section, 'cortical_hull_dmap', vars=config_vars),
-        temp=config.get(section, 'temp_dir', vars=config_vars),
-        merge_bs_cb=True
-    )
-    return neoctx.push_output(stack, regions_mask)
 
 
 # ------------------------------------------------------------------------------
@@ -317,15 +376,12 @@ def recon_neonatal_cortex(config, section, config_vars,
     # working directory
     temp_dir = config.get(section, 'temp_dir', vars=config_vars)
 
-    # input image files
-    t1w_image  = config.get(section, 't1w_image',  vars=config_vars)
-    t2w_image  = config.get(section, 't2w_image',  vars=config_vars)
-    brain_mask = config.get(section, 'brain_mask', vars=config_vars)
-
-    # intermediate image files
+    # intermediate image files in standard RAS space
+    t1w_image             = config.get(section, 't1w_image',             vars=config_vars)
+    t2w_image             = config.get(section, 't2w_image',             vars=config_vars)
+    brain_mask            = config.get(section, 'brain_mask',            vars=config_vars)
     wm_mask               = config.get(section, 'white_matter_mask',     vars=config_vars)
     gm_mask               = config.get(section, 'gray_matter_mask',      vars=config_vars)
-    corpus_callosum_mask  = config.get(section, 'corpus_callosum_mask',  vars=config_vars)
     deep_gray_matter_mask = config.get(section, 'deep_gray_matter_mask', vars=config_vars)
     regions_mask          = config.get(section, 'regions_mask',          vars=config_vars)
     cortical_hull_dmap    = config.get(section, 'cortical_hull_dmap',    vars=config_vars)
@@ -351,8 +407,6 @@ def recon_neonatal_cortex(config, section, config_vars,
         bs_cb_mesh = None
     if not with_pial_mesh:
         pial_mesh = None
-    if not os.path.isfile(t1w_image):
-        t1w_image = None
 
     if bs_cb_mesh and join_bs_cb_mesh:
         bs_cb_mesh_1 = bs_cb_mesh
@@ -364,16 +418,65 @@ def recon_neonatal_cortex(config, section, config_vars,
     # remove intermediate files that did not exist before upon exit
     with ExitStack() as stack:
 
+        # the surface reconstruction relies on a resampling of the intensity
+        # images to the standard RAS space defined by the regions_mask / brain_mask
+        require_brain_mask(config, section, config_vars, stack, verbose)
+
+        if not os.path.isfile(t2w_image):
+            input_t2w_image = config.get(section, 'input_t2w_image', vars=config_vars)
+            if os.path.isfile(input_t2w_image):
+                if verbose > 0:
+                    print("Resampling T2-weighted image to standard RAS space")
+                neoctx.run(
+                    'transform-image',
+                    args=[
+                        input_t2w_image,
+                        t2w_image
+                    ],
+                    opts={
+                        'interp': 'fast cubic bspline with padding',
+                        'Sp': 0,
+                        'dofin': 'Id',
+                        'target': brain_mask,
+                        'type': 'float'
+                    }
+                )
+            else:
+                raise Exception("Input T2-weighted image required")
+
+        if not os.path.isfile(t1w_image):
+            input_t1w_image = config.get(section, 'input_t1w_image', vars=config_vars)
+            if os.path.isfile(input_t1w_image):
+                if verbose > 0:
+                    print("Resampling T1-weighted image to standard RAS space")
+                neoctx.run(
+                    'transform-image',
+                    args=[
+                        input_t1w_image,
+                        t1w_image
+                    ],
+                    opts={
+                        'interp': 'fast cubic bspline with padding',
+                        'Sp': 0,
+                        'dofin': 'Id',
+                        'target': brain_mask,
+                        'type': 'float'
+                    }
+                )
+                neoctx.push_output(stack, t1w_image)
+            else:
+                if verbose > 0:
+                    print("No input T1-weighted image found, using only T2-weighted image")
+                t1w_image = None
+
         # reconstruct boundary of brain mask
         if brain_mesh and (force or not os.path.isfile(brain_mesh)):
-            require_brain_mask(config, section, config_vars, stack)
             if verbose > 0:
                 print("Reconstructing boundary of brain mask")
             neoctx.recon_brain_surface(name=brain_mesh, mask=brain_mask, temp=temp_dir)
 
         # reconstruct brainstem plus cerebellum surface
         if bs_cb_mesh and (force or not os.path.isfile(bs_cb_mesh)):
-            require_regions_mask(config, section, config_vars, stack, verbose)
             if verbose > 0:
                 print("Reconstructing brainstem plus cerebellum surface")
             neoctx.recon_brainstem_plus_cerebellum_surface(name=bs_cb_mesh, regions=regions_mask, temp=temp_dir)
@@ -386,17 +489,19 @@ def recon_neonatal_cortex(config, section, config_vars,
 
                 if force or not os.path.isfile(cerebrum_mesh):
 
-                    require_corpus_callosum_mask(config, section, config_vars, stack, verbose)
+                    # at the moment already ensured by require_brain_mask above...
                     require_regions_mask(config, section, config_vars, stack, verbose)
 
                     # reconstruct cortical surfaces of right and left hemispheres
                     if force or not os.path.isfile(right_cerebrum_mesh):
+                        corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                         if verbose > 0:
                             print("Reconstructing boundary of right cerebral hemisphere segmentation")
                         neoctx.recon_cortical_surface(name=right_cerebrum_mesh,
                                                       regions=regions_mask, hemisphere=neoctx.Hemisphere.Right,
                                                       corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
                     if force or not os.path.isfile(left_cerebrum_mesh):
+                        corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                         if verbose > 0:
                             print("Reconstructing boundary of left cerebral hemisphere segmentation")
                         neoctx.recon_cortical_surface(name=left_cerebrum_mesh,
@@ -454,7 +559,6 @@ def recon_neonatal_cortex(config, section, config_vars,
             # reconstruct pial surface
             if pial_mesh and (force or not os.path.isfile(pial_mesh)):
 
-                require_brain_mask(config, section, config_vars, stack, verbose)
                 require_white_matter_mask(config, section, config_vars, stack, verbose)
                 require_gray_matter_mask(config, section, config_vars, stack, verbose)
 
@@ -484,7 +588,7 @@ def recon_neonatal_cortex(config, section, config_vars,
 
 
 # ------------------------------------------------------------------------------
-def sbatch(job_name, log_dir, session, args):
+def sbatch(job_name, log_dir, session, args, config_vars):
     """Submits SLURM jobs to run this script, one for each subject."""
     from subprocess import Popen, PIPE
     if not os.path.isdir(log_dir):
@@ -520,6 +624,11 @@ def sbatch(job_name, log_dir, session, args):
         script += ' --nocheck'
     if args.pial_outside_white:
         script += ' --ensure-pial-is-outside-white-surface'
+    for name, value in config_vars.items():
+        if '"' in value:
+            value = value.replace('"', '\\"')
+        name = name.replace('-', '_')
+        script += '--' + name + ' "' + value + '"'
     (out, err) = p.communicate(input=script.format(**args_map).encode('utf-8'))
     if p.returncode != 0:
         raise Exception(err)
@@ -554,13 +663,27 @@ parser.add_argument('-d', '-debug', '--debug', action='count', default=0, help='
 parser.add_argument('-t', '-threads', '--threads', default=0, help='No. of cores to use for multi-threading')
 parser.add_argument('-q', '-queue', '--queue', default='', help='SLURM partition/queue')
 
-args = parser.parse_args()
+[args, config_args] = parser.parse_known_args()
 args.work_dir = os.path.abspath(args.work_dir)
 if not args.cerebrum and not args.white and not args.pial:
     args.white = True
     args.pial  = True
 elif args.pial:
     args.white = True
+
+config_vars = {}
+if len(config_args) % 2 != 0:
+    raise Exception("Custom configuration options must come in pairs of -[-]<name> <value>")
+for i in xrange(len(config_args) - 1):
+    name = config_args[i]
+    if name.startswith('--'):
+        name = name[2:]
+    elif name.startswith('-'):
+        name = name[1:]
+    else:
+        raise Exception("Custom configuration options must start with either one or two dashes")
+    name = name.replace('-', '_')
+    config_vars[name] = config_args[i + 1]
 
 # read configuration
 config = get_default_config(work_dir=args.work_dir, section=args.section)
@@ -625,12 +748,13 @@ for session in sessions:
         if args.queue:
             sys.stdout.write("Submitting SLURM job for {SubjectId} session {SessionId}: ".format(**info))
             job_name = 'rec-{SubjectId}-{SessionId}'.format(**info)
-            log_dir  = os.path.join(args.work_dir, session, 'logs')
-            job_id   = sbatch(job_name, log_dir, session, args)
+            log_dir  = config.get(args.section, 'logs_dir', vars=info)
+            job_id   = sbatch(job_name, log_dir, session, args, config_vars)
             sys.stdout.write('Job ID = {}\n'.format(job_id))
         else:
             sys.stdout.write("\nReconstructing cortical surfaces of {SubjectId} session {SessionId}\n".format(**info))
-            recon_neonatal_cortex(config=config, section=args.section, config_vars=info,
+            config_vars.update(info)
+            recon_neonatal_cortex(config=config, section=args.section, config_vars=config_vars,
                                   with_brain_mesh=args.brain,
                                   with_cerebrum_mesh=args.cerebrum,
                                   with_white_mesh=args.white,

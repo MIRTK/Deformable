@@ -272,7 +272,7 @@ void RepulsiveForce::Initialize()
 
   _Locator = vtkSmartPointer<vtkOctreePointLocator>::New();
 
-  if (debug) AddPointData("Magnitude");
+  if (debug) AddPointData("Magnitude")->FillComponent(0, 0.);
 }
 
 // -----------------------------------------------------------------------------

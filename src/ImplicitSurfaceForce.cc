@@ -646,7 +646,7 @@ void ImplicitSurfaceForce::UpdateNormalDistances()
       smoother.NumberOfIterations(_DistanceSmoothing);
       smoother.Run();
       vtkPointData *outputPD = smoother.Output()->GetPointData();
-      distances->DeepCopy(outputPD->GetArray(distances->GetName()));
+      distances->CopyComponent(0, outputPD->GetArray(distances->GetName()), 0);
     }
 
     distances->Modified();

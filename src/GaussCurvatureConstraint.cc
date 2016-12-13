@@ -347,11 +347,11 @@ void GaussCurvatureConstraint::Update(bool gradient)
 
     vtkPointData * const outputPD = smoother.Output()->GetPointData();
     if ((curv_types & SurfaceCurvature::Gauss) != 0) {
-      gauss_curvature->DeepCopy(outputPD->GetArray(SurfaceCurvature::GAUSS));
+      gauss_curvature->CopyComponent(0, outputPD->GetArray(SurfaceCurvature::GAUSS), 0);
       gauss_curvature->Modified();
     }
     if ((curv_types & SurfaceCurvature::Mean) != 0) {
-      mean_curvature->DeepCopy(outputPD->GetArray(SurfaceCurvature::MEAN));
+      mean_curvature->CopyComponent(0, outputPD->GetArray(SurfaceCurvature::MEAN), 0);
       mean_curvature->Modified();
     }
   }

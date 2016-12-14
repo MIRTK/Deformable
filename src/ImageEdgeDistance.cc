@@ -19,6 +19,7 @@
 
 #include "mirtk/ImageEdgeDistance.h"
 
+#include "mirtk/Assert.h"
 #include "mirtk/Math.h"
 #include "mirtk/Parallel.h"
 #include "mirtk/Profiling.h"
@@ -48,10 +49,10 @@ mirtkAutoRegisterEnergyTermMacro(ImageEdgeDistance);
 #define BUILD_WITH_DEBUG_CODE 0
 
 #if BUILD_WITH_DEBUG_CODE
-  const double dbg_dist    = 2.;
+  const double dbg_dist    = 3.;
   const bool   dbg_patches = false;
 
-  const Point dbg_voxel(152, 111, 64);
+  const Point dbg_voxel(55, 149, 100);
 
   // dHCP CC00050XX01
   // ----------------
@@ -460,8 +461,6 @@ struct ComputeDistances
   vtkPoints    *_Points;
   vtkDataArray *_Status;
   vtkDataArray *_Normals;
-
-  vtkDataArray *_ImageGradient;
   vtkDataArray *_Distances;
 
   const ContinuousImage *_T1WeightedImage;
@@ -487,7 +486,6 @@ struct ComputeDistances
   double _MaxT1Gradient;
   double _StepLength;
   int    _NumberOfSamples;
-  double _MinCorticalHullDistance;
   double _GlobalWhiteMatterMean;
   double _GlobalWhiteMatterSigma;
   double _GlobalWhiteMatterVariance;
@@ -513,7 +511,7 @@ struct ComputeDistances
 
     Extremum(int i = -1, bool is_min = false)
     :
-      idx(i), min(is_min), mean(NaN), var(NaN), prb(0.)
+      idx(i), min(is_min), mean(NaN), std(NaN), var(NaN), prb(0.)
     {}
 
     inline operator bool() const { return idx >= 0; }
@@ -592,6 +590,7 @@ struct ComputeDistances
   /// Evaluate directional image derivative along ray in dp centered at p
   inline void SampleGradient(Array<double> &g, int k, const Point &p, const Vector3 &dp) const
   {
+    mirtkAssert(static_cast<size_t>(k+1) == g.size(), "k is index of last element");
     const int i0 = k/2;
     int i;
 
@@ -635,6 +634,8 @@ struct ComputeDistances
   ///              re-evaluation of whether a point is in foreground or not.
   inline void SampleIntensity(Array<double> &f, const Array<double> &g, int k, const Point &p, const Vector3 &dp) const
   {
+    mirtkAssert(g.size() == f.size(), "f and g arrays have same size");
+    mirtkAssert(static_cast<size_t>(k+1) == f.size(), "k is index of last element");
     const int i0 = k/2;
     int i;
 
@@ -646,6 +647,7 @@ struct ComputeDistances
       while (i <= k && !IsNaN(g[i])) {
         f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
         v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+        mirtkAssert(_SurfaceMask->IsInside(v._x, v._y, v._z), "Voxel where g is not NaN is inside volume");
         if (_SurfaceMask->Get(v._x, v._y, v._z) == 0) {
           ++i, q += dp;
           break;
@@ -655,6 +657,7 @@ struct ComputeDistances
     }
     while (i <= k && !IsNaN(g[i])) {
       v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+      mirtkAssert(_SurfaceMask->IsInside(v._x, v._y, v._z), "Voxel where g is not NaN is inside volume");
       if (_SurfaceMask && _SurfaceMask->Get(v._x, v._y, v._z) != 0) break;
       f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
       ++i, q += dp;
@@ -666,6 +669,7 @@ struct ComputeDistances
       while (i >= 0 && !IsNaN(g[i])) {
         if (i != i0) f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
         v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+        mirtkAssert(_SurfaceMask->IsInside(v._x, v._y, v._z), "Voxel where g is not NaN is inside volume");
         if (_SurfaceMask && _SurfaceMask->Get(v._x, v._y, v._z) != 0) {
           --i, q -= dp;
           break;
@@ -675,6 +679,7 @@ struct ComputeDistances
     }
     while (i >= 0 && !IsNaN(g[i])) {
       v._x = iround(q._x), v._y = iround(q._y), v._z = iround(q._z);
+      mirtkAssert(_SurfaceMask->IsInside(v._x, v._y, v._z), "Voxel where g is not NaN is inside volume");
       if (_SurfaceMask && _SurfaceMask->Get(v._x, v._y, v._z) == 0) break;
       f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
       if (_VentriclesDistance) {
@@ -911,7 +916,7 @@ struct ComputeDistances
       int j = i + 1;
       if (!IsNaN(v[j])) {
         while (j < k && v[j] == v[j+1]) ++j;
-        if (j <= k) {
+        if (j < k) {
           if (v[i] > v[j]) {
             while (j < k && v[j] >= v[j+1]) ++j;
           } else {
@@ -1138,9 +1143,11 @@ struct ComputeDistances
           // the brain mask BG
           if (f2[idx] < _MinIntensity) {
             const int i = extrema.back().idx;
+            mirtkAssert(0 <= i && i <= k, "Index is within bounds and not zero");
             if (!extrema.back().min || abs(g2[i]) >= _MaxGradient) {
               int j = idx - 1;
               while (i < j) {
+                mirtkAssert(0 < j && j <= k, "Index is within bounds and not zero");
                 if (_MinIntensity <= f2[j] && f2[j] <= _MaxIntensity) {
                   if ((abs(g2[j]) <= _MaxGradient && f2[j] > gm_thres) || f2[j-1] > _GlobalGreyMatterMean) {
                     if (abs(f2[i] - f2[j]) >= _MinGradient && abs(g2[j]) < 1.5 * _GlobalGreyMatterSigma) {
@@ -1154,6 +1161,7 @@ struct ComputeDistances
               if (i == j) {
                 j = idx - 1;
                 while (i < j) {
+                  mirtkAssert(0 < j && j <= k, "Index is within bounds and not zero");
                   if (_MinIntensity <= f2[j] && f2[j] <= _MaxIntensity && abs(g2[j] - g2[j-1]) <= .1 * _MinGradient) {
                     if (abs(f2[i] - f2[j]) >= _MinGradient && abs(g2[j]) < 1.5 * _GlobalGreyMatterSigma) {
                       extrema.push_back(Extremum(j, f2[i] >= f2[j]));
@@ -1229,6 +1237,8 @@ struct ComputeDistances
   {
     if (local_mean != nullptr && local_var != nullptr) {
       const Voxel v = RayVoxel(p, dp, i, k);
+      mirtkAssert(local_mean->IsInside(v._x, v._y, v._z), "Ray voxel is inside volume");
+      mirtkAssert(local_var ->IsInside(v._x, v._y, v._z), "Ray voxel is inside volume");
       mean = local_mean->Get(v._x, v._y, v._z);
       var  = local_var ->Get(v._x, v._y, v._z);
       std  = sqrt(var);
@@ -1266,7 +1276,9 @@ struct ComputeDistances
                            const Array<double> &f, int k) const
   {
     double lower, upper, limit;
-    const auto &value  = f[extremum.idx];
+    mirtkAssert(static_cast<size_t>(k+1) == f.size(), "k is index of last element");
+    mirtkAssert(0 <= extremum.idx && extremum.idx <= k, "Extremum index is within bounds");
+    const auto &value = f[extremum.idx];
     if (_MinIntensity <= value && value <= _MaxIntensity) {
       if (extremum.min) {
         GetGreyMatterStatistics(p, dp, extremum.idx, k, extremum.mean, extremum.std, extremum.var);
@@ -1297,6 +1309,7 @@ struct ComputeDistances
         limit = extremum.mean - 3. * extremum.std;
         if (_VentriclesDistance != nullptr) {
           const Voxel v = RayVoxel(p, dp, extremum.idx, k);
+          mirtkAssert(_VentriclesDistance->IsInside(v._x, v._y, v._z), "Ray voxel with f not NaN is inside volume");
           if (_VentriclesDistance->Get(v._x, v._y, v._z) < .5) {
             extremum.prb = 0.;
             upper = lower = NaN;
@@ -1363,6 +1376,7 @@ struct ComputeDistances
   {
     if (_T1WeightedImage && _LocalGreyMatterT1Mean && _LocalGreyMatterT1Variance) {
       const Voxel v(iround(p._x), iround(p._y), iround(p._z));
+      mirtkAssert(_LocalGreyMatterT1Mean->IsInside(v._x, v._y, v._z), "Ray voxel is inside volume");
       double mean  = _LocalGreyMatterT1Mean->Get(v._x, v._y, v._z);
       double sigma = sqrt(_LocalGreyMatterT1Variance->Get(v._x, v._y, v._z));
       double limit = mean - 3. * sigma;
@@ -1392,6 +1406,11 @@ struct ComputeDistances
                                       const Array<double> &f, const Array<double> &g, int k) const
   {
     int edge;
+    mirtkAssert(f.size() == g.size(), "f and g arrays have same size");
+    mirtkAssert(static_cast<size_t>(k+1) == f.size(), "k is index of last element");
+    mirtkAssert(0 <= i->idx && i->idx <= k, "First index is within bounds");
+    mirtkAssert(0 <= j->idx && j->idx <= k, "First index is within bounds");
+    mirtkAssert(i->idx < j->idx, "Indices are not equal and sorted");
     // If minimum is not an actual minimum but interim point where intensity
     // falls rapidly below GM mean towards background, move inwards to
     // previous maximum in gradient function and then further inwards below
@@ -1401,7 +1420,7 @@ struct ComputeDistances
       edge = j->idx - 1;
       while (edge > i->idx && g[edge] < g[edge-1]) --edge;
       while (edge > i->idx && g[edge] > g[edge-1]) --edge;
-      if (edge == i->idx) edge = -1;
+      if (edge <= i->idx) edge = -1;
     } else {
       edge = -1;
       // 1. Find edge stronger than _MaxGradient closest to GM minimum
@@ -1423,13 +1442,15 @@ struct ComputeDistances
       // 2. If no such edge found, use strongest edge
       if (edge == -1) edge = strongest_edge;
     }
+    mirtkAssert(edge == -1 || (0 <= edge && edge <= k), "Edge index is either -1 or within bounds");
     // 3. Last resort is middle point between WM max and GM min
     if (edge == -1) edge = (i->idx + j->idx) / 2;
+    mirtkAssert(0 <= edge && edge <= k, "Edge index is within bounds");
     // 4. Move outwards if edge is steep and intensity is yet above threshold
     if (g[edge] < 1.5 * _GlobalWhiteMatterSigma && f[j->idx] < _GlobalGreyMatterMean) {
       int idx = edge;
       while (idx < j->idx && f[idx] > _GlobalWhiteMatterThreshold) ++idx;
-      if (idx > edge) {
+      if (edge < idx && idx < j->idx) {
         edge = idx++;
         if (_GlobalWhiteMatterThreshold - f[edge] > f[idx] - _GlobalWhiteMatterThreshold) {
           edge = idx;
@@ -1469,10 +1490,24 @@ struct ComputeDistances
                                               const Extrema::iterator &i, const Extrema::iterator &j,
                                               const Array<double> &f, const Array<double> &g, int k) const
   {
-    const int idx = (j == extrema.end() ? NextExtremum(*i, f, k) : *j).idx + 1;
-    if (idx != -1 && idx <= k && IsNaN(f[idx]) && !IsNaN(g[idx])) {
+    mirtkAssert(i != extrema.end(), "Iterator is valid");
+    mirtkAssert(0 <= i->idx && i->idx <= k, "Index is valid");
+    int idx;
+    if (j == extrema.end()) {
+      idx = NextExtremum(i->idx, f, k);
+      if (idx == -1) return false;
+    } else {
+      mirtkAssert(i->idx <= j->idx, "Valid extrema interval");
+      idx = j->idx;
+      if (idx == i->idx) return false;
+    }
+    mirtkAssert(idx > i->idx, "Next extremum index (actual " << idx << ") greater than start index (" << i->idx << ")");
+    mirtkAssert(idx <= k, "Next extremum index is less no. of elements");
+    idx += 1;
+    if (idx <= k && IsNaN(f[idx]) && !IsNaN(g[idx])) {
       if (_CerebellumDistance != nullptr) {
         const Voxel v = RayVoxel(p, dp, idx, k);
+        mirtkAssert(_CerebellumDistance->IsInside(v._x, v._y, v._z), "Ray voxel with g not NaN is inside volume");
         if (_CerebellumDistance->Get(v._x, v._y, v._z) < .5) return false;
       }
       return true;
@@ -1529,36 +1564,41 @@ struct ComputeDistances
 
     // Avoid mistakes when right next to ventricles
     //
-    // Note however that some brigth CSF in sulci close to the lateral
-    // ventricles may be mislabed as venctricles. Thus, allow the surface
+    // Note however that some bright CSF in sulci close to the lateral
+    // ventricles may be mislabeled as venctricles. Thus, allow the surface
     // to propagate through small clusters of so mislabeled CSF.
     if (_VentriclesDistance != nullptr) {
       Voxel v(iround(p._x), iround(p._y), iround(p._z));
-      const double ventricles_distance = _VentriclesDistance->Get(v._x, v._y, v._z);
-      // When inside a ventricle, move outwards until the surface no longer
-      // intersects the ventricles
-      if (ventricles_distance < -.5) {
-        #if BUILD_WITH_DEBUG_CODE
-          if (dbg) cout << "\n\tinside ventricles, move outwards" << endl;
-        #endif
-        int idx;
-        for (idx = i0; idx < k && !IsNaN(g[idx]); ++idx) {
-          v = RayVoxel(p, dp, idx, k);
-          if (_VentriclesDistance->Get(v._x, v._y, v._z) > .1) break;
-        }
-        if (IsNaN(g[idx])) return i0;
-        return idx;
-      }
-      // When right next to a ventricle, the following assumptions of valid
-      // image edges may be incorrect; thus better stay and rely on the segmentation.
-      #if 0
-        if (ventricles_distance < 1.) {
+      if (_VentriclesDistance->IsInside(v._x, v._y, v._z)) {
+        const double ventricles_distance = _VentriclesDistance->Get(v._x, v._y, v._z);
+        // When inside a ventricle, move outwards until the surface no longer
+        // intersects the ventricles
+        if (ventricles_distance < -.5) {
           #if BUILD_WITH_DEBUG_CODE
-            if (dbg) cout << "\n\tnext to ventricles, don't move" << endl;
+            if (dbg) cout << "\n\tinside ventricles, move outwards" << endl;
           #endif
-          return i0;
+          int i = i0 + 1;
+          while (i < k && !IsNaN(g[i])) {
+            v = RayVoxel(p, dp, i, k);
+            mirtkAssert(_VentriclesDistance->IsInside(v._x, v._y, v._z), "Ray voxel with g not NaN is inside volume");
+            if (_VentriclesDistance->Get(v._x, v._y, v._z) > .1) break;
+            ++i;
+          }
+          mirtkAssert(0 <= i <= k, "Index is within bounds");
+          if (IsNaN(g[i])) return i0;
+          return i;
         }
-      #endif
+        // When right next to a ventricle, the following assumptions of valid
+        // image edges may be incorrect; thus better stay and rely on the segmentation.
+        #if 0
+          if (ventricles_distance < 1.) {
+            #if BUILD_WITH_DEBUG_CODE
+              if (dbg) cout << "\n\tnext to ventricles, don't move" << endl;
+            #endif
+            return i0;
+          }
+        #endif
+      }
     }
 
     // Whether correction of found WM->dGM edge near the ventricles is allowed
@@ -1628,11 +1668,17 @@ struct ComputeDistances
       } while (i != extrema.begin());
     }
     if (pos1 != extrema.end()) {
-      prb1 = .5 * (pos1->prb + (pos1+1)->prb);
+      j = pos1 + 1;
+      mirtkAssert(j != extrema.end() && !pos1->min && pos1->idx < j->idx && j->min, "pos1 is a valid edge interval start");
+      prb1 = .5 * (pos1->prb + j->prb);
     }
+    mirtkAssert(m != extrema.end(), "Central extremum iterator is valid");
     j = m + 1;
+    mirtkAssert(j != extrema.begin(), "Extrema iterator is never at first element");
     while (j != extrema.end()) {
       i = j - 1;
+      mirtkAssert(0 <= i->idx && i->idx <= k, "Extremum i index is within bounds");
+      mirtkAssert(0 <= j->idx && j->idx <= k, "Extremum j index is within bounds");
       if (i->idx < j->idx) {
         prb = .5 * (i->prb + j->prb);
         if (i->min) {
@@ -1662,12 +1708,13 @@ struct ComputeDistances
             }
           }
         } else if (IsNeonatalWhiteSurfaceEdge(i, j, f1, g1, f, g, k)) {
-          if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, j, j + 1, f, g, k)) {
+          if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, j, j+1, f, g, k)) {
             // Close to the superior of corpus callosum and the lateral ventricles,
             // there are small sulci where the cortex begins, keep this edge even
             // when close to another
             if (_VentriclesDistance && f[j->idx] > _GlobalGreyMatterMean - 1.5 * _GlobalGreyMatterSigma) {
               const Voxel v = RayVoxel(p, dp, i->idx, k);
+              mirtkAssert(_VentriclesDistance->IsInside(v._x, v._y, v._z), "Ventricles distance lookup is within bounds");
               if (_VentriclesDistance->Get(v._x, v._y, v._z) < 5.) {
                 pos2 = i;
                 prb2 = prb;
@@ -1685,10 +1732,13 @@ struct ComputeDistances
               // in the gradient function as white surface boundary edge.
               Extremum ext = PrevExtremum(Extremum(j->idx), g, k);
               if (ext.idx > i->idx && ext.min) {
+                mirtkAssert(0 <= ext.idx && ext.idx <= k, "Extremum index within bounds");
                 Extremum mid = PrevExtremum(ext, g, k);
+                mirtkAssert(mid.idx < i->idx || 0 <= mid.idx && mid.idx <= k, "Extremum index within bounds");
                 if (mid.idx > i->idx && abs(g[mid.idx]) < _MinGradient) {
                   ext = PrevExtremum(mid, g, k);
                   if (ext.idx > i->idx) {
+                    mirtkAssert(0 <= ext.idx && ext.idx <= k, "Extremum index within bounds");
                     EvalExtremum(mid, p, dp, f, k);
                     j = extrema.insert(j, mid); // need alternating sequence of min/max
                     mid.min = true;
@@ -1702,11 +1752,14 @@ struct ComputeDistances
               // have only a slight GM minimum above the GM mean due to partial
               // volume with nearby CSF and was therefore skipped before.
               if (pos2 == extrema.end() && distance(extrema.begin(), i) > 1) {
-                i -= 2, j = i + 1;
-                prb = .5 * (i->prb + j->prb);
-                if (pos1 != i && prb > .5) {
-                  pos2 = i;
-                  prb2 = prb;
+                const auto a = i - 2;
+                const auto b = i - 1;
+                if (!a->min && a->idx < b->idx) {
+                  prb = .5 * (a->prb + b->prb);
+                  if (a != pos1 && prb > .5) {
+                    pos2 = a;
+                    prb2 = prb;
+                  }
                 }
               }
             }
@@ -1732,6 +1785,7 @@ struct ComputeDistances
       }
       ++j;
     }
+    mirtkAssert(pos2 == extrema.end() || (pos2+1 != extrema.end() && !pos2->min && pos2->idx < (pos2+1)->idx && (pos2+1)->min), "pos2 is a valid edge interval start");
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
         cout << "\n\tmid = " << m->idx;
@@ -1754,9 +1808,9 @@ struct ComputeDistances
       // If the outwards edge is opposite to bright CSF, choose it even if
       // its "probability" score is lower than the inwards edge as long as
       // it is high enough and nop2 is zero
-      if (nop1 == 0 && prb2 > .5) {
+      if (nop2 == 0 && prb2 > .7) {
         j = pos2 + 1;
-        if (MaximumValue(g, pos2->idx, j->idx) < -_GlobalGreyMatterSigma) {
+        if (MinimumValue(g, pos2->idx, j->idx) < -_MinGradient) {
           Extremum ext = NextExtremum(*j, f, k);
           if (ext.idx != -1 && f[ext.idx] > _MaxIntensity) i = pos2;
         }
@@ -1805,6 +1859,8 @@ struct ComputeDistances
     // require maximum in gradient to the right of this minimum to avoid
     // finding a strong "minimum" in the gradient near foreground boundary
     int edge = FindNeonatalWhiteSurface(i, j, f, g, k);
+    mirtkAssert(0 <= edge && edge <= k, "Edge index is within ray bounds");
+    mirtkAssert(i->idx <= edge && edge <= j->idx, "Edge index is within interval");
     #if BUILD_WITH_DEBUG_CODE
       if (dbg) {
         cout << "\n\tWM/cGM edge index = " << edge;
@@ -1840,10 +1896,13 @@ struct ComputeDistances
       // following edge is within darker WM or deep GM, use this next
       // edge instead which is further outside. But only when this edge
       // was not previously identified as near to a neighboring gyrus.
-      const auto a = j + 1, b = j + 2;
-      if (a != extrema.end() && b != extrema.end()) {
+      mirtkAssert(j != extrema.end(), "Extremum iterator j is valid");
+      const auto a = j + 1;
+      const auto b = j + 2;
+      if (a != extrema.end() && b != extrema.end() && a->idx < b->idx) {
+        mirtkAssert(0 <= a->idx && a->idx < b->idx && b->idx <= k, "Interval [a, b] is valid");
         if (abs(g[b->idx]) < _MaxGradient) {
-          if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, b, b + 1, f, g, k)) {
+          if (IsOtherNeonatalWhiteSurfaceEdge(extrema, p, dp, b, b+1, f, g, k)) {
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
                 cout << "\n\tfollowing edge is opposite to another WM/cGM edge";
@@ -1853,6 +1912,7 @@ struct ComputeDistances
             // Use approximate distance maps to outer cortical surface
             // (boundary of union of GM and WM tissue segmentation) and distance
             // to ventricles to decide when to perform this correction
+            mirtkAssert(_CorticalHullDistance->IsInside(v._x, v._y, v._z), "Edge voxel is within volume bounds");
             double cortex_distance = _CorticalHullDistance->Get(v._x, v._y, v._z);
             #if BUILD_WITH_DEBUG_CODE
               if (dbg) {
@@ -1884,54 +1944,57 @@ struct ComputeDistances
               if (distance(extrema.begin(), i) > 1) {
                 const auto c = i - 2;
                 const auto d = i - 1;
-                #if BUILD_WITH_DEBUG_CODE
-                  if (dbg) {
-                    cout << "\n\tf[c=" << c->idx << "]=" << f[c->idx];
-                    cout << ", f[d=" << d->idx << "]=" << f[d->idx];
-                    cout << ", max(g(d:i))=" << MaximumValue(g, d->idx, i->idx);
-                    cout << ", min(g(i:j))=" << MinimumValue(g, i->idx, j->idx);
+                if (c->idx < d->idx) {
+                  mirtkAssert(0 <= c->idx && c->idx < d->idx && d->idx <= k, "Interval [c, d] is valid");
+                  #if BUILD_WITH_DEBUG_CODE
+                    if (dbg) {
+                      cout << "\n\tf[c=" << c->idx << "]=" << f[c->idx];
+                      cout << ", f[d=" << d->idx << "]=" << f[d->idx];
+                      cout << ", max(g(d:i))=" << MaximumValue(g, d->idx, i->idx);
+                      cout << ", min(g(i:j))=" << MinimumValue(g, i->idx, j->idx);
+                    }
+                  #endif
+                  if (f[i->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
+                      // 1. Next maximum is below WM maximum
+                      && f[c->idx] - f[i->idx] > max_max_f_delta
+                      // 2. Next minimum is lower than this GM minimum
+                      && f[d->idx] - f[j->idx] > min_min_f_delta
+                      // 3. Edge from GM minimum to next maximum is not too strong
+                      && MaximumValue(g, d->idx, i->idx) < min_max_g_limit) {
+                    allow_deep_matter_correction = false;
+                    #if BUILD_WITH_DEBUG_CODE
+                      if (dbg) {
+                        cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 1)";
+                      }
+                    #endif
+                  } else if (   f[c->idx] > _GlobalWhiteMatterMean + 1.5 * _GlobalWhiteMatterSigma
+                             && f[i->idx] < _GlobalWhiteMatterMean + 0.5 * _GlobalWhiteMatterSigma
+                             && f[i->idx] > _GlobalWhiteMatterThreshold) {
+                    allow_deep_matter_correction = false;
+                    #if BUILD_WITH_DEBUG_CODE
+                      if (dbg) {
+                        cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 2)";
+                      }
+                    #endif
+                  } else if (// Prev minimum is bright GM (i.e., dGM)
+                             _GlobalGreyMatterMean < f[d->idx] && f[d->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
+                             // Next minimum is darker GM (i.e., cGM)
+                             && f[j->idx] < _GlobalGreyMatterMean - .5 * _GlobalGreyMatterSigma
+                             // Separating maximum is above GM/WM threshold
+                             && f[i->idx] > _GlobalWhiteMatterThreshold
+                             // Edge between prev minimum and WM maximum is weak
+                             && MaximumValue(g, d->idx, i->idx) < _GlobalWhiteMatterSigma
+                             // Edge between next minimum and WM maximum is strong
+                             && MinimumValue(g, i->idx, j->idx) < -_GlobalWhiteMatterSigma
+                             // Difference of inside edge is less than outside edge
+                             && 1.5 * (f[c->idx] - f[d->idx]) < (f[i->idx] - f[j->idx])) {
+                    allow_deep_matter_correction = false;
+                    #if BUILD_WITH_DEBUG_CODE
+                      if (dbg) {
+                        cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 3)";
+                      }
+                    #endif
                   }
-                #endif
-                if (f[i->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
-                    // 1. Next maximum is below WM maximum
-                    && f[c->idx] - f[i->idx] > max_max_f_delta
-                    // 2. Next minimum is lower than this GM minimum
-                    && f[d->idx] - f[j->idx] > min_min_f_delta
-                    // 3. Edge from GM minimum to next maximum is not too strong
-                    && MaximumValue(g, d->idx, i->idx) < min_max_g_limit) {
-                  allow_deep_matter_correction = false;
-                  #if BUILD_WITH_DEBUG_CODE
-                    if (dbg) {
-                      cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 1)";
-                    }
-                  #endif
-                } else if (   f[c->idx] > _GlobalWhiteMatterMean + 1.5 * _GlobalWhiteMatterSigma
-                           && f[i->idx] < _GlobalWhiteMatterMean + 0.5 * _GlobalWhiteMatterSigma
-                           && f[i->idx] > _GlobalWhiteMatterThreshold) {
-                  allow_deep_matter_correction = false;
-                  #if BUILD_WITH_DEBUG_CODE
-                    if (dbg) {
-                      cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 2)";
-                    }
-                  #endif
-                } else if (// Prev minimum is bright GM (i.e., dGM)
-                           _GlobalGreyMatterMean < f[d->idx] && f[d->idx] < _GlobalGreyMatterMean + 1.5 * _GlobalGreyMatterSigma
-                           // Next minimum is darker GM (i.e., cGM)
-                           && f[j->idx] < _GlobalGreyMatterMean - .5 * _GlobalGreyMatterSigma
-                           // Separating maximum is above GM/WM threshold
-                           && f[i->idx] > _GlobalWhiteMatterThreshold
-                           // Edge between prev minimum and WM maximum is weak
-                           && MaximumValue(g, d->idx, i->idx) < _GlobalWhiteMatterSigma
-                           // Edge between next minimum and WM maximum is strong
-                           && MinimumValue(g, i->idx, j->idx) < -_GlobalWhiteMatterSigma
-                           // Difference of inside edge is less than outside edge
-                           && 1.5 * (f[c->idx] - f[d->idx]) < (f[i->idx] - f[j->idx])) {
-                  allow_deep_matter_correction = false;
-                  #if BUILD_WITH_DEBUG_CODE
-                    if (dbg) {
-                      cout << "\n\tis probably already dGM->cGM edge of WM->dGM->cGM transition (case 3)";
-                    }
-                  #endif
                 }
               }
               if (allow_deep_matter_correction) {
@@ -2804,7 +2867,6 @@ void ImageEdgeDistance::Update(bool gradient)
   vtkDataArray * const status         = Status();
   vtkDataArray * const initial_status = InitialStatus();
 
-  if (distances->GetMTime() >= surface->GetMTime()) return;
   MIRTK_START_TIMING();
 
   // Compute distance to closest image edge
@@ -2862,10 +2924,19 @@ void ImageEdgeDistance::Update(bool gradient)
     eval._SurfaceMask = nullptr;
   }
 
-  eval._CorticalHullDistance              = _CorticalHullDistance;
-  eval._VentriclesDistance                = _VentriclesDistance;
-  eval._CerebellumDistance                = _CerebellumDistance;
-  eval._CorticalDeepGreyMatterBoundingBox = _CorticalDeepGreyMatterBoundingBox.data();
+  eval._CorticalHullDistance = _CorticalHullDistance;
+  eval._VentriclesDistance   = _VentriclesDistance;
+  eval._CerebellumDistance   = _CerebellumDistance;
+
+  mirtkAssert(!_CorticalHullDistance || _CorticalHullDistance->HasSpatialAttributesOf(_Image), "CorticalHullDistance image has same image attributes");
+  mirtkAssert(!_VentriclesDistance || _VentriclesDistance->HasSpatialAttributesOf(_Image), "VentriclesDistance image has same image attributes");
+  mirtkAssert(!_CerebellumDistance || _CerebellumDistance->HasSpatialAttributesOf(_Image), "CerebellumDistance image has same image attributes");
+
+  if (_CorticalDeepGreyMatterBoundingBox.empty()) {
+    eval._CorticalDeepGreyMatterBoundingBox = nullptr;
+  } else {
+    eval._CorticalDeepGreyMatterBoundingBox = _CorticalDeepGreyMatterBoundingBox.data();
+  }
 
   eval._GlobalWhiteMatterMean      = _GlobalWhiteMatterMean;
   eval._GlobalWhiteMatterSigma     = sqrt(_GlobalWhiteMatterVariance);
@@ -2888,7 +2959,8 @@ void ImageEdgeDistance::Update(bool gradient)
       parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
     }
   #else
-    parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
+    //parallel_for(blocked_range<int>(0, _NumberOfPoints), eval);
+    eval(blocked_range<int>(0, _NumberOfPoints));
   #endif
   MIRTK_DEBUG_TIMING(5, "computing edge distances");
 
@@ -2901,6 +2973,10 @@ void ImageEdgeDistance::Update(bool gradient)
     median.EdgeTable(SharedEdgeTable());
     median.Connectivity(_MedianFilterRadius);
     median.Run();
+    mirtkAssert(median.OutputData()->GetNumberOfTuples() == distances->GetNumberOfTuples(),
+                "Median filtered data array has same number of tuples as input");
+    mirtkAssert(median.OutputData()->GetNumberOfComponents() == 1,
+                "Median filtered data array has same number of components as input");
     distances->CopyComponent(0, median.OutputData(), 0);
     MIRTK_DEBUG_TIMING(5, "edge distance median filtering");
   }
@@ -2914,7 +2990,14 @@ void ImageEdgeDistance::Update(bool gradient)
     smoother.Weighting(MeshSmoothing::Gaussian);
     smoother.NumberOfIterations(_DistanceSmoothing);
     smoother.Run();
-    distances->CopyComponent(0, smoother.Output()->GetPointData()->GetArray(distances->GetName()), 0);
+    vtkPointData * const pd = smoother.Output()->GetPointData();
+    vtkDataArray * const smoothed_distances = pd->GetArray(distances->GetName());
+    mirtkAssert(smoothed_distances != nullptr, "Smoothed output data array exists");
+    mirtkAssert(smoothed_distances->GetNumberOfTuples() == distances->GetNumberOfTuples(),
+                "Smoothed data array has same number of tuples as input");
+    mirtkAssert(smoothed_distances->GetNumberOfComponents() == 1,
+                "Smoothed data array has same number of components as input");
+    distances->CopyComponent(0, smoothed_distances, 0);
     MIRTK_DEBUG_TIMING(5, "edge distance smoothing");
   }
 

@@ -1387,6 +1387,7 @@ def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh, bs_cb_me
               'optimizer': 'EulerMethod',
                   'step': .2,
                   'steps': [50, 100],
+                  'extrinsic-energy': True,
                   'epsilon': 1e-6,
                   'delta': .01,
                   'min-active': '1%',

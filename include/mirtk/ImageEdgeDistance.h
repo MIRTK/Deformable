@@ -22,6 +22,8 @@
 
 #include "mirtk/SurfaceForce.h"
 
+#include "mirtk/FastCubicBSplineInterpolateImageFunction.h"
+
 
 namespace mirtk {
 
@@ -38,8 +40,14 @@ class ImageEdgeDistance : public SurfaceForce
 
 public:
 
+  /// Type of discrete intensity image
+  typedef GenericImage<double> DiscreteImage;
+
   /// Type of image used to store local image statistics
   typedef GenericImage<float> LocalStatsImage;
+
+  /// Type of interpolated image / image interpolation function
+  typedef GenericFastCubicBSplineInterpolateImageFunction<DiscreteImage> ContinuousImage;
 
   /// Enumeration of edge force modes based on directional derivative of image intensities
   enum EdgeType
@@ -151,6 +159,9 @@ private:
   /// Global white matter intensity variance value
   mirtkAttributeMacro(double, GlobalWhiteMatterVariance);
 
+  /// Threshold that separates white and grey matter
+  mirtkAttributeMacro(double, GlobalWhiteMatterThreshold);
+
   /// Global grey matter intensity mean value
   mirtkAttributeMacro(double, GlobalGreyMatterMean);
 
@@ -177,6 +188,12 @@ private:
 
   /// Bounding box within which to allow WM->dGM->cGM correction
   mirtkAttributeMacro(Array<int>, CorticalDeepGreyMatterBoundingBox);
+
+  /// Continuous T1-weighted image
+  mirtkAttributeMacro(SharedPtr<ContinuousImage>, T1WeightedImageFunction);
+
+  /// Continuous T2-weighted image
+  mirtkAttributeMacro(SharedPtr<ContinuousImage>, T2WeightedImageFunction);
 
 private:
 

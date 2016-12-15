@@ -674,7 +674,7 @@ elif args.pial:
 config_vars = {}
 if len(config_args) % 2 != 0:
     raise Exception("Custom configuration options must come in pairs of -[-]<name> <value>")
-for i in xrange(len(config_args) - 1):
+for i in range(len(config_args) - 1):
     name = config_args[i]
     if name.startswith('--'):
         name = name[2:]

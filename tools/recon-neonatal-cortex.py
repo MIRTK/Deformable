@@ -202,13 +202,16 @@ def require_regions_mask(config, section, config_vars, stack, verbose=0):
 
 
 # ------------------------------------------------------------------------------
-def require_brain_mask(config, section, config_vars, stack, verbose=0):
+def require_brain_mask(config, section, config_vars, stack, verbose=0, keep_regions_mask=False):
     """Resample input brain mask to standard RAS space."""
     brain_mask = config.get(section, 'brain_mask', vars=config_vars)
     if os.path.isfile(brain_mask):
         return brain_mask
     require_input_brain_mask(config, section, config_vars, stack, verbose)
-    require_regions_mask(config, section, config_vars, stack, verbose)
+    if keep_regions_mask:
+        require_regions_mask(config, section, config_vars, None, verbose)
+    else:
+        require_regions_mask(config, section, config_vars, stack, verbose)
     if verbose > 0:
         print("Resampling brain mask to standard RAS space")
     neoctx.binarize(
@@ -218,7 +221,8 @@ def require_brain_mask(config, section, config_vars, stack, verbose=0):
         threshold=0,
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
-    brain_mask = neoctx.push_output(stack, brain_mask)
+    if stack:
+        brain_mask = neoctx.push_output(stack, brain_mask)
     neoctx.run('close-image', args=[brain_mask, brain_mask], opts={'iterations': 5})
     return brain_mask
 
@@ -241,7 +245,10 @@ def optional_corpus_callosum_mask(config, section, config_vars, stack, verbose=0
             image=config.get(section, 'brain_mask', vars=config_vars),
             temp=config.get(section, 'temp_dir', vars=config_vars)
         )
-        return neoctx.push_output(stack, corpus_callosum_mask)
+        if stack:
+            return neoctx.push_output(stack, corpus_callosum_mask)
+        else:
+            return corpus_callosum_mask
     else:
         return None
 
@@ -266,7 +273,10 @@ def require_white_matter_mask(config, section, config_vars, stack, verbose=0):
         image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
-    return neoctx.push_output(stack, white_matter_mask)
+    if stack:
+        return neoctx.push_output(stack, white_matter_mask)
+    else:
+        return white_matter_mask
 
 
 # ------------------------------------------------------------------------------
@@ -289,7 +299,10 @@ def require_gray_matter_mask(config, section, config_vars, stack, verbose=0):
         image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
-    return neoctx.push_output(stack, gray_matter_mask)
+    if stack:
+        return neoctx.push_output(stack, gray_matter_mask)
+    else:
+        return gray_matter_mask
 
 
 # ------------------------------------------------------------------------------
@@ -312,7 +325,10 @@ def require_deep_gray_matter_mask(config, section, config_vars, stack, verbose=0
         image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
-    return neoctx.push_output(stack, deep_gray_matter_mask)
+    if stack:
+        return neoctx.push_output(stack, deep_gray_matter_mask)
+    else:
+        return deep_gray_matter_mask
 
 
 # ------------------------------------------------------------------------------
@@ -335,7 +351,10 @@ def require_ventricles_mask(config, section, config_vars, stack, verbose=0):
         image=config.get(section, 'brain_mask', vars=config_vars),
         temp=config.get(section, 'temp_dir', vars=config_vars)
     )
-    return neoctx.push_output(stack, ventricles_mask)
+    if stack:
+        return neoctx.push_output(stack, ventricles_mask)
+    else:
+        return ventricles_mask
 
 
 # ------------------------------------------------------------------------------
@@ -349,13 +368,17 @@ def require_ventricles_dmap(config, section, config_vars, stack, verbose=0):
         print("Computing lateral ventricles distance map")
     ventricles_mask = config.get(section, 'ventricles_mask', vars=config_vars)
     neoctx.calculate_distance_map(iname=ventricles_mask, oname=ventricles_dmap)
-    return neoctx.push_output(stack, ventricles_dmap)
+    if stack:
+        return neoctx.push_output(stack, ventricles_dmap)
+    else:
+        return ventricles_dmap
 
 
 # ------------------------------------------------------------------------------
 def require_cortical_hull_dmap(config, section, config_vars, stack, verbose=0):
     """Compute distance map of cortical hull."""
     require_regions_mask(config, section, config_vars, stack, verbose)
+    return config.get(section, 'cortical_hull_dmap', vars=config_vars)
 
 
 # ------------------------------------------------------------------------------
@@ -365,6 +388,9 @@ def recon_neonatal_cortex(config, section, config_vars,
                           with_cerebrum_mesh=False,
                           with_white_mesh=True,
                           with_pial_mesh=True,
+                          keep_t1w_image=False,
+                          keep_t2w_image=False,
+                          keep_regions_mask=False,
                           pial_outside_white_surface=False,
                           join_bs_cb_mesh=False,
                           cut=True,
@@ -420,7 +446,8 @@ def recon_neonatal_cortex(config, section, config_vars,
 
         # the surface reconstruction relies on a resampling of the intensity
         # images to the standard RAS space defined by the regions_mask / brain_mask
-        require_brain_mask(config, section, config_vars, stack, verbose)
+        require_brain_mask(config, section, config_vars, stack, verbose,
+                           keep_regions_mask=keep_regions_mask)
 
         if not os.path.isfile(t2w_image):
             input_t2w_image = config.get(section, 'input_t2w_image', vars=config_vars)
@@ -441,6 +468,8 @@ def recon_neonatal_cortex(config, section, config_vars,
                         'type': 'float'
                     }
                 )
+                if keep_t2w_image:
+                    neoctx.push_output(stack, t2w_image)
             else:
                 raise Exception("Input T2-weighted image required")
 
@@ -463,7 +492,8 @@ def recon_neonatal_cortex(config, section, config_vars,
                         'type': 'float'
                     }
                 )
-                neoctx.push_output(stack, t1w_image)
+                if not keep_t1w_image:
+                    neoctx.push_output(stack, t1w_image)
             else:
                 if verbose > 0:
                     print("No input T1-weighted image found, using only T2-weighted image")
@@ -490,7 +520,10 @@ def recon_neonatal_cortex(config, section, config_vars,
                 if force or not os.path.isfile(cerebrum_mesh):
 
                     # at the moment already ensured by require_brain_mask above...
-                    require_regions_mask(config, section, config_vars, stack, verbose)
+                    if keep_regions_mask:
+                        require_regions_mask(config, section, config_vars, None, verbose)
+                    else:
+                        require_regions_mask(config, section, config_vars, stack, verbose)
 
                     # reconstruct cortical surfaces of right and left hemispheres
                     if force or not os.path.isfile(right_cerebrum_mesh):
@@ -624,6 +657,12 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         script += ' --nocheck'
     if args.pial_outside_white:
         script += ' --ensure-pial-is-outside-white-surface'
+    if args.keep_t1w_image:
+        script += ' --keep-t1w-image'
+    if args.keep_t2w_image:
+        script += ' --keep-t2w-image'
+    if args.keep_regions_mask:
+        script += ' --keep-regions-mask'
     for name, value in config_vars.items():
         if '"' in value:
             value = value.replace('"', '\\"')
@@ -645,23 +684,45 @@ def sbatch(job_name, log_dir, session, args, config_vars):
 
 # parse arguments
 parser = argparse.ArgumentParser(description='Reconstruct neonatal cortex from MR brain scan and Draw-EM segmentation')
-parser.add_argument('-r', '-root', '--root', '-work-dir', '--work-dir', dest='work_dir', default=os.getcwd(), help='Root working directory')
-parser.add_argument('-c', '-config', '--config', default='', help='Optional custom configuration file')
-parser.add_argument('-section', '--section', default='recon-neonatal-cortex', help='Configuration section name')
-parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+', help="Either list of '{SubjectId}[-{SessionId}]' strings or path of CSV file", required=True)
-parser.add_argument('-b', '-brain', '--brain', action='store_true', help='Reconstruct surface of brain mask')
-parser.add_argument('-w', '-white', '--white', action='store_true', help='Reconstruct white surface')
-parser.add_argument('-cerebrum', '--cerebrum', action='store_true', help='Reconstruct/keep initial white surface')
-parser.add_argument('-p', '-pial', '--pial', action='store_true', help='Reconstruct pial surface')
+parser.add_argument('-r', '-root', '--root', '-work-dir', '--work-dir', dest='work_dir', default=os.getcwd(),
+                    help='Root working directory')
+parser.add_argument('-c', '-config', '--config', default='',
+                    help='Optional custom configuration file')
+parser.add_argument('-section', '--section', default='recon-neonatal-cortex',
+                    help='Configuration section name')
+parser.add_argument('-s', '-sessions', '--sessions', default=[], nargs='+',
+                    help="Either list of '{SubjectId}[-{SessionId}]' strings or path of CSV file", required=True)
+parser.add_argument('-b', '-brain', '--brain', action='store_true',
+                    help='Reconstruct surface of brain mask')
+parser.add_argument('-w', '-white', '--white', action='store_true',
+                    help='Reconstruct white surface')
+parser.add_argument('-cerebrum', '--cerebrum', action='store_true',
+                    help='Reconstruct/keep initial white surface')
+parser.add_argument('-p', '-pial', '--pial', action='store_true',
+                    help='Reconstruct pial surface')
 parser.add_argument('-ensure-pial-is-outside-white-surface', '--ensure-pial-is-outside-white-surface',
-                    dest='pial_outside_white', action='store_true', help='Ensure that pial surface is strictly outside the white surface')
-parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false', help='Save individual (closed) genus-0 surfaces for each hemisphere')
-parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check', help='Disable consistency and self-intersection checks of (intermediate) surface meshes')
-parser.add_argument('-f', '-force', '--force', action='store_true', help='Overwrite existing output files')
-parser.add_argument('-v', '-verbose', '--verbose', action='count', default=0, help='Increase verbosity of output messages')
-parser.add_argument('-d', '-debug', '--debug', action='count', default=0, help='Keep/write debug output in temp_dir')
-parser.add_argument('-t', '-threads', '--threads', default=0, help='No. of cores to use for multi-threading')
-parser.add_argument('-q', '-queue', '--queue', default='', help='SLURM partition/queue')
+                    dest='pial_outside_white', action='store_true',
+                    help='Ensure that pial surface is strictly outside the white surface')
+parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false',
+                    help='Save individual (closed) genus-0 surfaces for each hemisphere')
+parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check',
+                    help='Disable consistency and self-intersection checks of (intermediate) surface meshes')
+parser.add_argument('-keep-t1w-image', '--keep-t1w-image', action='store_true',
+                    help="Keep resampled T1-weighted image even when no -debug option given")
+parser.add_argument('-keep-t2w-image', '--keep-t2w-image', action='store_true',
+                    help="Keep resampled T2-weighted image even when no -debug option given")
+parser.add_argument('-keep-regions-mask', '--keep-regions-mask', action='store_true',
+                    help="Keep regions label image even when no -debug option given")
+parser.add_argument('-f', '-force', '--force', action='store_true',
+                    help='Overwrite existing output files')
+parser.add_argument('-v', '-verbose', '--verbose', action='count', default=0,
+                    help='Increase verbosity of output messages')
+parser.add_argument('-d', '-debug', '--debug', action='count', default=0,
+                    help='Keep/write debug output in temp_dir')
+parser.add_argument('-t', '-threads', '--threads', default=0,
+                    help='No. of cores to use for multi-threading')
+parser.add_argument('-q', '-queue', '--queue', default='',
+                    help='SLURM partition/queue')
 
 [args, config_args] = parser.parse_known_args()
 args.work_dir = os.path.abspath(args.work_dir)
@@ -759,6 +820,9 @@ for session in sessions:
                                   with_cerebrum_mesh=args.cerebrum,
                                   with_white_mesh=args.white,
                                   with_pial_mesh=args.pial,
+                                  keep_t1w_image=args.keep_t1w_image,
+                                  keep_t2w_image=args.keep_t2w_image,
+                                  keep_regions_mask=args.keep_regions_mask,
                                   pial_outside_white_surface=args.pial_outside_white,
                                   verbose=args.verbose,
                                   check=args.check)

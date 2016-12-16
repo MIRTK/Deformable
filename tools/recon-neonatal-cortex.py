@@ -454,6 +454,7 @@ def recon_neonatal_cortex(config, section, config_vars,
             if os.path.isfile(input_t2w_image):
                 if verbose > 0:
                     print("Resampling T2-weighted image to standard RAS space")
+                neoctx.makedirs(t2w_image)
                 neoctx.run(
                     'transform-image',
                     args=[
@@ -478,6 +479,7 @@ def recon_neonatal_cortex(config, section, config_vars,
             if os.path.isfile(input_t1w_image):
                 if verbose > 0:
                     print("Resampling T1-weighted image to standard RAS space")
+                neoctx.makedirs(t1w_image)
                 neoctx.run(
                     'transform-image',
                     args=[

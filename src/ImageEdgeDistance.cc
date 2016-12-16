@@ -579,8 +579,9 @@ struct SampleIntensityProfile
       if (IsOutsideSurface(q)) break;
       f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
       if (_VentriclesDistance) {
+        x = iround(q._x), y = iround(q._y), z = iround(q._z);
         const double d = _VentriclesDistance->Get(x, y, z);
-        if (d < _StepLength || (d < 2. && f[i] > _GlobalWhiteMatterMean)) {
+        if (d < _StepLength || (d < 1.5 && f[i] > _GlobalWhiteMatterMean)) {
           if (f[i] > _GlobalWhiteMatterMean && i0 - i > iceil(1. / _StepLength)) {
             --i;
           }

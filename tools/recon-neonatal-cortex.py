@@ -630,6 +630,7 @@ def sbatch(job_name, log_dir, session, args, config_vars):
     errlog = os.path.join(log_dir, job_name + '-%j.err')
     p = Popen(['sbatch', '--mem=4G', '-n', '1', '-c', str(args.threads), '-p', args.queue, '-o', outlog, '-e', errlog, '-J', job_name], stdout=PIPE, stderr=PIPE, stdin=PIPE)
     args_map = {
+        'interpreter': sys.executable,
         'script':  __file__,
         'config': args.config,
         'section': args.section,
@@ -639,7 +640,7 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         'verbose': ' '.join(['-v'] * args.verbose),
         'debug':   ' '.join(['-d'] * args.debug)
     }
-    script  = "#!/bin/sh\nexec python3 {script} --threads={threads} {verbose} {debug}"
+    script  = "#!/bin/sh\nexec {interpreter} {script} --threads={threads} {verbose} {debug}"
     script += " --work-dir='{work_dir}' --config='{config}' --section='{section}' --session='{session}'"
     if args.brain:
         script += ' --brain'

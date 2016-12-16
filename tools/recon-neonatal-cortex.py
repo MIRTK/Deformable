@@ -656,6 +656,8 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         script += ' --nocut'
     if not args.check:
         script += ' --nocheck'
+    if args.join_bs_cb_mesh:
+        script += ' --join-with-brainstem-and-cerebellum'
     if args.pial_outside_white:
         script += ' --ensure-pial-is-outside-white-surface'
     if args.keep_t1w_image:
@@ -716,6 +718,9 @@ parser.add_argument('-p', '-pial', '--pial', action='store_true',
 parser.add_argument('-ensure-pial-is-outside-white-surface', '--ensure-pial-is-outside-white-surface',
                     dest='pial_outside_white', action='store_true',
                     help='Ensure that pial surface is strictly outside the white surface')
+parser.add_argument('-join-with-brainstem-and-cerebellum', '--join-with-brainstem-and-cerebellum',
+                    dest='join_bs_cb_mesh', action='store_true',
+                    help="Merge cerebrum surface mesh with brainstem and cerebellum surface mesh")
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false',
                     help='Save individual (closed) genus-0 surfaces for each hemisphere')
 parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check',
@@ -838,6 +843,7 @@ for session in sessions:
                                   keep_t2w_image=args.keep_t2w_image,
                                   keep_regions_mask=args.keep_regions_mask,
                                   pial_outside_white_surface=args.pial_outside_white,
+                                  join_bs_cb_mesh=args.join_bs_cb_mesh,
                                   verbose=args.verbose,
                                   check=args.check)
     except Exception as e:

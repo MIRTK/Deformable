@@ -455,6 +455,203 @@ Array<int> ComputeCorticalDeepGreyMatterBoundingBox(const ImageAttributes &attr,
   return bounds;
 }
 
+// ------------------------------------------------------------------------------
+/// Evaluate image gradient/intensity at normal ray sample points
+struct SampleIntensityProfile
+{
+  vtkPoints             *_Points;
+  vtkDataArray          *_Status;
+  vtkDataArray          *_Normals;
+  const BinaryImage     *_SurfaceMask;
+  const ContinuousImage *_T1WeightedImage;
+  const ContinuousImage *_T2WeightedImage;
+  const RealImage       *_VentriclesDistance;
+  int                    _NumberOfSamples;
+  double                 _StepLength;
+  double                 _GlobalWhiteMatterMean;
+  double                *_T1Intensity;
+  double                *_T1Gradient;
+  double                *_T2Intensity;
+  double                *_T2Gradient;
+
+  // ---------------------------------------------------------------------------
+  /// Check if point is inside the surface
+  ///
+  /// Always returns false when surface inside/outside checks are not used.
+  inline bool IsInsideSurface(const Point &p) const
+  {
+    if (_SurfaceMask) {
+      return _SurfaceMask->Get(iround(p._x), iround(p._y), iround(p._z)) != 0;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Check if point is outside the surface
+  ///
+  /// Always returns false when surface inside/outside checks are not used.
+  inline bool IsOutsideSurface(const Point &p) const
+  {
+    if (_SurfaceMask) {
+      return _SurfaceMask->Get(iround(p._x), iround(p._y), iround(p._z)) == 0;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Evaluate directional image derivative along ray in dp centered at p
+  inline void SampleT2Gradient(double *g, int k, const Point &p, const Vector3 &dp) const
+  {
+    const int i0 = k/2;
+    int i, x, y, z;
+
+    Point q;
+    Matrix jac(1, 3);
+    Vector3 n = dp;
+    n.Normalize();
+
+    q = p;
+    for (i = i0; i <= k; ++i, q += dp) {
+      x = iround(q._x), y = iround(q._y), z = iround(q._z);
+      if (!_T2WeightedImage->Input()->IsInsideForeground(x, y, z)) break;
+      _T2WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
+      g[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
+    }
+    while (i <= k) g[i++] = NaN;
+
+    q = p, q -= dp;
+    for (i = i0 - 1; i >= 0; --i, q -= dp) {
+      x = iround(q._x), y = iround(q._y), z = iround(q._z);
+      if (!_T2WeightedImage->Input()->IsInsideForeground(x, y, z)) break;
+      _T2WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
+      g[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
+    }
+    while (i >= 0) g[i--] = NaN;
+  }
+
+  // ---------------------------------------------------------------------------
+  /// Evaluate image function along ray in dp centered at p
+  ///
+  /// When a mask of the current surface inside region is given, the function
+  /// values are set to NaN as soon as the ray goes from inside/outside the
+  /// surface to outside/inside of it. Given f and g, it can be determined if
+  /// a function value is NaN because of either the image foreground mask or
+  /// the surface mask. The latter is used to prevent the force of causing
+  /// self-intersections by finding the wrong image edges.
+  ///
+  /// \param[in] g Directional derivative values which are previously set to NaN
+  ///              once the ray left the image foreground region. Used to avoid
+  ///              re-evaluation of whether a point is in foreground or not.
+  inline void SampleT2Intensity(double *f, const double *g, int k, const Point &p, const Vector3 &dp) const
+  {
+    const int i0 = k/2;
+    int i, x, y, z;
+    Point q;
+
+    i = i0, q = p;
+    while (i <= k && !IsNaN(g[i])) {
+      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
+      if (IsOutsideSurface(q)) {
+        ++i, q += dp;
+        break;
+      }
+      ++i, q += dp;
+    }
+    while (i <= k && !IsNaN(g[i])) {
+      if (IsInsideSurface(q)) break;
+      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
+      ++i, q += dp;
+    }
+    while (i <= k) f[i++] = NaN;
+
+    i = i0, q = p;
+    while (i >= 0 && !IsNaN(g[i])) {
+      if (i != i0) {
+        f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
+      }
+      if (IsInsideSurface(q)) {
+        --i, q -= dp;
+        break;
+      }
+      --i, q -= dp;
+    }
+    while (i >= 0 && !IsNaN(g[i])) {
+      if (IsOutsideSurface(q)) break;
+      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
+      if (_VentriclesDistance) {
+        const double d = _VentriclesDistance->Get(x, y, z);
+        if (d < _StepLength || (d < 2. && f[i] > _GlobalWhiteMatterMean)) {
+          if (f[i] > _GlobalWhiteMatterMean && i0 - i > iceil(1. / _StepLength)) {
+            --i;
+          }
+          --i;
+          break;
+        }
+      }
+      --i, q -= dp;
+    }
+    while (i >= 0) f[i--] = NaN;
+  }
+
+  // ---------------------------------------------------------------------------
+  inline void SampleT1Intensity(double* f1, const double *f2, int k, const Point &p, const Vector3 &dp) const
+  {
+    Point q = p - double(k/2) * dp;
+    for (int i = 0; i <= k; ++i, q += dp) {
+      if (IsNaN(f2[i])) {
+        f1[i] = NaN;
+      } else {
+        f1[i] = _T1WeightedImage->Evaluate(q._x, q._y, q._z);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  inline void SampleT1Gradient(double *g1, const double *g2, int k, const Point &p, const Vector3 &dp) const
+  {
+    Matrix jac(1, 3);
+    Vector3 n = dp;
+    n.Normalize();
+    Point q = p - double(k/2) * dp;
+    for (int i = 0; i <= k; ++i, q += dp) {
+      if (IsNaN(g2[i])) {
+        g1[i] = NaN;
+      } else {
+        _T1WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
+        g1[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  void operator ()(const blocked_range<int> &ptIds) const
+  {
+    Point   p;
+    Vector3 n;
+    const int k = _NumberOfSamples - 1;
+    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
+      if (!_Status || _Status->GetComponent(ptId, 0) != 0.) {
+        _Points ->GetPoint(ptId, p);
+        _Normals->GetTuple(ptId, n);
+        n *= _StepLength;
+        _T2WeightedImage->WorldToImage(p);
+        _T2WeightedImage->WorldToImage(n);
+        const size_t offset = static_cast<size_t>(ptId) * _NumberOfSamples;
+        SampleT2Gradient(_T2Gradient + offset, k, p, n);
+        if (_T1Gradient) {
+          SampleT1Gradient(_T1Gradient + offset, _T2Gradient + offset, k, p, n);
+        }
+        if (_T2Intensity) {
+          SampleT2Intensity(_T2Intensity + offset, _T2Gradient + offset, k, p, n);
+          if (_T1Intensity) {
+            SampleT1Intensity(_T1Intensity + offset, _T2Intensity + offset, k, p, n);
+          }
+        }
+      }
+    }
+  }
+};
+
 // -----------------------------------------------------------------------------
 /// Compute distance to closest image edge
 struct ComputeDistances
@@ -2120,186 +2317,6 @@ struct ComputeDistances
   }
 };
 
-// ------------------------------------------------------------------------------
-/// Evaluate image gradient/intensity at normal ray sample points
-struct SampleIntensityProfile
-{
-  vtkPoints             *_Points;
-  vtkDataArray          *_Status;
-  vtkDataArray          *_Normals;
-  const ContinuousImage *_T1WeightedImage;
-  const ContinuousImage *_T2WeightedImage;
-  const BinaryImage     *_SurfaceMask;
-  const RealImage       *_VentriclesDistance;
-  int                    _NumberOfSamples;
-  double                 _StepLength;
-  double                 _GlobalWhiteMatterMean;
-  double                *_T1Intensity;
-  double                *_T1Gradient;
-  double                *_T2Intensity;
-  double                *_T2Gradient;
-
-  // ---------------------------------------------------------------------------
-  /// Evaluate directional image derivative along ray in dp centered at p
-  inline void SampleT2Gradient(double *g, int k, const Point &p, const Vector3 &dp) const
-  {
-    const int i0 = k/2;
-    int i, x, y, z;
-
-    Point q;
-    Matrix jac(1, 3);
-    Vector3 n = dp;
-    n.Normalize();
-
-    q = p;
-    for (i = i0; i <= k; ++i, q += dp) {
-      x = iround(q._x), y = iround(q._y), z = iround(q._z);
-      if (!_T2WeightedImage->Input()->IsInsideForeground(x, y, z)) break;
-      _T2WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
-      g[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
-    }
-    while (i <= k) g[i++] = NaN;
-
-    q = p, q -= dp;
-    for (i = i0 - 1; i >= 0; --i, q -= dp) {
-      x = iround(q._x), y = iround(q._y), z = iround(q._z);
-      if (!_T2WeightedImage->Input()->IsInsideForeground(x, y, z)) break;
-      _T2WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
-      g[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
-    }
-    while (i >= 0) g[i--] = NaN;
-  }
-
-  // ---------------------------------------------------------------------------
-  /// Evaluate image function along ray in dp centered at p
-  ///
-  /// When a mask of the current surface inside region is given, the function
-  /// values are set to NaN as soon as the ray goes from inside/outside the
-  /// surface to outside/inside of it. Given f and g, it can be determined if
-  /// a function value is NaN because of either the image foreground mask or
-  /// the surface mask. The latter is used to prevent the force of causing
-  /// self-intersections by finding the wrong image edges.
-  ///
-  /// \param[in] g Directional derivative values which are previously set to NaN
-  ///              once the ray left the image foreground region. Used to avoid
-  ///              re-evaluation of whether a point is in foreground or not.
-  inline void SampleT2Intensity(double *f, const double *g, int k, const Point &p, const Vector3 &dp) const
-  {
-    const int i0 = k/2;
-    int i, x, y, z;
-
-    Point q;
-
-    i = i0, q = p;
-    if (_SurfaceMask) {
-      while (i <= k && !IsNaN(g[i])) {
-        f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
-        x = iround(q._x), y = iround(q._y), z = iround(q._z);
-        if (_SurfaceMask->Get(x, y, z) == 0) {
-          ++i, q += dp;
-          break;
-        }
-        ++i, q += dp;
-      }
-    }
-    while (i <= k && !IsNaN(g[i])) {
-      x = iround(q._x), y = iround(q._y), z = iround(q._z);
-      if (_SurfaceMask && _SurfaceMask->Get(x, y, z) != 0) break;
-      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
-      ++i, q += dp;
-    }
-    while (i <= k) f[i++] = NaN;
-
-    i = i0, q = p;
-    if (_SurfaceMask) {
-      while (i >= 0 && !IsNaN(g[i])) {
-        if (i != i0) f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
-        x = iround(q._x), y = iround(q._y), z = iround(q._z);
-        if (_SurfaceMask && _SurfaceMask->Get(x, y, z) != 0) {
-          --i, q -= dp;
-          break;
-        }
-        --i, q -= dp;
-      }
-    }
-    while (i >= 0 && !IsNaN(g[i])) {
-      x = iround(q._x), y = iround(q._y), z = iround(q._z);
-      if (_SurfaceMask && _SurfaceMask->Get(x, y, z) == 0) break;
-      f[i] = _T2WeightedImage->Evaluate(q._x, q._y, q._z);
-      if (_VentriclesDistance) {
-        const double d = _VentriclesDistance->Get(x, y, z);
-        if (d < _StepLength || (d < 2. && f[i] > _GlobalWhiteMatterMean)) {
-          if (f[i] > _GlobalWhiteMatterMean && i0 - i > iceil(1. / _StepLength)) {
-            --i;
-          }
-          --i;
-          break;
-        }
-      }
-      --i, q -= dp;
-    }
-    while (i >= 0) f[i--] = NaN;
-  }
-
-  // ---------------------------------------------------------------------------
-  inline void SampleT1Intensity(double* f1, const double *f2, int k, const Point &p, const Vector3 &dp) const
-  {
-    Point q = p - double(k/2) * dp;
-    for (int i = 0; i <= k; ++i, q += dp) {
-      if (IsNaN(f2[i])) {
-        f1[i] = NaN;
-      } else {
-        f1[i] = _T1WeightedImage->Evaluate(q._x, q._y, q._z);
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  inline void SampleT1Gradient(double *g1, const double *g2, int k, const Point &p, const Vector3 &dp) const
-  {
-    Matrix jac(1, 3);
-    Vector3 n = dp;
-    n.Normalize();
-    Point q = p - double(k/2) * dp;
-    for (int i = 0; i <= k; ++i, q += dp) {
-      if (IsNaN(g2[i])) {
-        g1[i] = NaN;
-      } else {
-        _T1WeightedImage->Jacobian3D(jac, q._x, q._y, q._z);
-        g1[i] = n._x * jac(0, 0) + n._y * jac(0, 1) + n._z * jac(0, 2);
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  void operator ()(const blocked_range<int> &ptIds) const
-  {
-    Point   p;
-    Vector3 n;
-    const int k = _NumberOfSamples - 1;
-    for (int ptId = ptIds.begin(); ptId != ptIds.end(); ++ptId) {
-      if (!_Status || _Status->GetComponent(ptId, 0) != 0.) {
-        _Points ->GetPoint(ptId, p);
-        _Normals->GetTuple(ptId, n);
-        n *= _StepLength;
-        _T2WeightedImage->WorldToImage(p);
-        _T2WeightedImage->WorldToImage(n);
-        const size_t offset = static_cast<size_t>(ptId) * _NumberOfSamples;
-        SampleT2Gradient(_T2Gradient + offset, k, p, n);
-        if (_T1Gradient) {
-          SampleT1Gradient(_T1Gradient + offset, _T2Gradient + offset, k, p, n);
-        }
-        if (_T2Intensity) {
-          SampleT2Intensity(_T2Intensity + offset, _T2Gradient + offset, k, p, n);
-          if (_T1Intensity) {
-            SampleT1Intensity(_T1Intensity + offset, _T2Intensity + offset, k, p, n);
-          }
-        }
-      }
-    }
-  }
-};
-
 // -----------------------------------------------------------------------------
 /// Compute magnitude of image edge force
 struct ComputeMagnitude
@@ -2853,6 +2870,7 @@ void ImageEdgeDistance::Update(bool gradient)
     sample._T1Intensity           = nullptr;
     sample._T2Gradient            = nullptr;
     sample._T2Intensity           = nullptr;
+    sample._SurfaceMask           = nullptr;
 
     BinaryImage surface_mask;
     if (_EdgeType == NeonatalWhiteSurface) {
@@ -2866,8 +2884,6 @@ void ImageEdgeDistance::Update(bool gradient)
       surface_mask.CopyFrom(reinterpret_cast<BinaryPixel *>(vtkmask->GetScalarPointer()));
       sample._SurfaceMask = &surface_mask;
       MIRTK_DEBUG_TIMING(5, "computing inside mask");
-    } else {
-      sample._SurfaceMask = nullptr;
     }
 
     MIRTK_START_TIMING();
@@ -2885,8 +2901,7 @@ void ImageEdgeDistance::Update(bool gradient)
         sample._T1Intensity = f1.data();
       }
     }
-    //parallel_for(ptIdRange, sample);
-    sample(ptIdRange);
+    parallel_for(ptIdRange, sample);
     MIRTK_DEBUG_TIMING(5, "sampling image gradient/intensity");
 
     // Compute distance to closest image edge
@@ -2940,13 +2955,13 @@ void ImageEdgeDistance::Update(bool gradient)
     eval._LocalGreyMatterT1Variance  = (_LocalGreyMatterT1Variance.IsEmpty() ? nullptr : &_LocalGreyMatterT1Variance);
 
     #if BUILD_WITH_DEBUG_CODE
-      if (dbg_dist >= 0.) {
-        eval(ptIdRange);
-      } else {
-        parallel_for(ptIdRange, eval);
-      }
+    if (dbg_dist >= 0.) {
+      eval(ptIdRange);
+    } else
     #else
+    {
       parallel_for(ptIdRange, eval);
+    }
     #endif
     MIRTK_DEBUG_TIMING(5, "computing edge distances");
   }

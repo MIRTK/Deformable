@@ -640,7 +640,7 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         'debug':   ' '.join(['-d'] * args.debug)
     }
     script  = "#!/bin/sh\nexec python3 {script} --threads={threads} {verbose} {debug}"
-    script += " --work-dir={work_dir} --config={config} --section={section} --session={session}"
+    script += " --work-dir='{work_dir}' --config='{config}' --section='{section}' --session='{session}'"
     if args.brain:
         script += ' --brain'
     if args.cerebrum:
@@ -664,10 +664,10 @@ def sbatch(job_name, log_dir, session, args, config_vars):
     if args.keep_regions_mask:
         script += ' --keep-regions-mask'
     for name, value in config_vars.items():
-        if '"' in value:
-            value = value.replace('"', '\\"')
+        if "'" in value:
+            value = value.replace("'", "\\'")
         name = name.replace('-', '_')
-        script += '--' + name + ' "' + value + '"'
+        script += ' --' + name + "='" + value + "'"
     (out, err) = p.communicate(input=script.format(**args_map).encode('utf-8'))
     if p.returncode != 0:
         raise Exception(err)
@@ -680,6 +680,18 @@ def sbatch(job_name, log_dir, session, args, config_vars):
 # ==============================================================================
 # main
 # ==============================================================================
+
+
+def split_config_args(args):
+    """Split -[-]name=value configuration command-line arguments."""
+    res = []
+    for arg in args:
+        if arg.startswith('-'):
+            for part in arg.split('=', 1):
+                res.append(part)
+        else:
+            res.append(arg)
+    return res
 
 
 # parse arguments
@@ -733,9 +745,10 @@ elif args.pial:
     args.white = True
 
 config_vars = {}
+config_args = split_config_args(config_args)
 if len(config_args) % 2 != 0:
     raise Exception("Custom configuration options must come in pairs of -[-]<name> <value>")
-for i in range(len(config_args) - 1):
+for i in range(0, len(config_args), 2):
     name = config_args[i]
     if name.startswith('--'):
         name = name[2:]

@@ -392,6 +392,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                           keep_t2w_image=False,
                           keep_regions_mask=False,
                           pial_outside_white_surface=False,
+                          join_internal_mesh=False,
                           join_bs_cb_mesh=False,
                           cut=True,
                           force=False,
@@ -427,6 +428,8 @@ def recon_neonatal_cortex(config, section, config_vars,
     right_pial_mesh     = config.get(section, 'right_pial_mesh',     vars=config_vars)
     left_pial_mesh      = config.get(section, 'left_pial_mesh',      vars=config_vars)
 
+    internal_base = os.path.splitext(os.path.basename(internal_mesh))[0]
+
     if not with_brain_mesh:
         brain_mesh = None
     if not with_bs_cb_mesh:
@@ -444,176 +447,210 @@ def recon_neonatal_cortex(config, section, config_vars,
     # remove intermediate files that did not exist before upon exit
     with ExitStack() as stack:
 
+        recon_pial = with_pial_mesh and (force or not os.path.isfile(pial_mesh))
+        recon_white = (with_white_mesh or recon_pial) and (force or not os.path.isfile(white_mesh))
+        recon_cerebrum = (with_cerebrum_mesh or recon_white) and (force or not os.path.isfile(cerebrum_mesh))
+        recon_brain = with_brain_mesh and (force or not os.path.isfile(brain_mesh))
+        recon_bs_cb_mesh = ((with_bs_cb_mesh or (recon_cerebrum and bs_cb_mesh_1) or (recon_white and bs_cb_mesh_2)) and
+                            (force or not os.path.isfile(bs_cb_mesh)))
+
         # the surface reconstruction relies on a resampling of the intensity
         # images to the standard RAS space defined by the regions_mask / brain_mask
-        require_brain_mask(config, section, config_vars, stack, verbose,
-                           keep_regions_mask=keep_regions_mask)
+        if recon_brain or recon_bs_cb_mesh or recon_cerebrum or recon_white or recon_pial:
+            require_brain_mask(config, section, config_vars, stack, verbose,
+                               keep_regions_mask=keep_regions_mask)
 
-        if not os.path.isfile(t2w_image):
-            input_t2w_image = config.get(section, 'input_t2w_image', vars=config_vars)
-            if os.path.isfile(input_t2w_image):
-                if verbose > 0:
-                    print("Resampling T2-weighted image to standard RAS space")
-                neoctx.makedirs(t2w_image)
-                neoctx.run(
-                    'transform-image',
-                    args=[
-                        input_t2w_image,
-                        t2w_image
-                    ],
-                    opts={
-                        'interp': 'fast cubic bspline with padding',
-                        'Sp': 0,
-                        'dofin': 'Id',
-                        'target': brain_mask,
-                        'type': 'float'
-                    }
-                )
-                if keep_t2w_image:
-                    neoctx.push_output(stack, t2w_image)
-            else:
-                raise Exception("Input T2-weighted image required")
+        if recon_white or recon_pial:
+            if not os.path.isfile(t2w_image):
+                input_t2w_image = config.get(section, 'input_t2w_image', vars=config_vars)
+                if os.path.isfile(input_t2w_image):
+                    if verbose > 0:
+                        print("Resampling T2-weighted image to standard RAS space")
+                    neoctx.makedirs(t2w_image)
+                    neoctx.run(
+                        'transform-image',
+                        args=[
+                            input_t2w_image,
+                            t2w_image
+                        ],
+                        opts={
+                            'interp': 'fast cubic bspline with padding',
+                            'Sp': 0,
+                            'dofin': 'Id',
+                            'target': brain_mask,
+                            'type': 'float'
+                        }
+                    )
+                    if keep_t2w_image:
+                        neoctx.push_output(stack, t2w_image)
+                else:
+                    raise Exception("Input T2-weighted image required")
 
-        if not os.path.isfile(t1w_image):
-            input_t1w_image = config.get(section, 'input_t1w_image', vars=config_vars)
-            if os.path.isfile(input_t1w_image):
-                if verbose > 0:
-                    print("Resampling T1-weighted image to standard RAS space")
-                neoctx.makedirs(t1w_image)
-                neoctx.run(
-                    'transform-image',
-                    args=[
-                        input_t1w_image,
-                        t1w_image
-                    ],
-                    opts={
-                        'interp': 'fast cubic bspline with padding',
-                        'Sp': 0,
-                        'dofin': 'Id',
-                        'target': brain_mask,
-                        'type': 'float'
-                    }
-                )
-                if not keep_t1w_image:
-                    neoctx.push_output(stack, t1w_image)
-            else:
-                if verbose > 0:
-                    print("No input T1-weighted image found, using only T2-weighted image")
-                t1w_image = None
+            if not os.path.isfile(t1w_image):
+                input_t1w_image = config.get(section, 'input_t1w_image', vars=config_vars)
+                if os.path.isfile(input_t1w_image):
+                    if verbose > 0:
+                        print("Resampling T1-weighted image to standard RAS space")
+                    neoctx.makedirs(t1w_image)
+                    neoctx.run(
+                        'transform-image',
+                        args=[
+                            input_t1w_image,
+                            t1w_image
+                        ],
+                        opts={
+                            'interp': 'fast cubic bspline with padding',
+                            'Sp': 0,
+                            'dofin': 'Id',
+                            'target': brain_mask,
+                            'type': 'float'
+                        }
+                    )
+                    if not keep_t1w_image:
+                        neoctx.push_output(stack, t1w_image)
+                else:
+                    if verbose > 0:
+                        print("No input T1-weighted image found, using only T2-weighted image")
+                    t1w_image = None
 
         # reconstruct boundary of brain mask
-        if brain_mesh and (force or not os.path.isfile(brain_mesh)):
+        if recon_brain:
             if verbose > 0:
                 print("Reconstructing boundary of brain mask")
             neoctx.recon_brain_surface(name=brain_mesh, mask=brain_mask, temp=temp_dir)
 
         # reconstruct brainstem plus cerebellum surface
-        if bs_cb_mesh and (force or not os.path.isfile(bs_cb_mesh)):
+        if recon_bs_cb_mesh:
             if verbose > 0:
                 print("Reconstructing brainstem plus cerebellum surface")
             neoctx.recon_brainstem_plus_cerebellum_surface(name=bs_cb_mesh, regions=regions_mask, temp=temp_dir)
 
-        # reconstruct inner and/or outer cortical surfaces
-        if with_white_mesh or with_pial_mesh:
+        # reconstruct inner-cortical surface from segmentation
+        if recon_cerebrum:
 
-            # reconstruct cortical surface from segmentation
-            if force or not os.path.isfile(white_mesh) or (with_cerebrum_mesh and not os.path.isfile(cerebrum_mesh)):
+            # at the moment already ensured by require_brain_mask above...
+            if keep_regions_mask:
+                require_regions_mask(config, section, config_vars, None, verbose)
+            else:
+                require_regions_mask(config, section, config_vars, stack, verbose)
 
-                if force or not os.path.isfile(cerebrum_mesh):
-
-                    # at the moment already ensured by require_brain_mask above...
-                    if keep_regions_mask:
-                        require_regions_mask(config, section, config_vars, None, verbose)
-                    else:
-                        require_regions_mask(config, section, config_vars, stack, verbose)
-
-                    # reconstruct cortical surfaces of right and left hemispheres
-                    if force or not os.path.isfile(right_cerebrum_mesh):
-                        corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
-                        if verbose > 0:
-                            print("Reconstructing boundary of right cerebral hemisphere segmentation")
-                        neoctx.recon_cortical_surface(name=right_cerebrum_mesh,
-                                                      regions=regions_mask, hemisphere=neoctx.Hemisphere.Right,
-                                                      corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
-                    if force or not os.path.isfile(left_cerebrum_mesh):
-                        corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
-                        if verbose > 0:
-                            print("Reconstructing boundary of left cerebral hemisphere segmentation")
-                        neoctx.recon_cortical_surface(name=left_cerebrum_mesh,
-                                                      regions=regions_mask, hemisphere=neoctx.Hemisphere.Left,
-                                                      corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
-
-                    # join cortical surfaces of right and left hemispheres
-                    if verbose > 0:
-                        print("Joining surfaces of right and left cerebral hemispheres")
-                    neoctx.join_cortical_surfaces(name=cerebrum_mesh, regions=regions_mask,
-                                                  right_mesh=right_cerebrum_mesh,
-                                                  left_mesh=left_cerebrum_mesh,
-                                                  bs_cb_mesh=bs_cb_mesh_1,
-                                                  internal_mesh=internal_mesh,
-                                                  temp=temp_dir, check=check)
-
-                    # remove cortical surfaces of right and left hemispheres
-                    if not with_cerebrum_mesh:
-                        os.remove(right_cerebrum_mesh)
-                        os.remove(left_cerebrum_mesh)
-
-                if force or not os.path.isfile(white_mesh):
-
-                    require_white_matter_mask(config, section, config_vars, stack, verbose)
-                    require_gray_matter_mask(config, section, config_vars, stack, verbose)
-                    require_deep_gray_matter_mask(config, section, config_vars, stack, verbose)
-                    require_ventricles_dmap(config, section, config_vars, stack, verbose)
-                    require_cortical_hull_dmap(config, section, config_vars, stack, verbose)
-
-                    if verbose > 0:
-                        print("Reconstructing inner-cortical surface")
-                    neoctx.recon_white_surface(name=white_mesh,
-                                               t1w_image=t1w_image, t2w_image=t2w_image,
-                                               wm_mask=wm_mask, gm_mask=gm_mask,
-                                               cortex_mesh=cerebrum_mesh, bs_cb_mesh=bs_cb_mesh_2,
-                                               subcortex_mask=deep_gray_matter_mask,
-                                               cortical_hull_dmap=cortical_hull_dmap,
-                                               ventricles_dmap=ventricles_dmap,
-                                               temp=temp_dir, check=check)
-                    # remove joined cortical surface mesh
-                    if not with_cerebrum_mesh:
-                        os.remove(cerebrum_mesh)
-
-            # cut white surface at medial plane
-            if cut and white_mesh and (force or not os.path.isfile(right_white_mesh) or
-                                                not os.path.isfile(left_white_mesh)):
+            # reconstruct inner-cortical surfaces of right and left hemispheres
+            if force or not os.path.isfile(right_cerebrum_mesh):
+                corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                 if verbose > 0:
-                    print("Cutting inner-cortical surface at medial cutting plane")
-                neoctx.split_cortical_surfaces(joined_mesh=white_mesh,
-                                               right_name=right_white_mesh,
-                                               left_name=left_white_mesh,
-                                               internal_mesh=internal_mesh,
-                                               temp=temp_dir)
-
-            # reconstruct pial surface
-            if pial_mesh and (force or not os.path.isfile(pial_mesh)):
-
-                require_white_matter_mask(config, section, config_vars, stack, verbose)
-                require_gray_matter_mask(config, section, config_vars, stack, verbose)
-
+                    print("Reconstructing boundary of right cerebral hemisphere segmentation")
+                neoctx.recon_cortical_surface(name=right_cerebrum_mesh,
+                                              regions=regions_mask, hemisphere=neoctx.Hemisphere.Right,
+                                              corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
+            if force or not os.path.isfile(left_cerebrum_mesh):
+                corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                 if verbose > 0:
-                    print("Reconstructing outer-cortical surface")
-                neoctx.recon_pial_surface(name=pial_mesh, t2w_image=t2w_image,
-                                          wm_mask=wm_mask, gm_mask=gm_mask, brain_mask=brain_mask,
-                                          white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh_2,
-                                          outside_white_mesh=pial_outside_white_surface,
+                    print("Reconstructing boundary of left cerebral hemisphere segmentation")
+                neoctx.recon_cortical_surface(name=left_cerebrum_mesh,
+                                              regions=regions_mask, hemisphere=neoctx.Hemisphere.Left,
+                                              corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
+
+            # join cortical surfaces of right and left hemispheres
+            if verbose > 0:
+                print("Joining surfaces of right and left cerebral hemispheres")
+            neoctx.join_cortical_surfaces(name=cerebrum_mesh, regions=regions_mask,
+                                          right_mesh=right_cerebrum_mesh,
+                                          left_mesh=left_cerebrum_mesh,
+                                          bs_cb_mesh=bs_cb_mesh_1,
+                                          internal_mesh=internal_mesh,
                                           temp=temp_dir, check=check)
 
-            # cut pial surface at medial plane
-            if cut and pial_mesh and (force or not os.path.isfile(right_pial_mesh) or
-                                               not os.path.isfile(left_pial_mesh)):
+            # remove cortical surfaces of right and left hemispheres
+            if not with_cerebrum_mesh:
+                os.remove(right_cerebrum_mesh)
+                os.remove(left_cerebrum_mesh)
+
+        # insert internal mesh into into initial inner-cortical surface
+        if with_cerebrum_mesh and join_internal_mesh:
+            cerebrum_prefix, cerebrum_ext = os.path.splitext(cerebrum_mesh)
+            cerebrum_plus_internal_mesh = cerebrum_prefix + '+' + internal_base + cerebrum_ext
+            if force or not os.path.isfile(cerebrum_plus_internal_mesh):
+                if verbose > 0:
+                    print("Merging initial surface with internal mesh")
+                neoctx.append_surfaces(cerebrum_plus_internal_mesh, surfaces=[cerebrum_mesh, internal_mesh], merge=True, tol=0)
+
+        # reconstruct inner-cortical surface
+        if recon_white:
+
+            require_white_matter_mask(config, section, config_vars, stack, verbose)
+            require_gray_matter_mask(config, section, config_vars, stack, verbose)
+            require_deep_gray_matter_mask(config, section, config_vars, stack, verbose)
+            require_ventricles_dmap(config, section, config_vars, stack, verbose)
+            require_cortical_hull_dmap(config, section, config_vars, stack, verbose)
+
+            if verbose > 0:
+                print("Reconstructing inner-cortical surface")
+            neoctx.recon_white_surface(name=white_mesh,
+                                       t1w_image=t1w_image, t2w_image=t2w_image,
+                                       wm_mask=wm_mask, gm_mask=gm_mask,
+                                       cortex_mesh=cerebrum_mesh, bs_cb_mesh=bs_cb_mesh_2,
+                                       subcortex_mask=deep_gray_matter_mask,
+                                       cortical_hull_dmap=cortical_hull_dmap,
+                                       ventricles_dmap=ventricles_dmap,
+                                       temp=temp_dir, check=check)
+
+            # remove initial surface mesh
+            if not with_cerebrum_mesh:
+                os.remove(cerebrum_mesh)
+
+        # insert internal mesh and cut surface at medial plane
+        split_white = (cut and (force or not os.path.isfile(right_white_mesh) or not os.path.isfile(left_white_mesh)))
+        white_prefix, white_ext = os.path.splitext(white_mesh)
+        white_plus_internal_mesh = white_prefix + '+' + internal_base + white_ext
+        if (split_white or join_internal_mesh) and (force or not os.path.isfile(white_plus_internal_mesh)):
+            if verbose > 0:
+                print("Merging inner-cortical surface with internal mesh")
+            neoctx.append_surfaces(white_plus_internal_mesh, surfaces=[white_mesh, internal_mesh], merge=True, tol=0)
+            if not join_internal_mesh:
+                neoctx.push_output(stack, white_plus_internal_mesh)
+        if split_white:
+            if verbose > 0:
+                print("Cutting inner-cortical surface at medial cutting plane")
+            neoctx.split_cortical_surfaces(joined_mesh=white_plus_internal_mesh,
+                                           right_name=right_white_mesh,
+                                           left_name=left_white_mesh,
+                                           temp=temp_dir)
+
+        # reconstruct outer-cortical surface
+        if recon_pial:
+
+            require_white_matter_mask(config, section, config_vars, stack, verbose)
+            require_gray_matter_mask(config, section, config_vars, stack, verbose)
+
+            if verbose > 0:
+                print("Reconstructing outer-cortical surface")
+            neoctx.recon_pial_surface(name=pial_mesh, t2w_image=t2w_image,
+                                      wm_mask=wm_mask, gm_mask=gm_mask, brain_mask=brain_mask,
+                                      white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh_2,
+                                      outside_white_mesh=pial_outside_white_surface,
+                                      temp=temp_dir, check=check)
+
+            # remove inner-cortical surface
+            if not with_white_mesh:
+                os.remove(white_mesh)
+
+        # insert internal mesh and cut surface at medial plane
+        if with_pial_mesh:
+            split_pial = (cut and (force or not os.path.isfile(right_pial_mesh) or not os.path.isfile(left_pial_mesh)))
+            pial_prefix, pial_ext = os.path.splitext(pial_mesh)
+            pial_plus_internal_mesh = pial_prefix + '+' + internal_base + pial_ext
+            if (split_pial or join_internal_mesh) and (force or not os.path.isfile(pial_plus_internal_mesh)):
+                if verbose > 0:
+                    print("Merging pial surface with internal mesh")
+                neoctx.append_surfaces(pial_plus_internal_mesh, surfaces=[pial_mesh, internal_mesh], merge=True, tol=0)
+                if not join_internal_mesh:
+                    neoctx.push_output(stack, pial_plus_internal_mesh)
+            if split_pial:
                 if verbose > 0:
                     print("Cutting outer-cortical surface at medial cutting plane")
-                neoctx.split_cortical_surfaces(joined_mesh=pial_mesh,
+                neoctx.split_cortical_surfaces(joined_mesh=pial_plus_internal_mesh,
                                                right_name=right_pial_mesh,
                                                left_name=left_pial_mesh,
-                                               internal_mesh=internal_mesh,
                                                temp=temp_dir)
 
 
@@ -630,19 +667,25 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         os.makedirs(log_dir)
     outlog = os.path.join(log_dir, job_name + '-%j.out')
     errlog = os.path.join(log_dir, job_name + '-%j.err')
-    p = Popen(['sbatch', '--mem=4G', '-n', '1', '-c', str(args.threads), '-p', args.queue, '-o', outlog, '-e', errlog, '-J', job_name], stdout=PIPE, stderr=PIPE, stdin=PIPE)
+    p = Popen(
+        [
+            'sbatch', '--mem=4G', '-n', '1', '-c', str(args.threads),
+            '-p', args.queue, '-o', outlog, '-e', errlog, '-J', job_name
+        ],
+        stdout=PIPE, stderr=PIPE, stdin=PIPE
+    )
     args_map = {
         'interpreter': sys.executable,
-        'script':  __file__,
+        'script': __file__,
         'config': args.config,
         'section': args.section,
-        'work_dir':  args.work_dir,
+        'work_dir': args.work_dir,
         'session': session,
         'threads': args.threads,
         'verbose': ' '.join(['-v'] * args.verbose),
-        'debug':   ' '.join(['-d'] * args.debug)
+        'debug': ' '.join(['-d'] * args.debug)
     }
-    script  = "#!/bin/sh\nexec {interpreter} {script} --threads={threads} {verbose} {debug}"
+    script = "#!/bin/sh\nexec {interpreter} {script} --threads={threads} {verbose} {debug}"
     script += " --work-dir='{work_dir}' --config='{config}' --section='{section}' --session='{session}'"
     if args.brain:
         script += ' --brain'
@@ -658,6 +701,8 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         script += ' --nocut'
     if not args.check:
         script += ' --nocheck'
+    if args.join_internal_mesh:
+        script += ' --join-with-internal-mesh'
     if args.join_bs_cb_mesh:
         script += ' --join-with-brainstem-and-cerebellum'
     if args.pial_outside_white:
@@ -720,6 +765,9 @@ parser.add_argument('-p', '-pial', '--pial', action='store_true',
 parser.add_argument('-ensure-pial-is-outside-white-surface', '--ensure-pial-is-outside-white-surface',
                     dest='pial_outside_white', action='store_true',
                     help='Ensure that pial surface is strictly outside the white surface')
+parser.add_argument('-join-with-internal-mesh', '--join-with-internal-mesh',
+                    dest='join_internal_mesh', action='store_true',
+                    help='Join final mesh with internal (hemispheres) dividier mesh')
 parser.add_argument('-join-with-brainstem-and-cerebellum', '--join-with-brainstem-and-cerebellum',
                     dest='join_bs_cb_mesh', action='store_true',
                     help="Merge cerebrum surface mesh with brainstem and cerebellum surface mesh")
@@ -748,14 +796,14 @@ parser.add_argument('-q', '-queue', '--queue', default='',
 args.work_dir = os.path.abspath(args.work_dir)
 if not args.cerebrum and not args.white and not args.pial:
     args.white = True
-    args.pial  = True
+    args.pial = True
 elif args.pial:
     args.white = True
 
 config_vars = {}
 config_args = split_config_args(config_args)
 if len(config_args) % 2 != 0:
-    raise Exception("Custom configuration options must come in pairs of -[-]<name> <value>")
+    raise Exception("Custom configuration options must come in pairs of -[-]<name> <value>:\n{}".format(config_args))
 for i in range(0, len(config_args), 2):
     name = config_args[i]
     if name.startswith('--'):
@@ -777,8 +825,8 @@ if args.config:
 # set global flags
 neoctx.verbose = max(0, args.verbose - 1)
 neoctx.showcmd = max(0, args.verbose - 1)
-neoctx.debug   = max(0, args.debug)
-neoctx.force   = args.force
+neoctx.debug = max(0, args.debug)
+neoctx.force = args.force
 
 # read subject and session IDs from CSV file
 if len(args.sessions) == 1 and os.path.isfile(args.sessions[0]):
@@ -813,18 +861,18 @@ for session in sessions:
         session_id = '0'
         session = session + '-0'
     info = {
-        'subid':      subject_id,
+        'subid': subject_id,
         'subject_id': subject_id,
-        'subjectid':  subject_id,
-        'SubjectID':  subject_id,
-        'SubjectId':  subject_id,
-        'sesid':      session_id,
+        'subjectid': subject_id,
+        'SubjectID': subject_id,
+        'SubjectId': subject_id,
+        'sesid': session_id,
         'session_id': session_id,
-        'sessionid':  session_id,
-        'SessionID':  session_id,
-        'SessionId':  session_id,
-        'WorkDir':    args.work_dir,
-        'work_dir':   args.work_dir
+        'sessionid': session_id,
+        'SessionID': session_id,
+        'SessionId': session_id,
+        'WorkDir': args.work_dir,
+        'work_dir': args.work_dir
     }
     try:
         if args.queue:
@@ -845,6 +893,7 @@ for session in sessions:
                                   keep_t2w_image=args.keep_t2w_image,
                                   keep_regions_mask=args.keep_regions_mask,
                                   pial_outside_white_surface=args.pial_outside_white,
+                                  join_internal_mesh=args.join_internal_mesh,
                                   join_bs_cb_mesh=args.join_bs_cb_mesh,
                                   verbose=args.verbose,
                                   check=args.check)

@@ -658,8 +658,8 @@ def deform_mesh(iname, oname=None, temp=None, opts={}):
         base = splitext(os.path.basename(oname))[0]
         debug_prefix = os.path.join(temp, base + '-')
         if debug > 1:
-            opts['debug'] = debug-1
-            opts['debug-interval'] = 10
+            opts['debug'] = (debug-2 if debug > 3 else 1)
+            opts['debug-interval'] = (1 if debug > 2 else 10)
             opts['debug-prefix'] = debug_prefix
             opts['level-prefix'] = False
         fname_prefix = debug_prefix + 'output_'

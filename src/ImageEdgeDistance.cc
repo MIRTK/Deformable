@@ -726,7 +726,7 @@ struct ComputeDistances
   typedef Vector3D<int> Voxel;
 
   /// Sequence of function minima/maxima
-  typedef Array<Extremum, tbb::cache_aligned_allocator<Extremum> > Extrema;
+  typedef Array<Extremum, cache_aligned_allocator<Extremum> > Extrema;
 
   #if BUILD_WITH_DEBUG_CODE
   void WriteRayPoints(const char *fname, Point p, const Vector3 &dp, int k) const
@@ -2889,7 +2889,7 @@ void ImageEdgeDistance::Update(bool gradient)
 
     MIRTK_START_TIMING();
     const size_t n = static_cast<size_t>(nsamples) * static_cast<size_t>(_NumberOfPoints);
-    Array<double, tbb::cache_aligned_allocator<double> > f1, g1, f2, g2;
+    Array<double, cache_aligned_allocator<double> > f1, g1, f2, g2;
     g2.resize(n);
     sample._T2Gradient = g2.data();
     if (_EdgeType == NeonatalWhiteSurface || _EdgeType == NeonatalPialSurface) {

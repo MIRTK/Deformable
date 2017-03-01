@@ -148,7 +148,7 @@ InflationStoppingCriterion::~InflationStoppingCriterion()
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-bool InflationStoppingCriterion::Fulfilled(int, double, double, const double *)
+bool InflationStoppingCriterion::Fulfilled(int, double, const double *)
 {
   const DeformableSurfaceModel *model;
   model = dynamic_cast<const DeformableSurfaceModel *>(_Function);

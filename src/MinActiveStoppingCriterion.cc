@@ -125,7 +125,7 @@ void MinActiveStoppingCriterion::Initialize()
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-bool MinActiveStoppingCriterion::Fulfilled(int iter, double, double, const double *dx)
+bool MinActiveStoppingCriterion::Fulfilled(int iter, double, const double *dx)
 {
   const DeformableSurfaceModel *model;
   model = dynamic_cast<const DeformableSurfaceModel *>(_Function);

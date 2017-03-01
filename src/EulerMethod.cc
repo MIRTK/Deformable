@@ -323,6 +323,8 @@ double EulerMethod::Run()
 
   // Get initial energy value
   double value = _Model->Value();
+  _LastValues.clear();
+  _LastValues.push_back(value);
 
   // Perform explicit integration steps
   _Converged = false;
@@ -361,9 +363,8 @@ double EulerMethod::Run()
     // of a well-defined energy function, but only via the equilibrium of
     // internal and external forces, the energy values corresponding to the
     // external forces are infinite and hence the total energy value.
-    const double prev = value;
-    if (!IsInf(prev)) value = _Model->Value();
-    _Converged = Converged(step.Iter(), prev, value, dx);
+    if (!IsInf(value)) value = _Model->Value();
+    _Converged = Converged(step.Iter(), value, dx);
 
     // Notify observers about end of iteration
     Broadcast(IterationEndEvent, &step);

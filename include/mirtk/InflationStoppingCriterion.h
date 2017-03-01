@@ -73,12 +73,11 @@ public:
   /// and a Surface-Based Coordinate System. NeuroImage, 9(2), 195–207 (1999).
   ///
   /// \param[in] iter  Current number of iterations (unused).
-  /// \param[in] prev  Objective function value at previous iteration (unused).
-  /// \param[in] value Objective function value at current  iteration (unused).
+  /// \param[in] value Objective function value at currentiteration (unused).
   /// \param[in] delta Last change of objective function parameters (unused).
   ///
   /// \returns Whether stopping criterion is fulfilled.
-  virtual bool Fulfilled(int iter, double prev, double value, const double *delta);
+  virtual bool Fulfilled(int iter, double value, const double *delta);
 
   // ---------------------------------------------------------------------------
   // Logging

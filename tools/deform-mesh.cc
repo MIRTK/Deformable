@@ -370,10 +370,11 @@ void PrintHelp(const char *name)
 
 // -----------------------------------------------------------------------------
 /// Resample image
-void ResampleImage(RealImage &image, const ImageAttributes &attr)
+template <class VoxelType>
+void ResampleImage(GenericImage<VoxelType> &image, const ImageAttributes &attr)
 {
-  const RealImage input(image);
-  GenericLinearInterpolateImageFunction<RealImage> func;
+  const GenericImage<VoxelType> input(image);
+  GenericLinearInterpolateImageFunction<GenericImage<VoxelType> > func;
   func.Input(&input);
   func.Initialize();
   image.Initialize(attr, 1);
@@ -384,7 +385,7 @@ void ResampleImage(RealImage &image, const ImageAttributes &attr)
     x = i, y = j, z = k;
     image.ImageToWorld(x, y, z);
     func.WorldToImage(x, y, z);
-    image(i, j, k) = func.Evaluate(x, y, z);
+    image(i, j, k) = static_cast<VoxelType>(func.Evaluate(x, y, z));
   }
 }
 
@@ -1445,7 +1446,7 @@ int main(int argc, char *argv[])
   ImageAttributes attr;
 
   // Read input image
-  RealImage input_image;
+  RegisteredImage::InputImageType input_image;
   BinaryImage image_mask;
   RegisteredImage image;
   if (image_name) {
@@ -1467,7 +1468,7 @@ int main(int argc, char *argv[])
   }
 
   // Read implicit surface distance map
-  RealImage input_dmap;
+  RegisteredImage::InputImageType input_dmap;
   RegisteredImage dmap;
   if (dmap_name) {
     input_dmap.Read(dmap_name);
@@ -1486,7 +1487,7 @@ int main(int argc, char *argv[])
   }
 
   // Read implicit surface distance force magnitude map
-  RealImage input_dmag;
+  RegisteredImage::InputImageType input_dmag;
   RegisteredImage dmag;
   if (dmag_name) {
     input_dmag.Read(dmag_name);

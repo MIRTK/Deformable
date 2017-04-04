@@ -894,7 +894,9 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
         if len(cerebellum_labels) > 0:
             opts['cb'] = cerebellum_labels
         if cortical_hull_dmap:
-            opts['output-inner-cortical-distance'] = os.path.abspath(cortical_hull_dmap)
+            cortical_hull_dmap = os.path.abspath(cortical_hull_dmap)
+            opts['output-inner-cortical-distance'] = cortical_hull_dmap
+            makedirs(cortical_hull_dmap)
         makedirs(name)
         run('subdivide-brain-image', args=[segmentation, name], opts=opts)
     return name

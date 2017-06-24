@@ -127,6 +127,22 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
 
 
 # ------------------------------------------------------------------------------
+def get_model_params(config, section, config_vars, model):
+    """Get advanced deformable model parameters."""
+    opts = {}
+    section = section + ' ' + model
+    if section in config.sections():
+        for name, value in config.items(section, vars=config_vars):
+            name = name.lower()
+            if not name in config_vars and not name.endswith("dir"):
+                name = name.replace('_', '-')
+                if len(value) >= 2 and value[0] == '[' and value[-1] == ']':
+                    value = [v.strip() for v in value[1:-1].split(',')]
+                opts[name] = value
+    return opts
+
+
+# ------------------------------------------------------------------------------
 def get_labels(config, section, option):
     """Get labels list from configuration."""
     return config.get(section, option).split(',')
@@ -154,10 +170,16 @@ def require_input_brain_mask(config, section, config_vars, stack, verbose=0):
 
 
 # ------------------------------------------------------------------------------
-def require_regions_mask(config, section, config_vars, stack, verbose=0):
+def require_regions_mask(config, section, config_vars, stack, verbose=0, with_cortical_hull_dmap=True):
     """Create regions label image from segmentations if none provided."""
+    if with_cortical_hull_dmap:
+        cortical_hull_dmap = config.get(section, 'cortical_hull_dmap', vars=config_vars)
+        if cortical_hull_dmap == '':
+            cortical_hull_dmap = None
+    else:
+        cortical_hull_dmap = None
     regions_mask = config.get(section, 'regions_mask', vars=config_vars)
-    if os.path.isfile(regions_mask):
+    if os.path.isfile(regions_mask) and (cortical_hull_dmap is None or os.path.isfile(cortical_hull_dmap)):
         return regions_mask
     require_input_brain_mask(config, section, config_vars, stack)
     if verbose > 0:
@@ -174,9 +196,6 @@ def require_regions_mask(config, section, config_vars, stack, verbose=0):
     white_labels.extend(get_labels(config, section, 'lateral_ventricles_labels'))
     subcortex_labels = get_labels(config, section, 'inter_hemisphere_labels')
     subcortex_labels.extend(get_labels(config, section, 'corpus_callosum_labels'))
-    cortical_hull_dmap = config.get(section, 'cortical_hull_dmap', vars=config_vars)
-    if cortical_hull_dmap == '':
-        cortical_hull_dmap = None
     neoctx.subdivide_brain(
         name=regions_mask,
         segmentation=segmentation,
@@ -444,6 +463,10 @@ def recon_neonatal_cortex(config, section, config_vars,
         bs_cb_mesh_1 = None
         bs_cb_mesh_2 = bs_cb_mesh
 
+    # advanced options
+    white_opts = get_model_params(config, section, config_vars, 'white_model')
+    pial_opts = get_model_params(config, section, config_vars, 'pial_model')
+
     # remove intermediate files that did not exist before upon exit
     with ExitStack() as stack:
 
@@ -460,9 +483,9 @@ def recon_neonatal_cortex(config, section, config_vars,
             require_brain_mask(config, section, config_vars, stack, verbose,
                                keep_regions_mask=keep_regions_mask)
         elif keep_regions_mask:
-            require_regions_mask(config, section, config_vars, None, verbose)
+            require_regions_mask(config, section, config_vars, stack=None, verbose=verbose, with_cortical_hull_dmap=False)
 
-        if recon_white or recon_pial:
+        if (recon_white or recon_pial) and (float(white_opts.get("edge-distance", 1.)) > 0. or float(pial_opts.get("edge-distance", 1.)) > 0.):
             if not os.path.isfile(t2w_image):
                 input_t2w_image = config.get(section, 'input_t2w_image', vars=config_vars)
                 if os.path.isfile(input_t2w_image):
@@ -578,13 +601,12 @@ def recon_neonatal_cortex(config, section, config_vars,
 
         # reconstruct inner-cortical surface
         if recon_white:
-
             require_white_matter_mask(config, section, config_vars, stack, verbose)
-            require_gray_matter_mask(config, section, config_vars, stack, verbose)
-            require_deep_gray_matter_mask(config, section, config_vars, stack, verbose)
-            require_ventricles_dmap(config, section, config_vars, stack, verbose)
-            require_cortical_hull_dmap(config, section, config_vars, stack, verbose)
-
+            if float(white_opts.get("edge-distance", 1.)) > 0.:
+                require_gray_matter_mask(config, section, config_vars, stack, verbose)
+                require_deep_gray_matter_mask(config, section, config_vars, stack, verbose)
+                require_ventricles_dmap(config, section, config_vars, stack, verbose)
+                require_cortical_hull_dmap(config, section, config_vars, stack, verbose)
             if verbose > 0:
                 print("Reconstructing inner-cortical surface")
             neoctx.recon_white_surface(name=white_mesh,
@@ -594,43 +616,43 @@ def recon_neonatal_cortex(config, section, config_vars,
                                        subcortex_mask=deep_gray_matter_mask,
                                        cortical_hull_dmap=cortical_hull_dmap,
                                        ventricles_dmap=ventricles_dmap,
-                                       temp=temp_dir, check=check)
+                                       opts=white_opts, temp=temp_dir, check=check)
 
             # remove initial surface mesh
             if not with_cerebrum_mesh:
                 os.remove(cerebrum_mesh)
 
         # insert internal mesh and cut surface at medial plane
-        split_white = (cut and (force or not os.path.isfile(right_white_mesh) or not os.path.isfile(left_white_mesh)))
-        white_prefix, white_ext = os.path.splitext(white_mesh)
-        white_plus_internal_mesh = white_prefix + '+' + internal_base + white_ext
-        if (split_white or join_internal_mesh) and (force or not os.path.isfile(white_plus_internal_mesh)):
-            if verbose > 0:
-                print("Merging inner-cortical surface with internal mesh")
-            neoctx.append_surfaces(white_plus_internal_mesh, surfaces=[white_mesh, internal_mesh], merge=True, tol=0)
-            if not join_internal_mesh:
-                neoctx.push_output(stack, white_plus_internal_mesh)
-        if split_white:
-            if verbose > 0:
-                print("Cutting inner-cortical surface at medial cutting plane")
-            neoctx.split_cortical_surfaces(joined_mesh=white_plus_internal_mesh,
-                                           right_name=right_white_mesh,
-                                           left_name=left_white_mesh,
-                                           temp=temp_dir)
+        if with_white_mesh:
+            split_white = (cut and (force or not os.path.isfile(right_white_mesh) or not os.path.isfile(left_white_mesh)))
+            white_prefix, white_ext = os.path.splitext(white_mesh)
+            white_plus_internal_mesh = white_prefix + '+' + internal_base + white_ext
+            if (split_white or join_internal_mesh) and (force or not os.path.isfile(white_plus_internal_mesh)):
+                if verbose > 0:
+                    print("Merging inner-cortical surface with internal mesh")
+                neoctx.append_surfaces(white_plus_internal_mesh, surfaces=[white_mesh, internal_mesh], merge=True, tol=0)
+                if not join_internal_mesh:
+                    neoctx.push_output(stack, white_plus_internal_mesh)
+            if split_white:
+                if verbose > 0:
+                    print("Cutting inner-cortical surface at medial cutting plane")
+                neoctx.split_cortical_surfaces(joined_mesh=white_plus_internal_mesh,
+                                               right_name=right_white_mesh,
+                                               left_name=left_white_mesh,
+                                               temp=temp_dir)
 
         # reconstruct outer-cortical surface
         if recon_pial:
-
-            require_white_matter_mask(config, section, config_vars, stack, verbose)
             require_gray_matter_mask(config, section, config_vars, stack, verbose)
-
+            if float(pial_opts.get("edge-distance", 1.)) > 0.:
+                require_white_matter_mask(config, section, config_vars, stack, verbose)
             if verbose > 0:
                 print("Reconstructing outer-cortical surface")
             neoctx.recon_pial_surface(name=pial_mesh, t2w_image=t2w_image,
                                       wm_mask=wm_mask, gm_mask=gm_mask, brain_mask=brain_mask,
                                       white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh_2,
                                       outside_white_mesh=pial_outside_white_surface,
-                                      temp=temp_dir, check=check)
+                                      opts=pial_opts, temp=temp_dir, check=check)
 
             # remove inner-cortical surface
             if not with_white_mesh:
@@ -697,6 +719,10 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         script += ' --white'
     if args.pial:
         script += ' --pial'
+    if args.regions_mask:
+        script += ' --regions'
+    if args.bs_cb:
+        script += ' --brainstem-and-cerebellum'
     if args.force:
         script += ' --force'
     if not args.cut:
@@ -767,13 +793,17 @@ parser.add_argument('-p', '-pial', '--pial', action='store_true',
 parser.add_argument('-m', '-mask', '-regions', '-regions-mask', '--mask', '--regions', '--regions-mask',
                     dest='regions_mask', action='store_true',
                     help="Create regions label image, implies --keep-regions-mask")
+parser.add_argument('-bs+cb', '-brainstem-and-cerebellum', '--bs+cb', '--brainstem-and-cerebellum',
+                    dest='bs_cb', action='store_true',
+                    help="Reconstruct combined brainstem and cerebellum surface")
 parser.add_argument('-ensure-pial-is-outside-white-surface', '--ensure-pial-is-outside-white-surface',
                     dest='pial_outside_white', action='store_true',
                     help='Ensure that pial surface is strictly outside the white surface')
 parser.add_argument('-join-with-internal-mesh', '--join-with-internal-mesh',
                     dest='join_internal_mesh', action='store_true',
                     help='Join final mesh with internal (hemispheres) dividier mesh')
-parser.add_argument('-join-with-brainstem-and-cerebellum', '--join-with-brainstem-and-cerebellum',
+parser.add_argument('-join-with-bs+cb', '--join-with-bs+cb',
+                    '-join-with-brainstem-and-cerebellum', '--join-with-brainstem-and-cerebellum',
                     dest='join_bs_cb_mesh', action='store_true',
                     help="Merge cerebrum surface mesh with brainstem and cerebellum surface mesh")
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false',
@@ -799,7 +829,7 @@ parser.add_argument('-q', '-queue', '--queue', default='',
 
 [args, config_args] = parser.parse_known_args()
 args.work_dir = os.path.abspath(args.work_dir)
-if not args.cerebrum and not args.white and not args.pial and not args.regions_mask:
+if not args.cerebrum and not args.white and not args.pial and not args.regions_mask and not args.bs_cb:
     args.white = True
     args.pial = True
 elif args.pial:
@@ -893,6 +923,7 @@ for session in sessions:
             config_vars.update(info)
             recon_neonatal_cortex(config=config, section=args.section, config_vars=config_vars,
                                   with_brain_mesh=args.brain,
+                                  with_bs_cb_mesh=args.bs_cb,
                                   with_cerebrum_mesh=args.cerebrum,
                                   with_white_mesh=args.white,
                                   with_pial_mesh=args.pial,

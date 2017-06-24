@@ -210,7 +210,10 @@ def output(name_or_func, delete=False):
 # ------------------------------------------------------------------------------
 def push_output(stack, name_or_func, delete=True):
     """Perform interim processing step with auto-file removal upon exit."""
-    return stack.enter_context(output(name_or_func, delete=delete))
+    output_name = output(name_or_func, delete=delete)
+    if stack is None:
+        return output_name
+    return stack.enter_context(output_name)
 
 # ------------------------------------------------------------------------------
 def get_voxel_size(image):
@@ -361,7 +364,9 @@ def remove_intersections(iname, oname=None, mask=None, max_attempt=10, smooth_it
 
     .. seealso:: MRISremoveIntersections function of FreeSurfer (dev/utils/mrisurf.c)
     """
-    if not oname:
+    if oname:
+        makedirs(oname)
+    else:
         oname = nextname(iname)
     with output(oname):
         itr = nbr = 1
@@ -895,6 +900,7 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
             opts['cb'] = cerebellum_labels
         if cortical_hull_dmap:
             opts['output-inner-cortical-distance'] = os.path.abspath(cortical_hull_dmap)
+            makedirs(opts['output-inner-cortical-distance'])
         makedirs(name)
         run('subdivide-brain-image', args=[segmentation, name], opts=opts)
     return name
@@ -1247,6 +1253,7 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
     if internal_mesh:
         return (name, internal_mesh)
     return name
+
 
 # ------------------------------------------------------------------------------
 def recon_white_surface(name, t2w_image, wm_mask, gm_mask, cortex_mesh, bs_cb_mesh=None,

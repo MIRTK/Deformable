@@ -1,8 +1,8 @@
 # ==============================================================================
 # Medical Image Registration ToolKit (MIRTK)
 #
-# Copyright 2013-2016 Imperial College London
-# Copyright 2013-2016 Andreas Schuh
+# Copyright 2013-2017 Imperial College London
+# Copyright 2013-2017 Andreas Schuh
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ basis_project (
   PACKAGE     "MIRTK"
   AUTHORS     "Andreas Schuh"
   DESCRIPTION "Deformable library of the Medical Image Registration ToolKit."
-  COPYRIGHT   "2013-2016 Imperial College London, Andreas Schuh"
+  COPYRIGHT   "2013-2017 Imperial College London, Andreas Schuh"
   LICENSE     "Apache License Version 2.0"
   CONTACT     "Andreas Schuh <andreas.schuh.84@gmail.com>"
   TEMPLATE    "mirtk-module/1.0"
@@ -67,7 +67,7 @@ basis_project (
     #<dependency>
   OPTIONAL_DEPENDS
     Python{Interp}
-    TBB{tbb}
+    TBB{tbb,malloc}
     #<optional-dependency>
   TOOLS_DEPENDS
     Python{Interp}

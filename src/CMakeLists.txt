@@ -104,6 +104,9 @@ set(DEPENDS
 
 if (TARGET TBB::tbb)
   list(APPEND DEPENDS TBB::tbb)
+  if (TARGET TBB::malloc)
+    list(APPEND DEPENDS TBB::malloc)
+  endif ()
 endif ()
 
 mirtk_add_library(AUTO_REGISTER)

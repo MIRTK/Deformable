@@ -164,7 +164,7 @@ def iterable_or_int_to_list(arg):
 # ------------------------------------------------------------------------------
 def run(tool, args=[], opts={}):
     """Run MIRTK command with global `showcmd` flag and maximum allowed number of `threads`."""
-    _run(tool, args=args, opts=opts, verbose=showcmd, threads=threads)
+    _run(tool, args=args, opts=opts, showcmd=showcmd, threads=threads)
 
 # ------------------------------------------------------------------------------
 @contextmanager

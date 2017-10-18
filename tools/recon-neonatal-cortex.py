@@ -459,6 +459,9 @@ def recon_neonatal_cortex(config, section, config_vars,
         if recon_brain or recon_bs_cb_mesh or recon_cerebrum or recon_white or recon_pial:
             require_brain_mask(config, section, config_vars, stack, verbose,
                                keep_regions_mask=keep_regions_mask)
+        elif keep_regions_mask:
+            # create regions mask only, skip surface reconstruction
+            require_regions_mask(config, section, config_vars, None, verbose)
 
         if recon_white or recon_pial:
             if not os.path.isfile(t2w_image):
@@ -794,7 +797,7 @@ parser.add_argument('-q', '-queue', '--queue', default='',
 
 [args, config_args] = parser.parse_known_args()
 args.work_dir = os.path.abspath(args.work_dir)
-if not args.cerebrum and not args.white and not args.pial:
+if not args.cerebrum and not args.white and not args.pial and not args.keep_regions_mask:
     args.white = True
     args.pial = True
 elif args.pial:

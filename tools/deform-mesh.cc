@@ -217,7 +217,7 @@ void PrintHelp(const char *name)
   cout << "  -distance <w>" << endl;
   cout << "      Weight of implicit surface distance. (default: 0)" << endl;
   cout << "  -distance-measure <name>" << endl;
-  cout << "      Implicit surface distance measure used by :option:`-distance` and :option:`-distance-spring`):" << endl;
+  cout << "      Implicit surface distance measure used by :option:`-distance`:" << endl;
   cout << "      - ``minimum``: Minimum surface distance (see :option:`-distance-image`, default)" << endl;
   cout << "      - ``normal``:  Estimate distance by casting rays along normal direction." << endl;
   cout << "  -balloon-inflation, -balloon <w>" << endl;

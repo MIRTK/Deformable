@@ -1790,12 +1790,12 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
             if brain_mask:
                 run('calculate-element-wise', args=[
                     wm_mask, '-mask', mask, '-pad', 1, '-reset-mask', '-mul', brain_mask,
-                    '-add', gm_mask, '-clamp', [0, 1], '-out', pial_mask, 'binary'
+                    '-add', gm_mask, '-clamp', 0, 1, '-out', pial_mask, 'binary'
                 ])
             else:
                 run('calculate-element-wise', args=[
                     wm_mask, '-mask', mask, '-pad', 1, '-reset-mask',
-                    '-add', gm_mask, '-clamp', [0, 1], '-out', pial_mask, 'binary'
+                    '-add', gm_mask, '-clamp', 0, 1, '-out', pial_mask, 'binary'
                 ])
             pial_dmap = push_output(stack, calculate_distance_map(pial_mask, temp=temp))
             if debug == 0:

@@ -1667,7 +1667,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
     with ExitStack() as stack:
 
         mask = push_output(stack, os.path.join(temp, os.path.basename(base) + '-foreground.nii.gz'))
-        run('extract-pointset-surface', args=[], opts={'input': white_mesh, 'mask': mask, 'reference': t2w_image, 'outside': True})
+        run('extract-pointset-surface', args=[], opts={'input': white_mesh, 'mask': mask, 'reference': gm_mask, 'outside': True})
         if brain_mask:
             run('calculate-element-wise', args=[mask], opts=[('mul', brain_mask), ('out', mask)])
 

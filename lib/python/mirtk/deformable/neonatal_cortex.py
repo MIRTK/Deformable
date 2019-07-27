@@ -1667,7 +1667,7 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
     with ExitStack() as stack:
 
         mask = push_output(stack, os.path.join(temp, os.path.basename(base) + '-foreground.nii.gz'))
-        run('extract-pointset-surface', args=[], opts={'input': white_mesh, 'mask': mask, 'reference': t2w_image, 'outside': True})
+        run('extract-pointset-surface', args=[], opts={'input': white_mesh, 'mask': mask, 'reference': gm_mask, 'outside': True})
         if brain_mask:
             run('calculate-element-wise', args=[mask], opts=[('mul', brain_mask), ('out', mask)])
 
@@ -1790,12 +1790,12 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
             if brain_mask:
                 run('calculate-element-wise', args=[
                     wm_mask, '-mask', mask, '-pad', 1, '-reset-mask', '-mul', brain_mask,
-                    '-add', gm_mask, '-clamp', [0, 1], '-out', pial_mask, 'binary'
+                    '-add', gm_mask, '-clamp', 0, 1, '-out', pial_mask, 'binary'
                 ])
             else:
                 run('calculate-element-wise', args=[
                     wm_mask, '-mask', mask, '-pad', 1, '-reset-mask',
-                    '-add', gm_mask, '-clamp', [0, 1], '-out', pial_mask, 'binary'
+                    '-add', gm_mask, '-clamp', 0, 1, '-out', pial_mask, 'binary'
                 ])
             pial_dmap = push_output(stack, calculate_distance_map(pial_mask, temp=temp))
             if debug == 0:

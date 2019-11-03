@@ -26,6 +26,7 @@
 #include "mirtk/MeshSmoothing.h"
 #include "mirtk/SurfaceCurvature.h"
 
+#include "mirtk/Vtk.h"
 #include "mirtk/VtkMath.h"
 #include "vtkPointData.h"
 #include "vtkDataArray.h"
@@ -62,12 +63,12 @@ namespace MeanCurvatureConstraintUtils {
 int GetEdgeNeighborPoints(vtkPolyData *surface, int i, int k, int &j, int &l)
 {
   j = l = -1;
-  unsigned short ncells1, ncells2, ncells = 0;
-  vtkIdType      *cells1, *cells2, npts, *pts;
+  vtkPolyDataGetPointCellsNumCellsType ncells1, ncells2, ncells = 0;
+  vtkIdType *cells1, *cells2, npts, *pts;
   surface->GetPointCells(static_cast<vtkIdType>(i), ncells1, cells1);
   surface->GetPointCells(static_cast<vtkIdType>(k), ncells2, cells2);
-  for (unsigned short idx1 = 0; idx1 < ncells1; ++idx1)
-  for (unsigned short idx2 = 0; idx2 < ncells2; ++idx2) {
+  for (vtkPolyDataGetPointCellsNumCellsType idx1 = 0; idx1 < ncells1; ++idx1)
+  for (vtkPolyDataGetPointCellsNumCellsType idx2 = 0; idx2 < ncells2; ++idx2) {
     if (cells1[idx1] == cells2[idx2]) {
       ++ncells;
       if (ncells < 3) {

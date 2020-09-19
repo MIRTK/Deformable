@@ -1633,9 +1633,8 @@ void DeformableSurfaceModel
   vtkPolyData  * const current = _PointSet.Surface();
   vtkDataArray * const status  = _PointSet.SurfaceStatus();
 
-  vtkNew<vtkIdList> cellIds;
-  vtkIdType         npts, *pts;
-  double            a[3], b[3], c[3], p[3], bounds[6], r, *d, alpha;
+  vtkNew<vtkIdList> cellIds, ptIds;
+  double a[3], b[3], c[3], p[3], bounds[6], r, *d, alpha;
 
   vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
   points->SetNumberOfPoints(current->GetNumberOfPoints());
@@ -1687,10 +1686,10 @@ void DeformableSurfaceModel
       for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
         if (collisions->GetComponent(cellId, 0) != 0.) {
           mask->SetComponent(cellId, 0, 1.);
-          current->GetCellPoints(cellId, npts, pts);
-          current->GetPoint(pts[0], a);
-          current->GetPoint(pts[1], b);
-          current->GetPoint(pts[2], c);
+          current->GetCellPoints(cellId, ptIds.GetPointer());
+          current->GetPoint(ptIds->GetId(0), a);
+          current->GetPoint(ptIds->GetId(1), b);
+          current->GetPoint(ptIds->GetId(2), c);
           r = max(min_check_radius, col_check_radius * Triangle::BoundingSphereRadius(a, b, c, p));
           bounds[0] = p[0] - r, bounds[1] = p[0] + r;
           bounds[2] = p[1] - r, bounds[3] = p[1] + r;
@@ -1708,9 +1707,9 @@ void DeformableSurfaceModel
     for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
       if (mask->GetComponent(cellId, 0) != 0.) {
         mask->SetComponent(cellId, 0, 0.);
-        current->GetCellPoints(cellId, npts, pts);
-        for (vtkIdType i = 0; i < npts; ++i) {
-          d = dx + 3 * pts[i];
+        current->GetCellPoints(cellId, ptIds.GetPointer());
+        for (vtkIdType i = 0; i < ptIds->GetNumberOfIds(); ++i) {
+          d = dx + 3 * ptIds->GetId(i);
           if (d[0] != 0. || d[1] != 0. || d[2] != 0.) {
             mask->SetComponent(cellId, 0, 1.);
             break;
@@ -1739,10 +1738,10 @@ void DeformableSurfaceModel
     scale->FillComponent(0, 1.);
     for (vtkIdType cellId = 0; cellId < surface->GetNumberOfCells(); ++cellId) {
       if (check.GetCollisionType(cellId) != SurfaceCollisions::NoCollision) {
-        surface->GetCellPoints(cellId, npts, pts);
-        for (vtkIdType i = 0; i < npts; ++i) {
-          if (status == nullptr || status->GetComponent(pts[i], 0) != 0.) {
-            scale->SetComponent(pts[i], 0, alpha);
+        surface->GetCellPoints(cellId, ptIds.GetPointer());
+        for (vtkIdType i = 0; i < ptIds->GetNumberOfIds(); ++i) {
+          if (status == nullptr || status->GetComponent(ptIds->GetId(i), 0) != 0.) {
+            scale->SetComponent(ptIds->GetId(i), 0, alpha);
           }
         }
       }

@@ -37,7 +37,7 @@ import argparse
 import traceback
 
 from contextlib import ExitStack
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 
 import mirtk.deformable.neonatal_cortex as neoctx
 

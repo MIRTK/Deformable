@@ -36,15 +36,8 @@ import csv
 import argparse
 import traceback
 
-try:
-    from contextlib import ExitStack  # Python 3
-except:
-    from contextlib2 import ExitStack  # Python 2 backport
-
-try:
-    from configparser import SafeConfigParser  # Python 3
-except:
-    from ConfigParser import SafeConfigParser  # Python 2
+from contextlib import ExitStack
+from ConfigParser import ConfigParser
 
 import mirtk.deformable.neonatal_cortex as neoctx
 
@@ -63,7 +56,7 @@ def get_default_config(work_dir='.', section='recon-neonatal-cortex'):
     mesh_dir    = os.path.join(session_dir, 'meshes')
     logs_dir    = os.path.join(session_dir, 'logs')
     # configuration
-    config  = SafeConfigParser(defaults={'work_dir': work_dir, 'temp_dir': temp_dir})
+    config  = ConfigParser(defaults={'work_dir': work_dir, 'temp_dir': temp_dir})
     section = args.section
     config.add_section(section)
     config.set(section, 'logs_dir', logs_dir)
@@ -855,10 +848,11 @@ for i in range(0, len(config_args), 2):
 
 # read configuration
 config = get_default_config(work_dir=args.work_dir, section=args.section)
-config.read(os.path.join(args.work_dir, 'recon-neonatal-cortex.cfg'))
+with open(os.path.join(args.work_dir, 'recon-neonatal-cortex.cfg'), 'r') as config_file:
+    config.read_file(config_file)
 if args.config:
     with open(args.config, 'r') as config_file:
-        config.readfp(config_file)
+        config.read_file(config_file)
 
 # set global flags
 neoctx.verbose = max(0, args.verbose - 1)

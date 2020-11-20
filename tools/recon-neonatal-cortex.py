@@ -848,8 +848,10 @@ for i in range(0, len(config_args), 2):
 
 # read configuration
 config = get_default_config(work_dir=args.work_dir, section=args.section)
-with open(os.path.join(args.work_dir, 'recon-neonatal-cortex.cfg'), 'r') as config_file:
-    config.read_file(config_file)
+default_config_path = os.path.join(args.work_dir, 'recon-neonatal-cortex.cfg')
+if os.path.isfile(default_config_path):
+    with open(default_config_path, 'r') as config_file:
+        config.read_file(config_file)
 if args.config:
     with open(args.config, 'r') as config_file:
         config.read_file(config_file)

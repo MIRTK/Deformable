@@ -1115,7 +1115,8 @@ def recon_cortical_surface(name, mask=None, regions=None,
 # ------------------------------------------------------------------------------
 def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None,
                            region_id_array=_region_id_array, cortex_mask_array=_cortex_mask_array,
-                           internal_mesh=None, temp=None, check=True):
+                           internal_mesh=None, temp=None, check=True,
+                           merge_hemispheres_opts={}):
     """Join cortical surfaces of right and left hemisphere at medial cut.
 
     Optionally, the brainstem plus cerebellum surface can be joined with the
@@ -1161,6 +1162,9 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
         as the output mesh file, i.e., the directory of `name`.
     check : bool
         Check topology and consistency of output surface mesh.
+    merge_hemispheres_opts : dict
+        Override option arguments passed to `merge-surfaces` command when joining
+        the right and left hemisphere mesh.
 
     Returns
     -------
@@ -1195,10 +1199,17 @@ def join_cortical_surfaces(name, regions, right_mesh, left_mesh, bs_cb_mesh=None
             surfaces = [right_mesh, left_mesh]
             if bs_cb_mesh and join_bs_cb:
                 surfaces.append(bs_cb_mesh)
+            opts = {
+              'tolerance': 1,
+              'snap-tolerance': .1,
+              'smoothing-iterations': 10,
+              'smoothing-lambda': 0.1,
+              'smoothing-remesh-iterations': 0,
+            }
+            opts.update(merge_hemispheres_opts)
             run('merge-surfaces',
                 opts={'input': surfaces, 'output': joined, 'labels': regions, 'source-array': region_id_array_name,
-                      'tolerance': 1, 'largest': True, 'dividers': (internal_mesh != None), 'snap-tolerance': .1,
-                      'smoothing-iterations': 100, 'smoothing-lambda': 1})
+                      'dividers': (internal_mesh != None), 'largest': True, **opts})
             if bs_cb_mesh and join_bs_cb:
                 run('calculate-element-wise', args=[joined], opts=[('cell-data', region_id_array_name),
                                                                    ('map', (-1, -3), (-2, -1), (-3, -2), (3, 7)),

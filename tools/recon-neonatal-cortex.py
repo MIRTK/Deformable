@@ -457,6 +457,7 @@ def recon_neonatal_cortex(config, section, config_vars,
         bs_cb_mesh_2 = bs_cb_mesh
 
     # advanced options
+    merge_hemispheres_opts = get_model_params(config, section, config_vars, 'merge_hemispheres')
     white_opts = get_model_params(config, section, config_vars, 'white_model')
     pial_opts = get_model_params(config, section, config_vars, 'pial_model')
 
@@ -577,6 +578,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                                           left_mesh=left_cerebrum_mesh,
                                           bs_cb_mesh=bs_cb_mesh_1,
                                           internal_mesh=internal_mesh,
+                                          merge_hemispheres_opts=merge_hemispheres_opts,
                                           temp=temp_dir, check=check)
 
             # remove cortical surfaces of right and left hemispheres

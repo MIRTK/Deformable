@@ -406,6 +406,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                           pial_outside_white_surface=False,
                           join_internal_mesh=False,
                           join_bs_cb_mesh=False,
+                          remove_spikes=False,
                           cut=True,
                           force=False,
                           check=True,
@@ -559,14 +560,14 @@ def recon_neonatal_cortex(config, section, config_vars,
                 corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                 if verbose > 0:
                     print("Reconstructing boundary of right cerebral hemisphere segmentation")
-                neoctx.recon_cortical_surface(name=right_cerebrum_mesh,
+                neoctx.recon_cortical_surface(name=right_cerebrum_mesh, remove_spikes=remove_spikes,
                                               regions=regions_mask, hemisphere=neoctx.Hemisphere.Right,
                                               corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
             if force or not os.path.isfile(left_cerebrum_mesh):
                 corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                 if verbose > 0:
                     print("Reconstructing boundary of left cerebral hemisphere segmentation")
-                neoctx.recon_cortical_surface(name=left_cerebrum_mesh,
+                neoctx.recon_cortical_surface(name=left_cerebrum_mesh, remove_spikes=remove_spikes,
                                               regions=regions_mask, hemisphere=neoctx.Hemisphere.Left,
                                               corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
 
@@ -737,6 +738,8 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         script += ' --keep-t2w-image'
     if args.keep_regions_mask:
         script += ' --keep-regions-mask'
+    if args.remove_spikes:
+        script += ' --remove-spikes'
     for name, value in config_vars.items():
         if "'" in value:
             value = value.replace("'", "\\'")
@@ -802,6 +805,9 @@ parser.add_argument('-join-with-bs+cb', '--join-with-bs+cb',
                     '-join-with-brainstem-and-cerebellum', '--join-with-brainstem-and-cerebellum',
                     dest='join_bs_cb_mesh', action='store_true',
                     help="Merge cerebrum surface mesh with brainstem and cerebellum surface mesh")
+parser.add_argument('-remove-spikes', '--remove-spikes',
+                    dest='remove_spikes', action='store_true',
+                    dest="Whether to remove pointy spikes after reconstruction of initial cortical surface.")
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false',
                     help='Save individual (closed) genus-0 surfaces for each hemisphere')
 parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check',
@@ -932,6 +938,7 @@ for session in sessions:
                                   pial_outside_white_surface=args.pial_outside_white,
                                   join_internal_mesh=args.join_internal_mesh,
                                   join_bs_cb_mesh=args.join_bs_cb_mesh,
+                                  remove_spikes=args.remove_spikes,
                                   verbose=args.verbose,
                                   check=args.check)
     except Exception as e:

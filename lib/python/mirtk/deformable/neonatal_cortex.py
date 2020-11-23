@@ -498,8 +498,8 @@ def clean_cortical_surface(iname, oname=None, merge_points=False, remove_spikes=
     if not os.path.isfile(oname):
         makedirs(oname)
         run('clean-surface', args=[iname, oname],
-            merge_points=merge_points, remove_spikes=remove_spikes,
-            remove_duplicates=remove_duplicates, remove_boundaries=remove_boundaries)
+            opts={'merge-points': merge_points, 'remove-spike': remove_spikes,
+                  'remove-duplicates': remove_duplicates, 'remove-boundaries': remove_boundaries})
     return oname
 
 # ------------------------------------------------------------------------------

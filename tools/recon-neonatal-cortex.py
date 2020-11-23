@@ -807,7 +807,7 @@ parser.add_argument('-join-with-bs+cb', '--join-with-bs+cb',
                     help="Merge cerebrum surface mesh with brainstem and cerebellum surface mesh")
 parser.add_argument('-remove-spikes', '--remove-spikes',
                     dest='remove_spikes', action='store_true',
-                    dest="Whether to remove pointy spikes after reconstruction of initial cortical surface.")
+                    help="Whether to remove pointy spikes after reconstruction of initial cortical surface.")
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false',
                     help='Save individual (closed) genus-0 surfaces for each hemisphere')
 parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check',

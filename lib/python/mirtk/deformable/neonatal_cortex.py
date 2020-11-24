@@ -124,9 +124,10 @@ def nextname(name, temp=None):
 # ------------------------------------------------------------------------------
 def makedirs(name):
     """Make directories for output file if not existent."""
-    path = os.path.dirname(name)
-    if not os.path.isdir(path):
-        os.makedirs(path)
+    try:
+        os.makedirs(os.path.dirname(name))
+    except FileExistsError:
+        pass
 
 # ------------------------------------------------------------------------------
 def rename(src, dst):

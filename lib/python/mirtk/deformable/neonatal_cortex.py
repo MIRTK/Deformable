@@ -43,12 +43,7 @@ import os
 import re
 import sys
 
-from contextlib import contextmanager
-
-try:
-    from contextlib import ExitStack  # Python 3
-except:
-    from contextlib2 import ExitStack  # Python 2 backport
+from contextlib import ExitStack, contextmanager
 
 from mirtk.subprocess import flatten, check_call, check_output
 from mirtk.subprocess import run as _run

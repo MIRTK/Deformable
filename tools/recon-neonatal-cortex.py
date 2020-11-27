@@ -406,7 +406,6 @@ def recon_neonatal_cortex(config, section, config_vars,
                           pial_outside_white_surface=False,
                           join_internal_mesh=False,
                           join_bs_cb_mesh=False,
-                          remove_spikes=False,
                           cut=True,
                           force=False,
                           check=True,
@@ -458,7 +457,8 @@ def recon_neonatal_cortex(config, section, config_vars,
         bs_cb_mesh_2 = bs_cb_mesh
 
     # advanced options
-    merge_hemispheres_opts = get_model_params(config, section, config_vars, 'merge_hemispheres')
+    hemis_opts = get_model_params(config, section, config_vars, 'hemispheres_model')
+    merge_opts = get_model_params(config, section, config_vars, 'merge_hemispheres')
     white_opts = get_model_params(config, section, config_vars, 'white_model')
     pial_opts = get_model_params(config, section, config_vars, 'pial_model')
 
@@ -560,16 +560,14 @@ def recon_neonatal_cortex(config, section, config_vars,
                 corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                 if verbose > 0:
                     print("Reconstructing boundary of right cerebral hemisphere segmentation")
-                neoctx.recon_cortical_surface(name=right_cerebrum_mesh, remove_spikes=remove_spikes,
-                                              regions=regions_mask, hemisphere=neoctx.Hemisphere.Right,
-                                              corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
+                neoctx.recon_cortical_surface(name=right_cerebrum_mesh, regions=regions_mask, hemisphere=neoctx.Hemisphere.Right,
+                                              corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir, opts=hemis_opts)
             if force or not os.path.isfile(left_cerebrum_mesh):
                 corpus_callosum_mask = optional_corpus_callosum_mask(config, section, config_vars, stack, verbose)
                 if verbose > 0:
                     print("Reconstructing boundary of left cerebral hemisphere segmentation")
-                neoctx.recon_cortical_surface(name=left_cerebrum_mesh, remove_spikes=remove_spikes,
-                                              regions=regions_mask, hemisphere=neoctx.Hemisphere.Left,
-                                              corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir)
+                neoctx.recon_cortical_surface(name=left_cerebrum_mesh, regions=regions_mask, hemisphere=neoctx.Hemisphere.Left,
+                                              corpus_callosum_mask=corpus_callosum_mask, temp=temp_dir, opts=hemis_opts)
 
             # join cortical surfaces of right and left hemispheres
             if verbose > 0:
@@ -579,8 +577,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                                           left_mesh=left_cerebrum_mesh,
                                           bs_cb_mesh=bs_cb_mesh_1,
                                           internal_mesh=internal_mesh,
-                                          merge_hemispheres_opts=merge_hemispheres_opts,
-                                          temp=temp_dir, check=check)
+                                          temp=temp_dir, check=check, opts=merge_opts)
 
             # remove cortical surfaces of right and left hemispheres
             if not with_cerebrum_mesh:
@@ -613,7 +610,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                                        subcortex_mask=deep_gray_matter_mask,
                                        cortical_hull_dmap=cortical_hull_dmap,
                                        ventricles_dmap=ventricles_dmap,
-                                       opts=white_opts, temp=temp_dir, check=check)
+                                       temp=temp_dir, check=check, opts=white_opts)
 
             # remove initial surface mesh
             if not with_cerebrum_mesh:
@@ -649,7 +646,7 @@ def recon_neonatal_cortex(config, section, config_vars,
                                       wm_mask=wm_mask, gm_mask=gm_mask, brain_mask=brain_mask,
                                       white_mesh=white_mesh, bs_cb_mesh=bs_cb_mesh_2,
                                       outside_white_mesh=pial_outside_white_surface,
-                                      opts=pial_opts, temp=temp_dir, check=check)
+                                      temp=temp_dir, check=check, opts=pial_opts)
 
             # remove inner-cortical surface
             if not with_white_mesh:
@@ -738,8 +735,6 @@ def sbatch(job_name, log_dir, session, args, config_vars):
         script += ' --keep-t2w-image'
     if args.keep_regions_mask:
         script += ' --keep-regions-mask'
-    if args.remove_spikes:
-        script += ' --remove-spikes'
     for name, value in config_vars.items():
         if "'" in value:
             value = value.replace("'", "\\'")
@@ -805,9 +800,6 @@ parser.add_argument('-join-with-bs+cb', '--join-with-bs+cb',
                     '-join-with-brainstem-and-cerebellum', '--join-with-brainstem-and-cerebellum',
                     dest='join_bs_cb_mesh', action='store_true',
                     help="Merge cerebrum surface mesh with brainstem and cerebellum surface mesh")
-parser.add_argument('-remove-spikes', '--remove-spikes',
-                    dest='remove_spikes', action='store_true',
-                    help="Whether to remove pointy spikes after reconstruction of initial cortical surface.")
 parser.add_argument('-nocut', '-nosplit', '--nocut', '--nosplit', dest='cut', action='store_false',
                     help='Save individual (closed) genus-0 surfaces for each hemisphere')
 parser.add_argument('-nocheck', '--nocheck', action='store_false', dest='check',
@@ -938,7 +930,6 @@ for session in sessions:
                                   pial_outside_white_surface=args.pial_outside_white,
                                   join_internal_mesh=args.join_internal_mesh,
                                   join_bs_cb_mesh=args.join_bs_cb_mesh,
-                                  remove_spikes=args.remove_spikes,
                                   verbose=args.verbose,
                                   check=args.check)
     except Exception as e:

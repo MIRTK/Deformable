@@ -718,6 +718,7 @@ DeformableSurfaceModel::DeformableSurfaceModel()
   _MinFrontfaceDistance(.0),
   _MinBackfaceDistance(.0),
   _MaxCollisionAngle(45.0),
+  _AdjacentCollisionTest(false),
   _FastCollisionTest(false),
   _FixPassivePoints(true),
   _AllowExpansion(true),
@@ -1060,6 +1061,9 @@ bool DeformableSurfaceModel::Set(const char *name, const char *value)
   if (strcmp(name, "Maximum collision angle") == 0) {
     return FromString(value, _MaxCollisionAngle);
   }
+  if (strcmp(name, "Adjacent collision test") == 0) {
+    return FromString(value, _AdjacentCollisionTest);
+  }
   if (strcmp(name, "Fast collision test") == 0) {
     return FromString(value, _FastCollisionTest);
   }
@@ -1101,6 +1105,7 @@ ParameterList DeformableSurfaceModel::Parameter() const
   Insert(params, "Minimum frontface distance", _MinFrontfaceDistance);
   Insert(params, "Minimum backface distance", _MinBackfaceDistance);
   Insert(params, "Maximum collision angle", _MaxCollisionAngle);
+  Insert(params, "Adjacent collision test", _AdjacentCollisionTest);
   Insert(params, "Fast collision test", _FastCollisionTest);
   Insert(params, "Allow triangle inversion", _AllowTriangleInversion);
   Insert(params, "Allow surface expansion", _AllowExpansion);
@@ -1665,6 +1670,7 @@ void DeformableSurfaceModel
   check.NonAdjacentIntersectionTest(nsi);
   check.FrontfaceCollisionTest(mind > .0);
   check.BackfaceCollisionTest(minw > .0);
+  check.AdjacentCollisionTest(_AdjacentCollisionTest);
   check.FastCollisionTest(_FastCollisionTest);
   check.MinFrontfaceDistance(mind);
   check.MinBackfaceDistance(minw);

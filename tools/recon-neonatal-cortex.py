@@ -203,6 +203,7 @@ def require_regions_mask(config, section, config_vars, stack, verbose=0, with_co
         brainstem_closing=config.getint(section, 'brainstem_closing'),
         cerebellum_labels=get_labels(config, section, 'cerebellum_labels'),
         cerebellum_closing=config.getint(section, 'cerebellum_closing'),
+        fill_wm_holes=config.getboolean(section, 'fill_wm_holes'),
         brain_mask=config.get(section, 'input_brain_mask', vars=config_vars),
         cortical_hull_dmap=cortical_hull_dmap,
         temp=config.get(section, 'temp_dir', vars=config_vars),

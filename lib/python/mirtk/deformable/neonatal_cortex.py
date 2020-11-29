@@ -840,7 +840,7 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
                     subcortex_labels=[], subcortex_closing=5,
                     brainstem_labels=[], brainstem_closing=5,
                     cerebellum_labels=[], cerebellum_closing=5,
-                    tissues=None, brain_mask=None, merge_bs_cb=True,
+                    tissues=None, brain_mask=None, fill_wm_holes=False, merge_bs_cb=True,
                     cortical_hull_dmap=None, temp=None):
     """Subdivide brain into major building blocks, nicely cut disjoint regions.
     
@@ -883,6 +883,8 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
     brain_mask : str
         Path of brain extraction mask used to ensure that the resampled
         image grid contains the whole of the brain.
+    fill_wm_holes : bool
+        Whether to fill large holes in interhemisphere WM mask.
     merge_bs_cb : bool
         Whether to merge brainstem and cerebellum labels into a single output region.
     cortical_hull_dmap : str, optional
@@ -913,9 +915,7 @@ def subdivide_brain(name, segmentation, white_labels, cortex_labels, right_label
         opts = {
             'rh': right_labels, 'lh': left_labels,
             'wm': white_labels, 'gm': cortex_labels,
-            'sb': subcortex_labels,
-            'bs': brainstem_labels,
-            'cb': cerebellum_labels,
+            'fill-wm-holes': fill_wm_holes,
             'bs+cb': merge_bs_cb,
             'subcortical-closing': subcortex_closing,
             'brainstem-closing': brainstem_closing,

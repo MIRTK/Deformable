@@ -72,7 +72,7 @@ int GetEdgeNeighborPoints(vtkPolyData *surface, int i, int k, int &j, int &l)
     if (cellIds1->GetId(idx1) == cellIds2->GetId(idx2)) {
       ++ncells;
       if (ncells < 3) {
-        surface->GetCellPoints(cellIds1->GetId(idx1), ptIds.GetPointer());
+        GetCellPoints(surface, cellIds1->GetId(idx1), ptIds.GetPointer());
         if (ptIds->GetNumberOfIds() == 3) {
           if (ptIds->GetId(0) == i) {
             if (ptIds->GetId(1) == k) l = ptIds->GetId(2);
@@ -174,7 +174,7 @@ struct CalculateMeanCurvature
     vtkNew<vtkIdList> cellPtIds, nborCellIds, nborPtIds;
 
     for (vtkIdType cellId = cellIds.begin(); cellId != cellIds.end(); ++cellId) {
-      _Surface->GetCellPoints(cellId, cellPtIds.GetPointer());
+      GetCellPoints(_Surface, cellId, cellPtIds.GetPointer());
       for (cellPtIdx = 0; cellPtIdx < cellPtIds->GetNumberOfIds(); ++cellPtIdx) {
 
         // Get start and end point indices of current cell edge
@@ -188,7 +188,7 @@ struct CalculateMeanCurvature
           // Get indices of two other points of this and the neighboring cell,
           // while preserving the order, i.e., orientation for both cells
           l = cellPtIds->GetId((cellPtIdx + 2) % cellPtIds->GetNumberOfIds());
-          _Surface->GetCellPoints(nborCellIds->GetId(0), nborPtIds.GetPointer());
+          GetCellPoints(_Surface, nborCellIds->GetId(0), nborPtIds.GetPointer());
           if (nborPtIds->GetNumberOfIds() > 2) {
             nborPtIdx = 0;
             while (nborPtIds->GetId(nborPtIdx) != i) ++nborPtIdx;
@@ -316,7 +316,7 @@ struct EvaluateGradient
     vtkNew<vtkIdList> cellPtIds, nborPtIds, nborCellIds;
 
     for (vtkIdType cellId = cellIds.begin(); cellId != cellIds.end(); ++cellId) {
-      _Surface->GetCellPoints(cellId, cellPtIds.GetPointer());
+      GetCellPoints(_Surface, cellId, cellPtIds.GetPointer());
       for (cellPtIdx = 0; cellPtIdx < cellPtIds->GetNumberOfIds(); ++cellPtIdx) {
 
         // Get start and end point indices of current cell edge
@@ -330,7 +330,7 @@ struct EvaluateGradient
           // Get indices of two other points of this and the neighboring cell,
           // while preserving the order, i.e., orientation for both cells
           l = cellPtIds->GetId((cellPtIdx + 2) % cellPtIds->GetNumberOfIds());
-          _Surface->GetCellPoints(nborCellIds->GetId(0), nborPtIds.GetPointer());
+          GetCellPoints(_Surface, nborCellIds->GetId(0), nborPtIds.GetPointer());
           if (nborPtIds->GetNumberOfIds() > 2) {
             nborPtIdx = 0;
             while (nborPtIds->GetId(nborPtIdx) != i) ++nborPtIdx;

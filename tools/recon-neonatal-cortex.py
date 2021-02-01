@@ -638,9 +638,8 @@ def recon_neonatal_cortex(config, section, config_vars,
 
         # reconstruct outer-cortical surface
         if recon_pial:
+            require_white_matter_mask(config, section, config_vars, stack, verbose)
             require_gray_matter_mask(config, section, config_vars, stack, verbose)
-            if float(pial_opts.get("edge-distance", 1.)) > 0.:
-                require_white_matter_mask(config, section, config_vars, stack, verbose)
             if verbose > 0:
                 print("Reconstructing outer-cortical surface")
             neoctx.recon_pial_surface(name=pial_mesh, t2w_image=t2w_image,

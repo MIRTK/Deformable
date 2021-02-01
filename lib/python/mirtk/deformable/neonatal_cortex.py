@@ -1749,9 +1749,8 @@ def recon_pial_surface(name, t2w_image, wm_mask, gm_mask, white_mesh,
         assert name, "Output file 'name' required"
         assert white_mesh, "White surface mesh required"
         assert gm_mask, "Gray matter segmentation mask required"
-        if use_edge_distance:
-            assert wm_mask, "White matter segmentation mask required"
-            assert t2w_image, "T2-weighted intensity image required"
+        assert wm_mask, "White matter segmentation mask required"
+        assert not use_edge_distance or t2w_image, "T2-weighted intensity image required"
 
     name = os.path.abspath(name)
     (base, ext) = splitext(name)

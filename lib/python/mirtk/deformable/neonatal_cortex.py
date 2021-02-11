@@ -205,8 +205,11 @@ def output(name_or_func, delete=False):
         Absolute path of output file.
 
     """
-    if isinstance(name_or_func, str): path = name_or_func
-    else:                             path = name_or_func()
+    if callable(name_or_func):
+        path = name_or_func()
+    else:
+        path = name_or_func
+
     if path:
         try:
             yield os.path.abspath(path)
